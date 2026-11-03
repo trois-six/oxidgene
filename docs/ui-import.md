@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T13:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T15:30:00Z }
 ---
 
 
@@ -420,14 +420,26 @@ Unreachable steps remain visible but disabled.
 | GeneWeb file and media answer | Yes | Yes | Small file read through the shared file API. |
 | Data archives | No | Yes | Multi-gigabyte ZIPs are indexed by path without loading their contents. |
 | Geneanet login | No | Yes | Collection runs in a second authenticated WebView. |
-| Saved connection (save and load) | No | Yes | Loading one stages its media in the server's local working directory. |
-| Preview and gathering | No | Yes | Media gathering depends on archives and login. |
-| Import | No | Yes | Media bytes are desktop-only. |
+| Load a saved connection | Yes | Yes | The web build reads the file, keeping nothing, and sends it again with the import; the desktop stages its media by path. |
+| Save the connection | No | Yes | The file is rebuilt from media staged on the desktop; on the web the user already holds it. |
+| Preview | Yes | Yes | It names no path unless archives were added, which only the desktop can. |
+| Gathering | No | Yes | Fetching media needs the login window. |
+| Import | With a loaded file's media | Yes | The web build sends the `.gw` and the loaded file in one multipart request. |
 
 Unavailable web controls are replaced by an explanation naming the desktop
-application; the web build offers no saved-connection controls. Its
-explanation points to the **A file** tab, which imports the same `.gw`
-genealogy without the media.
+application. On the web, step 3 offers **Load a saved file…**: a connection
+saved in the desktop application, its media with it, imports the tree and
+those media here, and media the file lacks are skipped, step 5 saying how
+many. Without one, the explanation points to the **A file** tab, which
+imports the same `.gw` genealogy without the media.
+
+The web build exchanges no path with the server. Loading a file posts it to
+`POST /geneanet/session/read`, which checks it and answers its collection and
+the addresses of its media, keeping nothing; the browser holds on to the
+file. Starting the import posts the `.gw` and that file to
+`POST /trees/{tree_id}/geneanet/session-import`, whose upload shows as a
+progress bar. A change of the media answer keeps the loaded file: its import
+takes from it what the answer needs.
 
 ### 9.3 Step 1: GeneWeb tree
 

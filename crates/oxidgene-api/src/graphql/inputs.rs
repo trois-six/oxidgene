@@ -278,6 +278,18 @@ pub struct GeneanetImportInput {
     pub media_fidelity: GqlGeneanetMediaFidelity,
 }
 
+/// A `.gw` and a saved session to import together, as the multipart parts
+/// of `POST /trees/{treeId}/geneanet/session-import`.
+#[derive(Debug, InputObject)]
+pub struct GeneanetSessionImportInput {
+    pub gw_base64: String,
+    pub file_name: String,
+    /// The saved session: a ZIP with its media, or a bare JSON collection.
+    pub session_base64: String,
+    #[graphql(default)]
+    pub media_fidelity: GqlGeneanetMediaFidelity,
+}
+
 pub(crate) fn geneanet_deposit_sizes(
     entries: &[GeneanetDepositSizeInput],
 ) -> Result<HashMap<i64, u64>> {

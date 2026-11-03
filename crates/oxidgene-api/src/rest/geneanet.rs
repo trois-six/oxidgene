@@ -7,15 +7,18 @@
 //!
 //! Operations that exchange **filesystem paths** are guarded by a runtime
 //! capability enabled only by the desktop application, where the server runs
-//! in-process and reads the very files the user picked.
+//! in-process and reads the very files the user picked. A preview or a plan
+//! naming no archive path, reading a saved session, and importing one sent
+//! with the request exchange none, and are served everywhere.
 
 use super::authorize::Viewer;
 use axum::Json;
 use axum::body::{Body, Bytes};
-use axum::extract::{Path, Query, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use oxidgene_core::OxidGeneError;
+use tokio::io::{AsyncSeekExt as _, AsyncWriteExt as _};
 use uuid::Uuid;
 
 use oxidgene_geneanet::session;
@@ -24,7 +27,7 @@ use super::dto::{
     DecodeSessionResponse, EncodeSessionRequest, FileImportStartedResponse, GeneanetImportRequest,
     GeneanetPlanResponse, GeneanetPreviewRequest, GeneanetPreviewResponse, ImportGenewebQuery,
     IndexArchivesRequest, IndexArchivesResponse, IndexedArchive, InspectGenewebResponse,
-    NeededMedia, ReleaseSessionMediaRequest,
+    NeededMedia, ReadSessionResponse, ReleaseSessionMediaRequest,
 };
 use super::error::ApiError;
 use super::state::AppState;
@@ -98,7 +101,7 @@ pub async fn preview_handler(
     State(state): State<AppState>,
     Json(body): Json<GeneanetPreviewRequest>,
 ) -> Result<Json<GeneanetPreviewResponse>, ApiError> {
-    state.local_file_access.require()?;
+    require_paths_access(&state, &body.archive_paths)?;
     let preview = geneanet::preview_off_thread(join_inputs(body)?).await?;
 
     Ok(Json(GeneanetPreviewResponse {
@@ -168,21 +171,9 @@ pub async fn decode_session_handler(
     State(state): State<AppState>,
     body: Body,
 ) -> Result<Json<DecodeSessionResponse>, ApiError> {
-    use futures_util::StreamExt as _;
-    use tokio::io::{AsyncSeekExt as _, AsyncWriteExt as _};
-
     state.local_file_access.require()?;
     let permit = crate::service::intake::slot().await?;
-    let mut upload =
-        tokio::fs::File::from_std(state.work_dir.anonymous_file().map_err(OxidGeneError::Io)?);
-    let mut chunks = body.into_data_stream();
-    while let Some(chunk) = chunks.next().await {
-        let chunk = chunk
-            .map_err(|_| OxidGeneError::Validation("session upload was interrupted".into()))?;
-        upload.write_all(&chunk).await.map_err(OxidGeneError::Io)?;
-    }
-    upload.rewind().await.map_err(OxidGeneError::Io)?;
-    let upload = upload.into_std().await;
+    let upload = spool(&state, body).await?;
     let work_dir = state.work_dir.clone();
     let restored = crate::service::blocking::spawn(move || {
         let _permit = permit;
@@ -232,7 +223,7 @@ pub async fn plan_handler(
     State(state): State<AppState>,
     Json(body): Json<GeneanetPreviewRequest>,
 ) -> Result<Json<GeneanetPlanResponse>, ApiError> {
-    state.local_file_access.require()?;
+    require_paths_access(&state, &body.archive_paths)?;
     let needed = geneanet::plan_off_thread(join_inputs(body)?).await?;
 
     Ok(Json(GeneanetPlanResponse {
@@ -281,6 +272,173 @@ pub async fn import_handler(
         StatusCode::ACCEPTED,
         Json(FileImportStartedResponse { job_id }),
     ))
+}
+
+/// POST /api/v1/geneanet/session/read
+///
+/// What a saved session holds, its media checked but kept nowhere: the web
+/// wizard's step 3, which sends the same file again with its import. The
+/// body is the file itself.
+pub async fn read_session_handler(
+    State(state): State<AppState>,
+    body: Body,
+) -> Result<Json<ReadSessionResponse>, ApiError> {
+    let permit = crate::service::intake::slot().await?;
+    let upload = spool(&state, body).await?;
+    let session = crate::service::blocking::spawn(move || {
+        let _permit = permit;
+        crate::service::session_media::read(upload)
+    })
+    .await
+    .map_err(|_| OxidGeneError::Internal("session reading failed".into()))??;
+
+    let photo_count = oxidgene_geneanet::manifest_from_collection(&session.collection)
+        .map(|manifest| manifest.view_count)
+        .unwrap_or(0);
+    let mut media_urls: Vec<String> = session.media.into_keys().collect();
+    media_urls.sort_unstable();
+    Ok(Json(ReadSessionResponse {
+        collection: session.collection,
+        deposit_sizes: session.deposit_sizes,
+        account: session.account,
+        photo_count,
+        media_urls,
+    }))
+}
+
+/// POST /api/v1/trees/:tree_id/geneanet/session-import
+///
+/// Queue the import of a `.gw` with the media of a saved session, both sent
+/// as `multipart/form-data`: a `gw` part, the GeneWeb file, whose file name
+/// is the import's origin; a `session` part, the saved session; and an
+/// optional `media_fidelity` part, `renditions` (the default) or
+/// `originals`. The session's media are copied into job storage before the
+/// answer, so nothing waits for the browser afterwards.
+pub async fn session_import_handler(
+    State(state): State<AppState>,
+    viewer: Viewer,
+    Path(tree_id): Path<Uuid>,
+    multipart: Multipart,
+) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
+    // Before the body is read: a waiting upload holds a connection, not a
+    // spool file. The slot is held until the media are in job storage.
+    let _intake = crate::service::intake::slot().await?;
+    let import = read_session_import_form(&state, multipart).await?;
+    let job_id = crate::service::background_job::stage_geneanet_session_import(
+        &viewer,
+        &state.db,
+        &*state.media,
+        &state.work_dir,
+        tree_id,
+        import,
+    )
+    .await?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(FileImportStartedResponse { job_id }),
+    ))
+}
+
+/// The largest `.gw` a session import takes: the JSON bodies' limit, which
+/// carries it base64-encoded beside the rest.
+const GW_PART_LIMIT: usize = 32 * 1024 * 1024;
+
+/// The parts of a session import, its session spooled to a private file.
+async fn read_session_import_form(
+    state: &AppState,
+    mut multipart: Multipart,
+) -> Result<crate::service::background_job::GeneanetSessionImport, ApiError> {
+    let malformed = |error: axum::extract::multipart::MultipartError| {
+        ApiError::from(OxidGeneError::Validation(format!(
+            "malformed upload: {error}"
+        )))
+    };
+    let mut gw = None;
+    let mut session = None;
+    let mut media_fidelity = geneanet::MediaFidelity::default();
+    while let Some(mut field) = multipart.next_field().await.map_err(malformed)? {
+        match field.name().unwrap_or_default() {
+            "gw" => {
+                let file_name = field
+                    .file_name()
+                    .map_or_else(|| DEFAULT_ORIGIN_FILE.to_string(), str::to_string);
+                let mut bytes = Vec::new();
+                while let Some(chunk) = field.chunk().await.map_err(malformed)? {
+                    if bytes.len() + chunk.len() > GW_PART_LIMIT {
+                        return Err(OxidGeneError::Validation(format!(
+                            "the .gw exceeds the {GW_PART_LIMIT}-byte limit"
+                        ))
+                        .into());
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                gw = Some((file_name, bytes));
+            }
+            "session" => {
+                let mut file = tokio::fs::File::from_std(
+                    state.work_dir.anonymous_file().map_err(OxidGeneError::Io)?,
+                );
+                while let Some(chunk) = field.chunk().await.map_err(malformed)? {
+                    file.write_all(&chunk).await.map_err(OxidGeneError::Io)?;
+                }
+                file.rewind().await.map_err(OxidGeneError::Io)?;
+                session = Some(file.into_std().await);
+            }
+            "media_fidelity" => {
+                let text = field.text().await.map_err(malformed)?;
+                media_fidelity =
+                    serde_json::from_value(serde_json::Value::String(text)).map_err(|_| {
+                        OxidGeneError::Validation(
+                            "`media_fidelity` is neither `renditions` nor `originals`".into(),
+                        )
+                    })?;
+            }
+            other => {
+                return Err(OxidGeneError::Validation(format!(
+                    "unexpected `{other}` part in a session import"
+                ))
+                .into());
+            }
+        }
+    }
+    let (Some((file_name, gw)), Some(session)) = (gw, session) else {
+        return Err(OxidGeneError::Validation(
+            "a session import needs a `gw` part and a `session` part".into(),
+        )
+        .into());
+    };
+    Ok(crate::service::background_job::GeneanetSessionImport {
+        gw,
+        file_name,
+        session,
+        media_fidelity,
+    })
+}
+
+/// `body`, streamed to a private file of the working directory, rewound.
+async fn spool(state: &AppState, body: Body) -> Result<std::fs::File, ApiError> {
+    use futures_util::StreamExt as _;
+
+    let mut upload =
+        tokio::fs::File::from_std(state.work_dir.anonymous_file().map_err(OxidGeneError::Io)?);
+    let mut chunks = body.into_data_stream();
+    while let Some(chunk) = chunks.next().await {
+        let chunk = chunk
+            .map_err(|_| OxidGeneError::Validation("session upload was interrupted".into()))?;
+        upload.write_all(&chunk).await.map_err(OxidGeneError::Io)?;
+    }
+    upload.rewind().await.map_err(OxidGeneError::Io)?;
+    Ok(upload.into_std().await)
+}
+
+/// Archive paths name files of the server's own disk: only the desktop's
+/// in-process server reads them.
+fn require_paths_access(state: &AppState, archive_paths: &[String]) -> Result<(), ApiError> {
+    if !archive_paths.is_empty() {
+        state.local_file_access.require()?;
+    }
+    Ok(())
 }
 
 /// Decodes the base64 the JSON bodies carry the `.gw` in.

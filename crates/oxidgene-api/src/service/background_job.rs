@@ -2927,6 +2927,66 @@ pub async fn stage_geneanet_import(
     Ok(job_id)
 }
 
+/// What a Geneanet import of a saved session brings: the `.gw` and the
+/// session file the user chose, spooled by the request.
+pub struct GeneanetSessionImport {
+    pub gw: Vec<u8>,
+    pub file_name: String,
+    /// The saved session: a ZIP with its media, or a bare JSON collection.
+    pub session: std::fs::File,
+    pub media_fidelity: geneanet::MediaFidelity,
+}
+
+/// Queue the Geneanet import of `import`, its session's media extracted and
+/// copied into job storage within this call: the web build's import, which
+/// exchanges no path with the browser (docs/geneanet-media-import.md §8).
+/// What the session lacks is not fetched; the job reports it skipped.
+///
+/// # Errors
+///
+/// `Validation` for a session file that is not one, and whatever staging
+/// the import refuses ([`stage_geneanet_import`]).
+pub async fn stage_geneanet_session_import(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    work_dir: &WorkDir,
+    tree_id: Uuid,
+    import: GeneanetSessionImport,
+) -> Result<Uuid, OxidGeneError> {
+    TreeRepo::get(db, tree_id).await?;
+    let GeneanetSessionImport {
+        gw,
+        file_name,
+        session,
+        media_fidelity,
+    } = import;
+    let extracting = work_dir.clone();
+    let extracted = super::blocking::spawn(move || {
+        crate::service::session_media::extract(session, &extracting)
+    })
+    .await
+    .map_err(|_| OxidGeneError::Internal("session decoding failed".into()))??;
+    // The extracted files go when `extracted` drops, once job storage holds
+    // their copies — or the import was refused.
+    let session = &extracted.session;
+    stage_geneanet_import(
+        viewer,
+        db,
+        media,
+        work_dir,
+        tree_id,
+        &gw,
+        file_name,
+        session.collection.clone(),
+        session.deposit_sizes.clone(),
+        &[],
+        &session.media,
+        media_fidelity,
+    )
+    .await
+}
+
 // ── Job status, as both surfaces report it ─────────────────────────────
 
 /// Where an export job stands.

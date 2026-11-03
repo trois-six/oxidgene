@@ -23,13 +23,13 @@ use super::inputs::{
     CreateCitationInput, CreateEventInput, CreateMediaLinkInput, CreateNoteInput,
     CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
     CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
-    MergeChoicesInput, MergePlaceInput, MergeRepositoryInput, PersonNameInput,
-    RenameFamilyNameInput, RenameOccupationInput, SetFamilyNameParticleInput, TagTargetInput,
-    UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput,
-    UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput, UpdateRepositoryInput,
-    UpdateSourceInput, UpdateSourceRepositoryInput, UpdateTagInput, UpdateTreeInput,
-    UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput, geneanet_deposit_sizes,
-    geneanet_media_paths, tag_target_spec,
+    GeneanetSessionImportInput, MergeChoicesInput, MergePlaceInput, MergeRepositoryInput,
+    PersonNameInput, RenameFamilyNameInput, RenameOccupationInput, SetFamilyNameParticleInput,
+    TagTargetInput, UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput,
+    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
+    UpdateRepositoryInput, UpdateSourceInput, UpdateSourceRepositoryInput, UpdateTagInput,
+    UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput,
+    geneanet_deposit_sizes, geneanet_media_paths, tag_target_spec,
 };
 use super::scope::{boxed, job_tree, live_tree, opt_uuid, uuid, uuids, viewer_from_ctx};
 use super::types::{
@@ -1979,6 +1979,63 @@ impl TreeMutation {
                 &input.archive_paths,
                 &geneanet_media_paths(&input.fetched),
                 input.media_fidelity.into(),
+            )
+            .await?;
+            Ok(GqlBackgroundJobStarted {
+                job_id: ID(job_id.to_string()),
+            })
+        })
+        .await
+    }
+
+    /// Queue a Geneanet tree import with the media of a saved session sent
+    /// with it, as `POST /trees/{treeId}/geneanet/session-import` does: the
+    /// session's media are copied into job storage before the answer, and
+    /// no path is exchanged, so it is served everywhere.
+    async fn import_geneanet_session(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        input: GeneanetSessionImportInput,
+    ) -> Result<GqlBackgroundJobStarted> {
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let decode = |encoded: &str, what: &str| {
+                base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .map_err(|error| {
+                        oxidgene_core::OxidGeneError::Validation(format!(
+                            "invalid {what} base64: {error}"
+                        ))
+                    })
+            };
+            let gw = decode(&input.gw_base64, ".gw")?;
+            let _intake = crate::service::intake::slot().await?;
+            let work_dir = super::types::work_dir_from_ctx(ctx);
+            let mut session = work_dir.anonymous_file()?;
+            std::io::copy(
+                &mut base64::read::DecoderReader::new(
+                    input.session_base64.as_bytes(),
+                    &base64::engine::general_purpose::STANDARD,
+                ),
+                &mut session,
+            )
+            .map_err(|error| {
+                oxidgene_core::OxidGeneError::Validation(format!("invalid session base64: {error}"))
+            })?;
+            std::io::Seek::rewind(&mut session)?;
+            let job_id = crate::service::background_job::stage_geneanet_session_import(
+                viewer_from_ctx(ctx),
+                db_from_ctx(ctx),
+                &**media_from_ctx(ctx),
+                work_dir,
+                tree_id,
+                crate::service::background_job::GeneanetSessionImport {
+                    gw,
+                    file_name: input.file_name,
+                    session,
+                    media_fidelity: input.media_fidelity.into(),
+                },
             )
             .await?;
             Ok(GqlBackgroundJobStarted {

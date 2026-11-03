@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T15:30:00Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -166,7 +166,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - GEDCOM 5.5.1 and 7.0 import with version detection, and GEDCOM export written for the program that will import it — standard 5.5.1 or 7.0, or Geneanet, Ancestry, Heredis, Gramps and the other programs `oxidged` has an export profile for — with what it lost reported ([API Contract §4](api.md#export-destinations)).
 - GEDZIP archives in and out, with their media, written as the GEDCOM 7.0 the format requires ([API Contract](api.md#gedzip), [Import](ui-import.md)).
 - GeneWeb `.gw` import ([API Contract](api.md#geneweb-gw)).
-- A guided desktop import of a Geneanet tree that recovers its photos and documents and their links to persons ([Geneanet Media Import](geneanet-media-import.md), [Import §9](ui-import.md#9-from-geneanet-tab)).
+- A guided desktop import of a Geneanet tree that recovers its photos and documents and their links to persons, whose saved connection the web version imports too ([Geneanet Media Import](geneanet-media-import.md), [Import §9](ui-import.md#9-from-geneanet-tab)).
 - An import receipt counting persons, families, events, sources, places, notes, images, documents and pages, with its warnings ([Import](ui-import.md#result)).
 - Export options: the destination program, notes and sources, media; a submitter; and a kept archive downloadable again for an hour ([Tree Settings §10](ui-settings.md#10-section-export)).
 - Export of part of the tree: a branch (ancestors, descendants or both, to a depth) or the persons carrying a tag, with the families and records they reach ([Tags §2.3](tags.md#23-exporting-part-of-the-tree)).

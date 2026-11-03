@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: human:maintainer, at: 2026-10-30T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T15:30:00Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -729,6 +729,22 @@ the archive and extracted media. At most two
 session uploads/extractions run concurrently. The collection and entry metadata
 remain in memory; media memory does not grow with album size. Invalid archives
 discard all files staged by that attempt.
+
+**The web build imports a saved session too**, the one way it has to bring
+Geneanet media: it cannot open the login window, and the server it talks to
+may be shared, so it exchanges no path with it. Loading the file posts it to
+`POST /geneanet/session/read`, which checks it as the desktop's reader does
+and answers its collection and the addresses of its media, keeping nothing;
+the browser holds on to the file. The import posts the `.gw` and the same file
+in one multipart request, `POST /trees/{tree_id}/geneanet/session-import`,
+whose handler extracts the media to private files, copies them into job
+storage with the `.gw`, and queues the job before answering, so the worker —
+another process, or another machine — reads only job storage. A file saved
+during step 3 imports the genealogy and its links with no media; one saved
+after step 4 brings them all. The file crosses the network twice, once to be
+read and once with the import: holding it on the server between the two
+would need a shared store, an owner and an expiry of its own, which a
+deployment of several backend replicas could not keep in memory.
 
 `session.json` *is* the collection JSON with the deposit sizes, the media names
 and a format version added beside it.

@@ -58,6 +58,7 @@ const REST: &[(&str, &str, Requirement)] = &[
     ("POST", "/geneanet/preview", SignedIn),
     ("POST", "/geneanet/session/decode", SignedIn),
     ("POST", "/geneanet/session/encode", SignedIn),
+    ("POST", "/geneanet/session/read", SignedIn),
     ("POST", "/geneanet/session/release", SignedIn),
     ("POST", "/geneweb/inspect", SignedIn),
     // The tree list is the viewer's memberships.
@@ -235,6 +236,11 @@ const REST: &[(&str, &str, Requirement)] = &[
         Tree(P::Import),
     ),
     ("POST", "/trees/{tree_id}/geneanet/import", Tree(P::Import)),
+    (
+        "POST",
+        "/trees/{tree_id}/geneanet/session-import",
+        Tree(P::Import),
+    ),
     // Families and their members.
     ("GET", "/trees/{tree_id}/families", Tree(P::Read)),
     ("POST", "/trees/{tree_id}/families", Tree(P::Create)),
@@ -775,6 +781,7 @@ const GRAPHQL: &[(&str, Requirement)] = &[
     ("geneanetPreview", SignedIn),
     ("decodeGeneanetSession", SignedIn),
     ("encodeGeneanetSession", SignedIn),
+    ("readGeneanetSession", SignedIn),
     ("releaseGeneanetSessionMedia", SignedIn),
     ("inspectGeneweb", SignedIn),
     ("trees", SignedIn),
@@ -826,6 +833,7 @@ const GRAPHQL: &[(&str, Requirement)] = &[
     ("importJobStatus", Tree(P::Import)),
     ("cancelImportJob", Tree(P::Import)),
     ("importGeneanet", Tree(P::Import)),
+    ("importGeneanetSession", Tree(P::Import)),
     ("families", Tree(P::Read)),
     ("family", Tree(P::Read)),
     ("createFamily", Tree(P::Create)),

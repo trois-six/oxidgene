@@ -10,6 +10,10 @@
 //! - [`STAGED_MEDIA_TTL`] after it was staged, if neither came;
 //! - once stale, swept from the working directory, if the process ended
 //!   first.
+//!
+//! The web build exchanges no path: its wizard [`read`]s a session, keeping
+//! nothing, then sends the same file with the import, whose media are
+//! [`extract`]ed and copied into job storage within that request.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, Write as _};
@@ -41,10 +45,26 @@ fn staged_media() -> &'static Mutex<HashMap<PathBuf, Staged>> {
     STAGED_MEDIA.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub(crate) fn decode(
+/// A decoded session and the private files its media were extracted to,
+/// each deleted when its handle drops. The session's `media` map names those
+/// files.
+pub(crate) struct Extracted {
+    pub(crate) session: Session,
+    pub(crate) files: Vec<TempPath>,
+}
+
+/// Decode a saved session, extracting each of its media to a `geneanet-*`
+/// file of the working directory. Nothing outlives the returned value:
+/// [`decode`] hands the files to the registry, and a session import
+/// copies them into job storage.
+///
+/// # Errors
+///
+/// `Validation` for anything that is not a session.
+pub(crate) fn extract(
     reader: impl Read + Seek,
     work_dir: &WorkDir,
-) -> Result<Session, OxidGeneError> {
+) -> Result<Extracted, OxidGeneError> {
     let mut staged = Vec::new();
     let session = session::decode_with_media(reader, |entry| {
         let mut file = work_dir.staged_file("geneanet-")?;
@@ -56,8 +76,59 @@ pub(crate) fn decode(
         Ok(handle)
     })
     .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
-    // A byte length past the signed range is no file's: GraphQL could only
-    // carry it wrapped negative. The staged media go with `staged`.
+    check_deposit_sizes(&session)?;
+    let referenced: HashSet<&Path> = session.media.values().map(Path::new).collect();
+    let files = staged
+        .into_iter()
+        .filter(|path| referenced.contains::<Path>(path))
+        .collect();
+    Ok(Extracted { session, files })
+}
+
+/// Decode a saved session for the desktop wizard: its media are staged
+/// ([`extract`]) and owned here until the import or the wizard lets them go.
+pub(crate) fn decode(
+    reader: impl Read + Seek,
+    work_dir: &WorkDir,
+) -> Result<Session, OxidGeneError> {
+    let Extracted { session, files } = extract(reader, work_dir)?;
+    let mut registry = staged_media()
+        .lock()
+        .map_err(|_| OxidGeneError::Internal("session media registry is unavailable".into()))?;
+    let staged_at = Instant::now();
+    for path in files {
+        registry.insert(
+            path.to_path_buf(),
+            Staged {
+                _file: path,
+                staged_at,
+            },
+        );
+    }
+    Ok(session)
+}
+
+/// What a saved session holds, its media checked as [`extract`] checks them
+/// but kept nowhere: the session's `media` map names each medium's URL with
+/// an empty handle. What the web wizard reads before importing the same file
+/// again with [`crate::service::background_job::stage_geneanet_session_import`].
+///
+/// # Errors
+///
+/// `Validation` for anything that is not a session.
+pub(crate) fn read(reader: impl Read + Seek) -> Result<Session, OxidGeneError> {
+    let session = session::decode_with_media(reader, |entry| {
+        std::io::copy(entry, &mut std::io::sink())?;
+        Ok(String::new())
+    })
+    .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
+    check_deposit_sizes(&session)?;
+    Ok(session)
+}
+
+/// A byte length past the signed range is no file's: GraphQL could only
+/// carry it wrapped negative.
+fn check_deposit_sizes(session: &Session) -> Result<(), OxidGeneError> {
     if session
         .deposit_sizes
         .values()
@@ -67,24 +138,7 @@ pub(crate) fn decode(
             "a deposit size of the session is out of range".to_string(),
         ));
     }
-
-    let mut registry = staged_media()
-        .lock()
-        .map_err(|_| OxidGeneError::Internal("session media registry is unavailable".into()))?;
-    let referenced: HashSet<&Path> = session.media.values().map(Path::new).collect();
-    let staged_at = Instant::now();
-    for path in staged {
-        if referenced.contains::<Path>(&path) {
-            registry.insert(
-                path.to_path_buf(),
-                Staged {
-                    _file: path,
-                    staged_at,
-                },
-            );
-        }
-    }
-    Ok(session)
+    Ok(())
 }
 
 /// The archive of `session`, each of its media read from the path the

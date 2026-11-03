@@ -2804,6 +2804,18 @@ pub struct GqlGeneanetSession {
     pub media: Vec<GqlGeneanetMediaPath>,
 }
 
+/// What a saved session holds, read without keeping its media, as
+/// `POST /geneanet/session/read` answers it.
+#[derive(Debug, Clone, SimpleObject)]
+pub struct GqlGeneanetSessionContents {
+    pub collection: String,
+    pub deposit_sizes: Vec<GqlGeneanetDepositSize>,
+    pub account: Option<String>,
+    pub photo_count: i64,
+    /// The addresses of the media the file carries, sorted.
+    pub media_urls: Vec<String>,
+}
+
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlGeneanetSessionArchive {
     pub archive_base64: String,

@@ -288,6 +288,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
     ),
     (
         "POST",
+        "/api/v1/geneanet/session/read",
+        Gql(&["Query.readGeneanetSession"]),
+    ),
+    (
+        "POST",
         "/api/v1/geneanet/session/release",
         Gql(&["Mutation.releaseGeneanetSessionMedia"]),
     ),
@@ -604,6 +609,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
         "POST",
         "/api/v1/trees/{tree_id}/geneanet/import",
         Gql(&["Mutation.importGeneanet"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/geneanet/session-import",
+        Gql(&["Mutation.importGeneanetSession"]),
     ),
     (
         "GET",

@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-generated: { by: human:maintainer, at: 2026-10-30T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T15:30:00Z }
 ---
 
 
@@ -123,7 +123,8 @@ local user with full access.
 - Recover Geneanet media links through a guided desktop flow. Authentication
     and collection run in an incognito browser window, media shared by several
     people are stored once, and event evidence links are created only on an
-    unambiguous match.
+    unambiguous match. The web version imports a connection saved by that
+    flow, its media included.
 - Preserve supported source metadata and report unsupported or ambiguous data
     explicitly rather than inventing a mapping.
 - See [Import](ui-import.md), [Geneanet Media Import](geneanet-media-import.md),

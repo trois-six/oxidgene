@@ -14,7 +14,7 @@ L’import **Depuis Geneanet** d’OxidGene réunit les deux : il lit votre arbr
 
 Il vous faut :
 
-- l’application **de bureau** OxidGene. La version web importe la généalogie d’un fichier `.gw` depuis son onglet **Un fichier**, sans les photos ;
+- l’application **de bureau** OxidGene, pour se connecter à Geneanet. La version web importe un arbre avec ses photos à partir d’un fichier enregistré dans l’application de bureau (voir [Terminer plus tard, ou sur un autre ordinateur](#terminer-plus-tard-ou-sur-un-autre-ordinateur)), et sinon la seule généalogie d’un fichier `.gw`, depuis son onglet **Un fichier** ;
 - votre compte Geneanet et son mot de passe ;
 - un export GeneWeb (`.gw`) de votre arbre ;
 - éventuellement, vos archives de données Geneanet (voir l’étape 2).
@@ -98,7 +98,7 @@ Lire votre liste de médias sur Geneanet prend un moment et, avec vos fichiers d
 - **Tout enregistrer, prêt à importer hors ligne…**, qui apparaît une fois les médias récupérés. Un import ultérieur qui charge ce fichier n’a plus besoin d’aucune connexion à Geneanet.
 - **Charger un fichier enregistré…**, qui reprend un fichier enregistré. OxidGene regarde ce qu’il contient et ne demande que ce qui manque.
 
-Vous pouvez ainsi reprendre après une interruption, ou collecter sur un ordinateur et importer sur un autre. Le fichier enregistré contient votre liste de médias, et parfois vos photos : gardez-le aussi confidentiel que votre arbre.
+Vous pouvez ainsi reprendre après une interruption, ou collecter sur un ordinateur et importer sur un autre. C’est aussi ainsi que la version web importe vos photos : **Charger un fichier enregistré…** y est le seul bouton de l’étape de connexion. Choisissez votre fichier `.gw`, chargez le fichier enregistré avec **Tout enregistrer, prêt à importer hors ligne…** dans l’application de bureau, puis vérifiez et importez comme d’habitude ; le fichier est envoyé avec votre arbre, et les photos qu’il ne contient pas sont ignorées, la dernière étape indiquant combien. Le fichier enregistré contient votre liste de médias, et parfois vos photos : gardez-le aussi confidentiel que votre arbre.
 
 ## Bon à savoir
 

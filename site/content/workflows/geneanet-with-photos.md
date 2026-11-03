@@ -14,7 +14,7 @@ OxidGene's **From Geneanet** import combines the two: it reads your tree from a 
 
 You need:
 
-- the OxidGene **desktop** application. The web version imports the genealogy of a `.gw` file from its **A file** tab, without the photos;
+- the OxidGene **desktop** application, to sign in to Geneanet. The web version imports a tree with its photos from a file saved in the desktop application (see [Finish later, or on another computer](#finish-later-or-on-another-computer)), and otherwise the genealogy of a `.gw` file alone, from its **A file** tab;
 - your Geneanet account, and its password;
 - a GeneWeb (`.gw`) export of your tree;
 - optionally, your Geneanet data archives (see step 2).
@@ -98,7 +98,7 @@ Reading your media list from Geneanet takes a while, and with your original file
 - **Save everything, ready to import offline…** appears once the media have been gathered. A later import that loads this file needs no Geneanet connection at all.
 - **Load a saved file…** takes a saved file back. OxidGene sees what it holds and asks only for what is missing.
 
-This lets you start again after an interruption, or collect on one computer and import on another. The saved file contains your media list and possibly your photos: keep it private, like your tree.
+This lets you start again after an interruption, or collect on one computer and import on another. It is also how the web version imports your photos: there, **Load a saved file…** is the connection step's only button. Choose your `.gw` file, load the file saved with **Save everything, ready to import offline…** in the desktop application, then review and import as usual; the file is sent with your tree, and the photos it does not hold are skipped, the last step saying how many. The saved file contains your media list and possibly your photos: keep it private, like your tree.
 
 ## Good to know
 

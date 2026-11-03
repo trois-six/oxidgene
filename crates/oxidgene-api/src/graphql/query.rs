@@ -41,20 +41,20 @@ use super::scope::{
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlDownloadableExport, GqlEvent, GqlEventConnection,
     GqlEventType, GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection,
-    GqlGalleryBundle, GqlGeneanetArchiveIndex, GqlGeneanetIndexedArchive, GqlGeneanetInspection,
-    GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGivenNameReference, GqlGivenNameReferenceMatch,
-    GqlImportJobStatus, GqlKinship, GqlMedia, GqlMediaConnection, GqlMediaDownload, GqlMediaFacets,
-    GqlMediaLink, GqlMediaWithLink, GqlNote, GqlNoteConnection, GqlOccupationReference,
-    GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeDelta, GqlPedigreeDirection,
-    GqlPedigreeEntry, GqlPerson, GqlPersonConnection, GqlPersonDetailBundle, GqlPersonProfile,
-    GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace, GqlPlaceConnection,
-    GqlPlaceDictionaryEntry, GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage, GqlRelationLabels,
-    GqlRepository, GqlRepositoryConnection, GqlSearchEntry, GqlSearchResult, GqlSource,
-    GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
-    GqlSourceDictionaryGroup, GqlSuggestionField, GqlSurnameDescent, GqlTag, GqlTagTargetCounts,
-    GqlTaggedRecordConnection, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion,
-    GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx, reader_from_ctx,
-    require_local_file_access,
+    GqlGalleryBundle, GqlGeneanetArchiveIndex, GqlGeneanetDepositSize, GqlGeneanetIndexedArchive,
+    GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGeneanetSessionContents,
+    GqlGivenNameReference, GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlKinship, GqlMedia,
+    GqlMediaConnection, GqlMediaDownload, GqlMediaFacets, GqlMediaLink, GqlMediaWithLink, GqlNote,
+    GqlNoteConnection, GqlOccupationReference, GqlOccupationReferenceMatch, GqlPedigree,
+    GqlPedigreeDelta, GqlPedigreeDirection, GqlPedigreeEntry, GqlPerson, GqlPersonConnection,
+    GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
+    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPlaceSuggestion,
+    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlRepository, GqlRepositoryConnection,
+    GqlSearchEntry, GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
+    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlSuggestionField, GqlSurnameDescent,
+    GqlTag, GqlTagTargetCounts, GqlTaggedRecordConnection, GqlTree, GqlTreeConnection,
+    GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx, media_from_ctx,
+    profiles_from_ctx, reader_from_ctx, require_local_file_access,
 };
 
 /// How a job status query waits: REST's `since` and `wait`, a negative wait
@@ -2040,6 +2040,53 @@ impl TreeQuery {
         .await
     }
 
+    /// What a saved Geneanet session holds, its media checked but kept
+    /// nowhere, as `POST /geneanet/session/read` answers it.
+    async fn read_geneanet_session(
+        &self,
+        ctx: &Context<'_>,
+        archive_base64: String,
+    ) -> Result<GqlGeneanetSessionContents> {
+        boxed(async move {
+            let permit = crate::service::intake::slot().await?;
+            let work_dir = super::types::work_dir_from_ctx(ctx).clone();
+            let session = crate::service::blocking::spawn(move || {
+                let _permit = permit;
+                let mut reader = base64::read::DecoderReader::new(
+                    archive_base64.as_bytes(),
+                    &base64::engine::general_purpose::STANDARD,
+                );
+                let mut upload = work_dir.anonymous_file()?;
+                std::io::copy(&mut reader, &mut upload)?;
+                std::io::Seek::rewind(&mut upload)?;
+                crate::service::session_media::read(upload)
+            })
+            .await
+            .map_err(|_| OxidGeneError::Internal("session reading failed".into()))??;
+            let photo_count = oxidgene_geneanet::manifest_from_collection(&session.collection)
+                .map(|manifest| manifest.view_count as i64)
+                .unwrap_or(0);
+            let mut media_urls: Vec<String> = session.media.into_keys().collect();
+            media_urls.sort_unstable();
+            Ok(GqlGeneanetSessionContents {
+                collection: session.collection,
+                deposit_sizes: session
+                    .deposit_sizes
+                    .into_iter()
+                    .map(|(deposit_id, size)| GqlGeneanetDepositSize {
+                        deposit_id,
+                        // `read` refuses a size past the signed range.
+                        size: i64::try_from(size).unwrap_or(i64::MAX),
+                    })
+                    .collect(),
+                account: session.account,
+                photo_count,
+                media_urls,
+            })
+        })
+        .await
+    }
+
     /// Preview a Geneanet import without writing a tree or fetching media.
     async fn geneanet_preview(
         &self,
@@ -2047,7 +2094,10 @@ impl TreeQuery {
         input: GeneanetPreviewInput,
     ) -> Result<GqlGeneanetPreview> {
         boxed(async move {
-            require_local_file_access(ctx)?;
+            // Archive paths name files of the server's own disk.
+            if !input.archive_paths.is_empty() {
+                require_local_file_access(ctx)?;
+            }
             let gw = base64::engine::general_purpose::STANDARD
                 .decode(&input.gw_base64)
                 .map_err(|error| {
@@ -2075,7 +2125,10 @@ impl TreeQuery {
         input: GeneanetPreviewInput,
     ) -> Result<Vec<GqlGeneanetNeededMedia>> {
         boxed(async move {
-            require_local_file_access(ctx)?;
+            // Archive paths name files of the server's own disk.
+            if !input.archive_paths.is_empty() {
+                require_local_file_access(ctx)?;
+            }
             let gw = base64::engine::general_purpose::STANDARD
                 .decode(&input.gw_base64)
                 .map_err(|error| {

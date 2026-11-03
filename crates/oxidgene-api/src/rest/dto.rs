@@ -1065,6 +1065,18 @@ pub struct DecodeSessionResponse {
     pub media: std::collections::HashMap<String, String>,
 }
 
+/// What a saved session holds, read without keeping its media.
+#[derive(Debug, Serialize)]
+pub struct ReadSessionResponse {
+    pub collection: String,
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    pub account: Option<String>,
+    pub photo_count: usize,
+    /// The addresses of the media the file carries, sorted. Empty means it
+    /// holds the collection alone.
+    pub media_urls: Vec<String>,
+}
+
 /// One medium the server cannot produce on its own.
 #[derive(Debug, Serialize)]
 pub struct NeededMedia {

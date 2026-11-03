@@ -65,7 +65,7 @@ La première image reliée à une personne dans le fichier devient son portrait,
 
 Les exports de Geneanet n’indiquent pas quelle photo appartient à quelle personne. L’onglet **Depuis Geneanet** de la même fenêtre reconstitue ces liens en se connectant à Geneanet depuis l’application de bureau, en quelques étapes guidées.
 
-Dans la version web, cet onglet ne va pas au-delà de ses premières étapes : lire vos médias Geneanet, comme charger une connexion enregistrée, nécessite l’application de bureau. Importez plutôt la généalogie de votre fichier `.gw` depuis l’onglet **Un fichier** ; elle arrive sans les photos.
+Dans la version web, l’onglet ne peut pas se connecter à Geneanet : il faut pour cela l’application de bureau. Collectez-y vos photos et enregistrez la connexion avec elles (voir [Terminer plus tard, ou sur un autre ordinateur](@/workflows/geneanet-with-photos.fr.md#terminer-plus-tard-ou-sur-un-autre-ordinateur)), puis, dans la version web, choisissez votre fichier `.gw` et **Charger un fichier enregistré…** à l’étape de connexion : votre arbre est importé avec ces photos. Sans fichier enregistré, importez la généalogie de votre fichier `.gw` depuis l’onglet **Un fichier** ; elle arrive sans les photos.
 
 La démarche complète est décrite pas à pas dans [Récupérer un arbre Geneanet avec ses photos](@/workflows/geneanet-with-photos.fr.md).
 

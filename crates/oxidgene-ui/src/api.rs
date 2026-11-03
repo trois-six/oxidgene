@@ -2211,6 +2211,19 @@ pub struct GeneanetSession {
     pub media: std::collections::HashMap<String, String>,
 }
 
+/// What a saved session holds, read in the web build without keeping its
+/// media: the import sends the file again (`POST /geneanet/session/read`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct GeneanetSessionContents {
+    pub collection: String,
+    pub deposit_sizes: std::collections::HashMap<i64, u64>,
+    pub account: Option<String>,
+    /// Media the collection covers, pages included.
+    pub photo_count: usize,
+    /// The addresses of the media the file carries.
+    pub media_urls: Vec<String>,
+}
+
 /// One medium the server cannot produce on its own.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct NeededMedia {
@@ -5845,6 +5858,20 @@ impl ApiClient {
             .await?;
         let resp = Self::require_success(resp).await?;
         Self::read_response_body(resp).await.map_err(ApiError::from)
+    }
+
+    /// Where the web build reads a saved session, which the browser sends
+    /// from the file the user picked.
+    #[cfg(target_arch = "wasm32")]
+    pub fn geneanet_session_read_url(&self) -> String {
+        self.url("/api/v1/geneanet/session/read")
+    }
+
+    /// Where the web build imports a `.gw` with a saved session, both sent
+    /// by the browser as a multipart form.
+    #[cfg(target_arch = "wasm32")]
+    pub fn geneanet_session_import_url(&self, tree_id: Uuid) -> String {
+        self.url(&format!("/api/v1/trees/{tree_id}/geneanet/session-import"))
     }
 
     /// Read a saved session back, checking it really is one.

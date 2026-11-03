@@ -598,6 +598,20 @@ input GeneanetSessionEncodeInput {
 }
 
 """
+A `.gw` and a saved session to import together, as the multipart parts
+of `POST /trees/{treeId}/geneanet/session-import`.
+"""
+input GeneanetSessionImportInput {
+	gwBase64: String!
+	fileName: String!
+	"""
+	The saved session: a ZIP with its media, or a bare JSON collection.
+	"""
+	sessionBase64: String!
+	mediaFidelity: GqlGeneanetMediaFidelity! = RENDITIONS
+}
+
+"""
 One event of the access log: REST `GET /trees/{tree_id}/access-log`
 and `GET /admin/access-log`.
 """
@@ -1957,6 +1971,21 @@ type GqlGeneanetSession {
 
 type GqlGeneanetSessionArchive {
 	archiveBase64: String!
+}
+
+"""
+What a saved session holds, read without keeping its media, as
+`POST /geneanet/session/read` answers it.
+"""
+type GqlGeneanetSessionContents {
+	collection: String!
+	depositSizes: [GqlGeneanetDepositSize!]!
+	account: String
+	photoCount: Int!
+	"""
+	The addresses of the media the file carries, sorted.
+	"""
+	mediaUrls: [String!]!
 }
 
 """
@@ -4859,6 +4888,13 @@ type MutationRoot {
 	"""
 	importGeneanet(treeId: ID!, input: GeneanetImportInput!): GqlBackgroundJobStarted!
 	"""
+	Queue a Geneanet tree import with the media of a saved session sent
+	with it, as `POST /trees/{treeId}/geneanet/session-import` does: the
+	session's media are copied into job storage before the answer, and
+	no path is exchanged, so it is served everywhere.
+	"""
+	importGeneanetSession(treeId: ID!, input: GeneanetSessionImportInput!): GqlBackgroundJobStarted!
+	"""
 	Put a record back as one of its versions had it. The restore is a
 	write of its own, returned as its audit entry. Mirrors
 	`POST /trees/{treeId}/history/{recordType}/{recordId}/revert`.
@@ -5510,6 +5546,11 @@ type QueryRoot {
 	Index local Geneanet archives by path.
 	"""
 	indexGeneanetArchives(paths: [String!]!): GqlGeneanetArchiveIndex!
+	"""
+	What a saved Geneanet session holds, its media checked but kept
+	nowhere, as `POST /geneanet/session/read` answers it.
+	"""
+	readGeneanetSession(archiveBase64: String!): GqlGeneanetSessionContents!
 	"""
 	Preview a Geneanet import without writing a tree or fetching media.
 	"""

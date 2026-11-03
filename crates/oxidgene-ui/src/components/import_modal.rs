@@ -49,10 +49,9 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, ApiError, ArchiveIndex, FileImportJobStatus, GeneanetImportBody,
-    GeneanetImportResult, GeneanetIsolatedPerson, GeneanetPreview, GeneanetPreviewBody,
-    GeneanetSessionBody, GwInspection, ImportProgress, ImportResult, IndexedArchive, MediaFidelity,
-    follow_job,
+    ApiClient, ApiError, ArchiveIndex, FileImportJobStatus, GeneanetImportResult,
+    GeneanetIsolatedPerson, GeneanetPreview, GeneanetPreviewBody, GeneanetSessionBody,
+    GwInspection, ImportProgress, ImportResult, IndexedArchive, MediaFidelity, follow_job,
 };
 use crate::components::cancel_job::{CancelJobButton, JobKind, can_cancel};
 use crate::components::homonym_picker::{HomonymDecision, HomonymPicker};
@@ -710,14 +709,19 @@ fn GeneanetTab(
     let mut override_mismatch = use_signal(|| false);
 
     let mut importing = busy;
-    // Media the login window retrieved, keyed by URL and represented by a
-    // staged local path. The window session owns those files through step 5.
-    let mut fetched = use_signal(HashMap::<String, String>::new);
+    // Media the login window retrieved or a loaded file holds, keyed by URL:
+    // a staged local path on the desktop, whose window session owns the
+    // files it fetched through step 5; an empty handle on the web, where a
+    // loaded file's media stay in it.
+    let fetched = use_signal(HashMap::<String, String>::new);
     let mut gathering = use_signal(|| false);
     let mut import_progress = use_signal(|| None::<crate::api::ImportProgress>);
     // Progress through the fetch pass that precedes the write, when the login
     // window has to retrieve media the archives did not cover.
     let mut fetch_progress = use_signal(|| None::<(usize, usize)>);
+    // Media the import needs that nothing can fetch: those a loaded file
+    // lacks, in a build with no login window.
+    let mut missing = use_signal(|| 0usize);
     let mut import_error = use_signal(|| None::<String>);
     let import_result = use_signal(|| None::<GeneanetImportResult>);
     // The import job once queued, which Cancel stops; and whether the last
@@ -753,6 +757,7 @@ fn GeneanetTab(
         use_drop(move || {
             bridge.iter().for_each(GeneanetBridge::close);
             release_gathered_media(&api, fetched);
+            forget_loaded_file();
         });
     }
 
@@ -777,8 +782,7 @@ fn GeneanetTab(
         preview.set(None);
         preview_error.set(None);
         override_mismatch.set(false);
-        release_staged_media(&api_fidelity, &fetched.peek());
-        fetched.write().clear();
+        forget_gathered_media(&api_fidelity, fetched);
 
         if next.uses_archives() {
             forget_unmeasured(collected);
@@ -870,12 +874,8 @@ fn GeneanetTab(
                 return;
             };
             let urls = urls_to_fetch(&needed, &fetched.read());
-            if urls.is_empty() {
-                return;
-            }
-
-            let Some(bridge) = bridge.clone() else {
-                preview_error.set(Some(i18n.t("geneanet.error_window_needed")));
+            missing.set(unfetchable(bridge.as_ref(), &urls));
+            let (Some(bridge), false) = (bridge.clone(), urls.is_empty()) else {
                 return;
             };
 
@@ -906,7 +906,7 @@ fn GeneanetTab(
         let api = api_import.clone();
         let bridge = bridge_import.clone();
         let trace = trace_import.clone();
-        let (Some(file), Some(collected)) = (gw(), collected()) else {
+        let (Some(file), true) = (gw(), collected.peek().is_some()) else {
             return;
         };
         if importing() {
@@ -923,20 +923,31 @@ fn GeneanetTab(
         }));
 
         spawn(async move {
-            let body = GeneanetImportBody {
-                gw_base64: encode_gw(&file.bytes),
-                file_name: file.name.clone(),
-                collection: collected.collection.clone(),
-                deposit_sizes: collected.deposit_sizes.clone(),
-                archive_paths: archives.read().iter().map(|a| a.path.clone()).collect(),
-                fetched: fetched.read().clone(),
-                media_fidelity: fidelity(),
+            // The desktop names the staged and fetched files by path.
+            #[cfg(not(target_arch = "wasm32"))]
+            let start = {
+                let collected = collected().unwrap_or_default();
+                let body = crate::api::GeneanetImportBody {
+                    gw_base64: encode_gw(&file.bytes),
+                    file_name: file.name.clone(),
+                    collection: collected.collection,
+                    deposit_sizes: collected.deposit_sizes,
+                    archive_paths: archives.read().iter().map(|a| a.path.clone()).collect(),
+                    fetched: fetched.read().clone(),
+                    media_fidelity: fidelity(),
+                };
+                let api = api.clone();
+                async move { api.import_geneanet(tree_id, &body).await }
             };
+            // The web build exchanges no path: it sends the `.gw` and the
+            // loaded session file, whose media the server extracts.
+            #[cfg(target_arch = "wasm32")]
+            let start = start_session_import(&api, tree_id, &file, fidelity(), import_progress);
             let outcome = upload_and_follow(
                 &api,
                 &trace,
                 tree_id,
-                &body,
+                start,
                 || close_window(bridge.as_ref(), window_closed),
                 import_progress,
                 import_job,
@@ -1079,6 +1090,7 @@ fn GeneanetTab(
                     preview: preview(),
                     fidelity: fidelity(),
                     gathered: fetched.read().len(),
+                    missing: missing(),
                     importing: importing(),
                     job: import_job(),
                     progress: import_progress(),
@@ -1201,8 +1213,9 @@ async fn preview_and_plan(
 /// no longer needs: a session's photos are the account's own and are not
 /// left in temporary files. Media the login window fetched are its own and
 /// are ignored by the backend. Best effort — what is not released expires.
+/// The web build stages nothing: a session's media stay in its file.
 fn release_staged_media(api: &ApiClient, media: &HashMap<String, String>) {
-    if media.is_empty() {
+    if !NATIVE || media.is_empty() {
         return;
     }
     let api = api.clone();
@@ -1211,6 +1224,31 @@ fn release_staged_media(api: &ApiClient, media: &HashMap<String, String>) {
     dioxus::core::spawn_forever(async move {
         let _ = api.release_geneanet_session_media(paths).await;
     });
+}
+
+/// Drop what was gathered for a media answer the user changed: the
+/// desktop's staged and fetched files are for the other answer. On the web
+/// they are the loaded file's, which stay in it: its import takes from it
+/// what the new answer needs.
+fn forget_gathered_media(api: &ApiClient, mut fetched: Signal<HashMap<String, String>>) {
+    if NATIVE {
+        release_staged_media(api, &fetched.peek());
+        fetched.write().clear();
+    }
+}
+
+/// Lets go of the web build's loaded file, which only an import reads.
+fn forget_loaded_file() {
+    if !NATIVE {
+        document::eval("delete globalThis.oxidgeneGeneanetSession;");
+    }
+}
+
+/// How many of `urls` nothing can fetch: all of them without a login
+/// window — the web build, where they are what the loaded file lacks, and
+/// which step 5 says will be skipped.
+fn unfetchable(bridge: Option<&GeneanetBridge>, urls: &[String]) -> usize {
+    if bridge.is_some() { 0 } else { urls.len() }
 }
 
 /// [`release_staged_media`] on what `fetched` still holds, as the wizard
@@ -1299,6 +1337,73 @@ fn settle_import(
     }
 }
 
+/// Starts the web build's import of `file` with the loaded session file,
+/// which the browser held on to since step 3, both sent as one multipart
+/// form; its upload shows in `import_progress`. Native builds send paths
+/// instead ([`ApiClient::import_geneanet`]).
+#[cfg(target_arch = "wasm32")]
+async fn start_session_import(
+    api: &ApiClient,
+    tree_id: Uuid,
+    file: &GwFile,
+    fidelity: MediaFidelity,
+    mut import_progress: Signal<Option<ImportProgress>>,
+) -> Result<crate::api::ImportJobStarted, ApiError> {
+    let json = |value: &str| serde_json::to_string(value).expect("a string is JSON serializable");
+    let endpoint = json(&api.geneanet_session_import_url(tree_id));
+    let gw = json(&encode_gw(&file.bytes));
+    let name = json(&file.name);
+    let fidelity = serde_json::to_string(&fidelity).expect("a media answer is JSON serializable");
+    // The browser sends the files itself, so the session's CSRF token is
+    // set here rather than by the API client (docs/authentication.md §4.4).
+    let csrf = serde_json::to_string(&api.csrf_token()).expect("a token is JSON serializable");
+    let script = format!(
+        r#"
+        const session = globalThis.oxidgeneGeneanetSession;
+        if (!session) {{
+            dioxus.send({{ kind: 'error' }});
+            return;
+        }}
+        const gw = Uint8Array.from(atob({gw}), c => c.charCodeAt(0));
+        const form = new FormData();
+        form.append('gw', new Blob([gw]), {name});
+        form.append('media_fidelity', {fidelity});
+        form.append('session', session, session.name);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', {endpoint});
+        const csrf = {csrf};
+        if (csrf) xhr.setRequestHeader('X-OxidGene-CSRF', csrf);
+        xhr.upload.onprogress = event => dioxus.send({{
+            kind: 'upload',
+            done: event.loaded,
+            total: event.lengthComputable ? event.total : 0,
+        }});
+        xhr.onerror = () => dioxus.send({{ kind: 'error' }});
+        xhr.onload = () => {{
+            const job = xhr.status === 202 ? JSON.parse(xhr.responseText)?.job_id : null;
+            dioxus.send(job ? {{ kind: 'started', job_id: job }} : {{ kind: 'error' }});
+        }};
+        xhr.send(form);
+        "#,
+    );
+    let mut eval = document::eval(&script);
+    loop {
+        match eval.recv::<UploadEvent>().await {
+            Ok(UploadEvent::Upload { done, total }) => {
+                import_progress.set(Some(ImportProgress {
+                    phase: "upload".to_string(),
+                    done,
+                    total,
+                }));
+            }
+            Ok(UploadEvent::Started { job_id }) => {
+                break Ok(crate::api::ImportJobStarted { job_id });
+            }
+            Ok(UploadEvent::Error) | Err(_) => break Err(ApiError::Client("error.upload_failed")),
+        }
+    }
+}
+
 /// Uploads the import, then — the login window no longer needed, so
 /// `window_done` runs — follows its job, published in `import_job` for the
 /// Cancel button, to the end: the import's result, or `None` when it was
@@ -1307,17 +1412,12 @@ async fn upload_and_follow(
     api: &ApiClient,
     trace: &UiActionTrace,
     tree_id: Uuid,
-    body: &GeneanetImportBody,
+    start: impl std::future::Future<Output = Result<crate::api::ImportJobStarted, ApiError>>,
     window_done: impl FnOnce(),
     mut import_progress: Signal<Option<ImportProgress>>,
     mut import_job: Signal<Option<Uuid>>,
 ) -> Result<Option<GeneanetImportResult>, ApiError> {
-    let started = trace
-        .step(
-            UiActionStep::GeneanetUpload,
-            api.import_geneanet(tree_id, body),
-        )
-        .await?;
+    let started = trace.step(UiActionStep::GeneanetUpload, start).await?;
     window_done();
     import_job.set(Some(started.job_id));
     let ended = trace
@@ -1401,6 +1501,8 @@ fn phase_key(phase: Option<&str>, fidelity: MediaFidelity) -> &'static str {
         Some("finishing" | "projections") => "geneanet.phase_finishing",
         // Whatever it had reached, it is now undoing it.
         Some("cancelling") => "import.phase_cancelling",
+        // The web build sending its files.
+        Some("upload") => "import.phase_upload",
         // Including `staging`, which is the request in flight: people are
         // what it is about to write.
         _ => "geneanet.phase_people",
@@ -1811,15 +1913,7 @@ fn ConnectStep(
     // effect watching `collected`. An effect runs on mount too, so reopening
     // an already-settled step 3 would read "a session exists" as "a session
     // just arrived" and bounce the user forward to step 4.
-    //
-    // A saved connection stages its photos in the server's local working
-    // directory, which only the desktop's embedded server may write: the web
-    // server refuses to read one back, so the web build offers none.
-    let reuse = if NATIVE {
-        rsx! { SessionControls { collected, fetched, error, on_loaded } }
-    } else {
-        rsx! {}
-    };
+    let reuse = rsx! { SessionControls { collected, fetched, error, on_loaded } };
 
     if !available {
         return rsx! {
@@ -1867,6 +1961,182 @@ fn ConnectStep(
             },
         }
     }
+}
+
+/// A saved session the user loaded: what it collected, and its media by
+/// URL — staged files on the desktop; in the web build, empty handles, the
+/// media staying in the chosen file, which the import sends again.
+struct LoadedSession {
+    collected: Collected,
+    media: HashMap<String, String>,
+}
+
+impl LoadedSession {
+    fn new(
+        collection: String,
+        deposit_sizes: HashMap<i64, u64>,
+        account: Option<String>,
+        photo_count: usize,
+        media: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            collected: Collected {
+                collection,
+                deposit_sizes,
+                // A saved session carries no cookie and needs none: it is the
+                // collection, not a way back to the account.
+                cookie: None,
+                account,
+                photo_count,
+            },
+            media,
+        }
+    }
+}
+
+/// Let the user pick a saved session and decode it, its media staged by the
+/// in-process server; `None` when they picked nothing, the reader's message
+/// when it is no session. `busy` is set once a file was picked.
+#[cfg(not(target_arch = "wasm32"))]
+async fn load_session(
+    api: &ApiClient,
+    trace: &UiActionTrace,
+    i18n: I18n,
+    mut busy: Signal<bool>,
+) -> Result<Option<LoadedSession>, String> {
+    let Some(file) = rfd::AsyncFileDialog::new()
+        // A bare JSON collection still loads — the reader tells the shapes
+        // apart by content, not by extension.
+        .add_filter(i18n.t("geneanet.session_file_kind"), &["zip", "json"])
+        .set_title(i18n.t("geneanet.session_load"))
+        .pick_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    busy.set(true);
+    let body = trace
+        .step(
+            UiActionStep::GeneanetRead,
+            tokio::fs::File::open(file.path()),
+        )
+        .await
+        .map(reqwest::Body::from)
+        .map_err(|_| i18n.t("geneanet.file_read_error"))?;
+    let session = trace
+        .step(
+            UiActionStep::GeneanetSessionDecode,
+            api.decode_geneanet_session(body),
+        )
+        .await
+        .map_err(|e| e.message(&i18n))?;
+    Ok(Some(LoadedSession::new(
+        session.collection,
+        session.deposit_sizes,
+        session.account,
+        session.photo_count,
+        session.media,
+    )))
+}
+
+/// What the browser reports while it reads a saved session.
+#[derive(serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg(target_arch = "wasm32")]
+enum SessionReadEvent {
+    Cancelled,
+    Reading,
+    Read {
+        session: crate::api::GeneanetSessionContents,
+    },
+    Failed {
+        status: u16,
+        body: String,
+    },
+}
+
+/// Let the user pick a saved session and have the server read it, keeping
+/// nothing: the browser holds on to the file, which the import sends again
+/// ([`start_session_import`]). `None` when they picked nothing, the reader's
+/// message when it is no session. `busy` is set once a file was picked.
+#[cfg(target_arch = "wasm32")]
+async fn load_session(
+    api: &ApiClient,
+    trace: &UiActionTrace,
+    i18n: I18n,
+    mut busy: Signal<bool>,
+) -> Result<Option<LoadedSession>, String> {
+    let endpoint = serde_json::to_string(&api.geneanet_session_read_url())
+        .expect("an endpoint URL is JSON serializable");
+    // The browser sends the file itself, so the session's CSRF token is set
+    // here rather than by the API client (docs/authentication.md §4.4).
+    let csrf = serde_json::to_string(&api.csrf_token()).expect("a token is JSON serializable");
+    let script = format!(
+        r#"
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.zip,.json,application/zip,application/json';
+        input.addEventListener('cancel', () => dioxus.send({{ kind: 'cancelled' }}));
+        input.addEventListener('change', () => {{
+            const file = input.files?.[0];
+            if (!file) {{
+                dioxus.send({{ kind: 'cancelled' }});
+                return;
+            }}
+            dioxus.send({{ kind: 'reading' }});
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', {endpoint});
+            xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+            const csrf = {csrf};
+            if (csrf) xhr.setRequestHeader('X-OxidGene-CSRF', csrf);
+            xhr.onerror = () => dioxus.send({{ kind: 'failed', status: 0, body: '' }});
+            xhr.onload = () => {{
+                if (xhr.status !== 200) {{
+                    dioxus.send({{ kind: 'failed', status: xhr.status, body: xhr.responseText }});
+                    return;
+                }}
+                // Kept for the import, which sends the same file again.
+                globalThis.oxidgeneGeneanetSession = file;
+                dioxus.send({{ kind: 'read', session: JSON.parse(xhr.responseText) }});
+            }};
+            xhr.send(file);
+        }});
+        input.click();
+        "#,
+    );
+    let mut eval = document::eval(&script);
+    let read = async {
+        loop {
+            match eval.recv::<SessionReadEvent>().await {
+                Ok(SessionReadEvent::Reading) => busy.set(true),
+                Ok(SessionReadEvent::Cancelled) => return Ok(None),
+                Ok(SessionReadEvent::Read { session }) => return Ok(Some(session)),
+                Ok(SessionReadEvent::Failed { status: 0, .. }) | Err(_) => {
+                    return Err(ApiError::Client("error.unreachable"));
+                }
+                Ok(SessionReadEvent::Failed { status, body }) => {
+                    return Err(ApiError::Api { status, body });
+                }
+            }
+        }
+    };
+    let session = trace
+        .step(UiActionStep::GeneanetSessionDecode, read)
+        .await
+        .map_err(|e| e.message(&i18n))?;
+    Ok(session.map(|session| {
+        LoadedSession::new(
+            session.collection,
+            session.deposit_sizes,
+            session.account,
+            session.photo_count,
+            session
+                .media_urls
+                .into_iter()
+                .map(|url| (url, String::new()))
+                .collect(),
+        )
+    }))
 }
 
 /// Saving what has been collected, and loading it back.
@@ -1948,58 +2218,12 @@ fn SessionControls(
         let api = api_load.clone();
         let trace = trace_load.clone();
         spawn(async move {
-            let Some(file) = rfd::AsyncFileDialog::new()
-                // A bare JSON collection still loads — the reader tells the
-                // shapes apart by content, not by extension.
-                .add_filter(i18n.t("geneanet.session_file_kind"), &["zip", "json"])
-                .set_title(i18n.t("geneanet.session_load"))
-                .pick_file()
-                .await
-            else {
-                return;
-            };
-
-            busy.set(true);
             error.set(None);
-            #[cfg(target_arch = "wasm32")]
-            let body = trace
-                .step(UiActionStep::GeneanetRead, file.read())
-                .await
-                .into();
-            #[cfg(not(target_arch = "wasm32"))]
-            let body = match trace
-                .step(
-                    UiActionStep::GeneanetRead,
-                    tokio::fs::File::open(file.path()),
-                )
-                .await
-            {
-                Ok(file) => reqwest::Body::from(file),
-                Err(_) => {
-                    busy.set(false);
-                    error.set(Some(i18n.t("geneanet.file_read_error")));
-                    return;
-                }
-            };
-            let restored = trace
-                .step(
-                    UiActionStep::GeneanetSessionDecode,
-                    api.decode_geneanet_session(body),
-                )
-                .await;
+            let loaded = load_session(&api, &trace, i18n, busy).await;
             busy.set(false);
-
-            match restored {
-                Ok(session) => {
-                    collected.set(Some(Collected {
-                        collection: session.collection,
-                        deposit_sizes: session.deposit_sizes,
-                        // A saved session carries no cookie and needs none: it
-                        // is the collection, not a way back to the account.
-                        cookie: None,
-                        account: session.account,
-                        photo_count: session.photo_count,
-                    }));
+            match loaded {
+                Ok(Some(session)) => {
+                    collected.set(Some(session.collected));
                     // A file saved after step 4 brings the media with it, and
                     // step 4 then asks the window for nothing. What an earlier
                     // file staged is not needed any more.
@@ -2009,7 +2233,8 @@ fn SessionControls(
                         on_loaded.call(());
                     }
                 }
-                Err(e) => error.set(Some(e.message(&i18n))),
+                Ok(None) => {}
+                Err(message) => error.set(Some(message)),
             }
         });
     };
@@ -2038,7 +2263,9 @@ fn SessionControls(
                     span { class: "gn-session-icon", "\u{2913}" }
                     if busy() { {i18n.t("geneanet.reading")} } else { {i18n.t("geneanet.session_load")} }
                 }
-                if ready {
+                // Saving rebuilds the file from staged media, which only the
+                // desktop has; on the web the user already holds the file.
+                if ready && NATIVE {
                     button {
                         class: "gn-session-btn",
                         r#type: "button",
@@ -2313,6 +2540,9 @@ fn ImportStep(
     /// over. Nothing past this step can fetch another, so this is what says
     /// whether they are here to be imported at all.
     gathered: usize,
+    /// How many media the import needs that nothing could fetch — a loaded
+    /// file's gaps in a build with no login window.
+    missing: usize,
     tree_id: Uuid,
     importing: bool,
     /// The import job once queued, which Cancel stops.
@@ -2340,7 +2570,14 @@ fn ImportStep(
             // Whatever had to come from Geneanet came in step 4, and the login
             // window is closed the moment this step is started. Promising a
             // download here read as though the network were still ahead.
-            if gathered > 0 {
+            if missing > 0 {
+                div { class: "warning-msg",
+                    {i18n.t_plural("geneanet.step5_missing", missing)}
+                }
+            } else if gathered > 0 && !NATIVE {
+                // The web build sends the file the user loaded.
+                p { class: "gn-note", {i18n.t("geneanet.step5_from_file")} }
+            } else if gathered > 0 {
                 p { class: "gn-note", {i18n.t("geneanet.step5_local")} }
             } else if stats.to_download + stats.to_match > 0 {
                 // Reachable: a build with no login window, or a step 4 that

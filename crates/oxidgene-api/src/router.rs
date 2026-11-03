@@ -583,6 +583,12 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/{tree_id}/geneanet/import",
             post(geneanet::import_handler).layer(DefaultBodyLimit::max(GENEANET_IMPORT_BODY_LIMIT)),
+        )
+        // A saved session carries its media, with no size limit of its own
+        // (docs/geneanet-media-import.md §8).
+        .route(
+            "/{tree_id}/geneanet/session-import",
+            post(geneanet::session_import_handler).layer(DefaultBodyLimit::disable()),
         );
 
     // The wizard's first steps run before a tree has been chosen — indeed
@@ -602,6 +608,10 @@ pub fn build_router(state: AppState) -> Router {
             post(geneanet::decode_session_handler)
                 // Saved sessions contain media bytes, not only metadata paths.
                 .layer(DefaultBodyLimit::disable()),
+        )
+        .route(
+            "/session/read",
+            post(geneanet::read_session_handler).layer(DefaultBodyLimit::disable()),
         )
         .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
 
