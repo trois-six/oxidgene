@@ -5,168 +5,189 @@
 
 use dioxus::prelude::*;
 
-use crate::pages::statistics::Statistics;
-use crate::pages::tools::Tools;
-use crate::pages::{
-    app_settings::AppSettings,
-    couple_detail::CoupleDetail,
-    dictionary::{
-        Dictionary, DictionaryPlace, DictionaryPlaces, DictionaryRepositories,
-        DictionaryRepository, DictionarySource, DictionarySources, DictionaryTag,
-    },
-    home::{Home, Invitations},
-    kinship::Kinship,
-    media_viewer::Media,
-    not_found::NotFound,
-    person_detail::PersonDetail,
-    person_history::PersonHistory,
-    profile::Profile,
-    search_results::SearchResults,
-    settings::Settings,
-    tree_detail::TreeDetail,
-    unsubscribe::Unsubscribe,
-};
+pub use routes::Route;
 
-/// All application routes.
-///
-/// The `#[layout(Layout)]` attribute wraps matched routes in the shared
-/// [`crate::components::layout::Layout`] component, which renders a
-/// navigation bar and an [`Outlet`].
-#[derive(Debug, Clone, PartialEq, Routable)]
-pub enum Route {
-    /// Application layout wrapper — all routes below share this chrome.
-    #[layout(crate::components::layout::Layout)]
-    //
-    /// Home / landing page.
-    #[route("/")]
-    Home {},
+/// The route enum alone, so that the one lint exception its derive needs
+/// covers nothing else.
+mod routes {
+    // `Routable`'s derive (dioxus-router-macro 0.7.10, the latest 0.7)
+    // wraps every segment's parse error in its route error with
+    // `.map_err(|err| …(err))`. A `String` segment parses infallibly, so
+    // `err` is `Infallible` and, from Rust 1.100, `unreachable_code` flags
+    // that call. The code is generated, an `#[expect]` would be unfulfilled
+    // on the stable toolchain, and an attribute on the enum does not reach
+    // the impls the derive writes beside it: an inner allow on this module,
+    // which holds the enum and nothing else, is the narrowest scope.
+    #![allow(
+        unreachable_code,
+        reason = "Routable's derive maps the Infallible parse error of String segments"
+    )]
 
-    /// Where an invitation's link leads (docs/authorization.md §6.2): the
-    /// homepage, whose invitations the user accepts or declines.
-    #[route("/invitations")]
-    Invitations {},
+    use dioxus::prelude::*;
 
-    /// Detail view for a single tree (shows persons, families, etc.).
-    /// Optional `person` query param to focus on a specific person.
-    #[route("/trees/:tree_id?:person")]
-    TreeDetail {
-        tree_id: String,
-        person: Option<String>,
-    },
+    use crate::pages::statistics::Statistics;
+    use crate::pages::tools::Tools;
+    use crate::pages::{
+        app_settings::AppSettings,
+        couple_detail::CoupleDetail,
+        dictionary::{
+            Dictionary, DictionaryPlace, DictionaryPlaces, DictionaryRepositories,
+            DictionaryRepository, DictionarySource, DictionarySources, DictionaryTag,
+        },
+        home::{Home, Invitations},
+        kinship::Kinship,
+        media_viewer::Media,
+        not_found::NotFound,
+        person_detail::PersonDetail,
+        person_history::PersonHistory,
+        profile::Profile,
+        search_results::SearchResults,
+        settings::Settings,
+        tree_detail::TreeDetail,
+        unsubscribe::Unsubscribe,
+    };
 
-    /// Search results page for a tree.
+    /// All application routes.
     ///
-    /// `origin` records which view the search was launched from ("person" for
-    /// the person-detail page, empty/anything else for the pedigree view), so
-    /// clicking a result returns to that same view.
-    #[route("/trees/:tree_id/search?:last&:first&:origin")]
-    SearchResults {
-        tree_id: String,
-        last: String,
-        first: String,
-        origin: String,
-    },
+    /// The `#[layout(Layout)]` attribute wraps matched routes in the shared
+    /// [`crate::components::layout::Layout`] component, which renders a
+    /// navigation bar and an [`Outlet`].
+    #[derive(Debug, Clone, PartialEq, Routable)]
+    pub enum Route {
+        /// Application layout wrapper — all routes below share this chrome.
+        #[layout(crate::components::layout::Layout)]
+        //
+        /// Home / landing page.
+        #[route("/")]
+        Home {},
 
-    /// Detail view for a person within a tree.
-    #[route("/trees/:tree_id/persons/:person_id")]
-    PersonDetail { tree_id: String, person_id: String },
+        /// Where an invitation's link leads (docs/authorization.md §6.2): the
+        /// homepage, whose invitations the user accepts or declines.
+        #[route("/invitations")]
+        Invitations {},
 
-    /// Every recorded version of a person, compared side by side.
-    #[route("/trees/:tree_id/persons/:person_id/history")]
-    PersonHistory { tree_id: String, person_id: String },
+        /// Detail view for a single tree (shows persons, families, etc.).
+        /// Optional `person` query param to focus on a specific person.
+        #[route("/trees/:tree_id?:person")]
+        TreeDetail {
+            tree_id: String,
+            person: Option<String>,
+        },
 
-    /// Couple view: both spouses of a family side by side, and what they
-    /// share across the two.
-    #[route("/trees/:tree_id/couples/:family_id")]
-    CoupleDetail { tree_id: String, family_id: String },
+        /// Search results page for a tree.
+        ///
+        /// `origin` records which view the search was launched from ("person" for
+        /// the person-detail page, empty/anything else for the pedigree view), so
+        /// clicking a result returns to that same view.
+        #[route("/trees/:tree_id/search?:last&:first&:origin")]
+        SearchResults {
+            tree_id: String,
+            last: String,
+            first: String,
+            origin: String,
+        },
 
-    /// How two persons of a tree are related, generation by generation.
-    /// `to` is empty until a second person is chosen.
-    #[route("/trees/:tree_id/kinship?:from&:to")]
-    Kinship {
-        tree_id: String,
-        from: String,
-        to: String,
-    },
+        /// Detail view for a person within a tree.
+        #[route("/trees/:tree_id/persons/:person_id")]
+        PersonDetail { tree_id: String, person_id: String },
 
-    /// Dictionary page for a tree: family names, sources, places, occupations
-    /// with usage counts.
-    #[route("/trees/:tree_id/dictionary")]
-    Dictionary { tree_id: String },
+        /// Every recorded version of a person, compared side by side.
+        #[route("/trees/:tree_id/persons/:person_id/history")]
+        PersonHistory { tree_id: String, person_id: String },
 
-    /// The Dictionary opened on the Tags tab, unfolded on one tag (a chip or
-    /// a dot elsewhere, docs/ui-common.md §4.18).
-    #[route("/trees/:tree_id/dictionary/tags/:tag")]
-    DictionaryTag { tree_id: String, tag: String },
+        /// Couple view: both spouses of a family side by side, and what they
+        /// share across the two.
+        #[route("/trees/:tree_id/couples/:family_id")]
+        CoupleDetail { tree_id: String, family_id: String },
 
-    /// The Dictionary opened on the Sources tab: what a source's link in the
-    /// Tags tab follows (docs/ui-dictionary.md §20).
-    #[route("/trees/:tree_id/dictionary/sources")]
-    DictionarySources { tree_id: String },
+        /// How two persons of a tree are related, generation by generation.
+        /// `to` is empty until a second person is chosen.
+        #[route("/trees/:tree_id/kinship?:from&:to")]
+        Kinship {
+            tree_id: String,
+            from: String,
+            to: String,
+        },
 
-    /// The Dictionary opened on the Places tab (the Tags tab links to it).
-    #[route("/trees/:tree_id/dictionary/places")]
-    DictionaryPlaces { tree_id: String },
+        /// Dictionary page for a tree: family names, sources, places, occupations
+        /// with usage counts.
+        #[route("/trees/:tree_id/dictionary")]
+        Dictionary { tree_id: String },
 
-    /// The Dictionary opened on the Repositories tab (the Tags tab links to it).
-    #[route("/trees/:tree_id/dictionary/repositories")]
-    DictionaryRepositories { tree_id: String },
+        /// The Dictionary opened on the Tags tab, unfolded on one tag (a chip or
+        /// a dot elsewhere, docs/ui-common.md §4.18).
+        #[route("/trees/:tree_id/dictionary/tags/:tag")]
+        DictionaryTag { tree_id: String, tag: String },
 
-    /// The Dictionary opened on one source's row in the Sources tab, unfolded
-    /// and focused (the Tags tab links to it). An unknown id opens the tab's
-    /// root (docs/ui-dictionary.md §14).
-    #[route("/trees/:tree_id/dictionary/sources/:source_id")]
-    DictionarySource { tree_id: String, source_id: String },
+        /// The Dictionary opened on the Sources tab: what a source's link in the
+        /// Tags tab follows (docs/ui-dictionary.md §20).
+        #[route("/trees/:tree_id/dictionary/sources")]
+        DictionarySources { tree_id: String },
 
-    /// The Dictionary opened on one place's row in the Places tab, on its
-    /// letter and page, unfolded and focused (the Tags tab links to it).
-    #[route("/trees/:tree_id/dictionary/places/:place_id")]
-    DictionaryPlace { tree_id: String, place_id: String },
+        /// The Dictionary opened on the Places tab (the Tags tab links to it).
+        #[route("/trees/:tree_id/dictionary/places")]
+        DictionaryPlaces { tree_id: String },
 
-    /// The Dictionary opened on one repository's row in the Repositories tab,
-    /// unfolded and focused (the Tags tab links to it).
-    #[route("/trees/:tree_id/dictionary/repositories/:repository_id")]
-    DictionaryRepository {
-        tree_id: String,
-        repository_id: String,
-    },
+        /// The Dictionary opened on the Repositories tab (the Tags tab links to it).
+        #[route("/trees/:tree_id/dictionary/repositories")]
+        DictionaryRepositories { tree_id: String },
 
-    /// One document of a tree, in the media viewer (the Tags tab links to it).
-    #[route("/trees/:tree_id/media/:media_id")]
-    Media { tree_id: String, media_id: String },
+        /// The Dictionary opened on one source's row in the Sources tab, unfolded
+        /// and focused (the Tags tab links to it). An unknown id opens the tab's
+        /// root (docs/ui-dictionary.md §14).
+        #[route("/trees/:tree_id/dictionary/sources/:source_id")]
+        DictionarySource { tree_id: String, source_id: String },
 
-    /// Statistics page for a tree: heat map of places, charts per period and
-    /// notable records.
-    #[route("/trees/:tree_id/statistics")]
-    Statistics { tree_id: String },
+        /// The Dictionary opened on one place's row in the Places tab, on its
+        /// letter and page, unfolded and focused (the Tags tab links to it).
+        #[route("/trees/:tree_id/dictionary/places/:place_id")]
+        DictionaryPlace { tree_id: String, place_id: String },
 
-    /// Tools page for a tree: anomalies, ancestry completeness, potential
-    /// duplicates and date tools, one tab each.
-    #[route("/trees/:tree_id/tools")]
-    Tools { tree_id: String },
+        /// The Dictionary opened on one repository's row in the Repositories tab,
+        /// unfolded and focused (the Tags tab links to it).
+        #[route("/trees/:tree_id/dictionary/repositories/:repository_id")]
+        DictionaryRepository {
+            tree_id: String,
+            repository_id: String,
+        },
 
-    /// Settings page for a tree.
-    #[route("/trees/:tree_id/settings")]
-    Settings { tree_id: String },
+        /// One document of a tree, in the media viewer (the Tags tab links to it).
+        #[route("/trees/:tree_id/media/:media_id")]
+        Media { tree_id: String, media_id: String },
 
-    /// Application-wide settings (theme, language).
-    #[route("/settings")]
-    AppSettings {},
+        /// Statistics page for a tree: heat map of places, charts per period and
+        /// notable records.
+        #[route("/trees/:tree_id/statistics")]
+        Statistics { tree_id: String },
 
-    /// The signed-in user's profile: the web build's accounts only
-    /// (docs/authentication.md §10).
-    #[route("/profile")]
-    Profile {},
+        /// Tools page for a tree: anomalies, ancestry completeness, potential
+        /// duplicates and date tools, one tab each.
+        #[route("/trees/:tree_id/tools")]
+        Tools { tree_id: String },
 
-    /// Where a mail's unsubscribe link leads (docs/messaging.md §2.3): the
-    /// web build's accounts only, without signing in.
-    #[route("/unsubscribe?:token")]
-    Unsubscribe { token: String },
+        /// Settings page for a tree.
+        #[route("/trees/:tree_id/settings")]
+        Settings { tree_id: String },
 
-    /// Catch-all 404 page.
-    #[end_layout]
-    #[route("/:..segments")]
-    NotFound { segments: Vec<String> },
+        /// Application-wide settings (theme, language).
+        #[route("/settings")]
+        AppSettings {},
+
+        /// The signed-in user's profile: the web build's accounts only
+        /// (docs/authentication.md §10).
+        #[route("/profile")]
+        Profile {},
+
+        /// Where a mail's unsubscribe link leads (docs/messaging.md §2.3): the
+        /// web build's accounts only, without signing in.
+        #[route("/unsubscribe?:token")]
+        Unsubscribe { token: String },
+
+        /// Catch-all 404 page.
+        #[end_layout]
+        #[route("/:..segments")]
+        NotFound { segments: Vec<String> },
+    }
 }
 
 impl Route {
