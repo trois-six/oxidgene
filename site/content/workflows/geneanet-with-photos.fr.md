@@ -14,7 +14,7 @@ L’import **Depuis Geneanet** d’OxidGene réunit les deux : il lit votre arbr
 
 Il vous faut :
 
-- l’application **de bureau** OxidGene. La version web peut importer la généalogie d’un fichier `.gw`, mais pas les photos ;
+- l’application **de bureau** OxidGene. La version web importe la généalogie d’un fichier `.gw` depuis son onglet **Un fichier**, sans les photos ;
 - votre compte Geneanet et son mot de passe ;
 - un export GeneWeb (`.gw`) de votre arbre ;
 - éventuellement, vos archives de données Geneanet (voir l’étape 2).

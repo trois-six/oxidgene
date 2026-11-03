@@ -65,7 +65,7 @@ The first picture linked to a person in the file becomes their portrait, and doc
 
 Geneanet's own exports do not say which photo belongs to which person. The **From Geneanet** tab of the same window rebuilds those links by signing in to Geneanet from the desktop application, in a few guided steps.
 
-In the web version, this tab can import the genealogy of a `.gw` file, but not the photos: the steps that read your Geneanet media need the desktop application.
+In the web version, this tab cannot go past its first steps: reading your Geneanet media, and loading a saved connection, need the desktop application. Import the genealogy of your `.gw` file from the **A file** tab instead; it comes without the photos.
 
 The whole procedure is described step by step in [Bring a Geneanet tree with its photos](@/workflows/geneanet-with-photos.md).
 

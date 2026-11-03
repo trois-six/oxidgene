@@ -1806,7 +1806,15 @@ fn ConnectStep(
     // effect watching `collected`. An effect runs on mount too, so reopening
     // an already-settled step 3 would read "a session exists" as "a session
     // just arrived" and bounce the user forward to step 4.
-    let reuse = rsx! { SessionControls { collected, fetched, error, on_loaded } };
+    //
+    // A saved connection stages its photos in the server's local working
+    // directory, which only the desktop's embedded server may write: the web
+    // server refuses to read one back, so the web build offers none.
+    let reuse = if NATIVE {
+        rsx! { SessionControls { collected, fetched, error, on_loaded } }
+    } else {
+        rsx! {}
+    };
 
     if !available {
         return rsx! {

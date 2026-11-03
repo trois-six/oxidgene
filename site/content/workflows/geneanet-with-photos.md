@@ -14,7 +14,7 @@ OxidGene's **From Geneanet** import combines the two: it reads your tree from a 
 
 You need:
 
-- the OxidGene **desktop** application. The web version can import the genealogy of a `.gw` file, but not the photos;
+- the OxidGene **desktop** application. The web version imports the genealogy of a `.gw` file from its **A file** tab, without the photos;
 - your Geneanet account, and its password;
 - a GeneWeb (`.gw`) export of your tree;
 - optionally, your Geneanet data archives (see step 2).

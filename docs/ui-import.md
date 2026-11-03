@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-30T21:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T13:30:00Z }
 ---
 
 
@@ -420,11 +420,14 @@ Unreachable steps remain visible but disabled.
 | GeneWeb file and media answer | Yes | Yes | Small file read through the shared file API. |
 | Data archives | No | Yes | Multi-gigabyte ZIPs are indexed by path without loading their contents. |
 | Geneanet login | No | Yes | Collection runs in a second authenticated WebView. |
-| Preview and gathering | Genealogy only | Yes | Media gathering depends on archives and login. |
-| Import | Genealogy only | Yes | Media bytes are desktop-only. |
+| Saved connection (save and load) | No | Yes | Loading one stages its media in the server's local working directory. |
+| Preview and gathering | No | Yes | Media gathering depends on archives and login. |
+| Import | No | Yes | Media bytes are desktop-only. |
 
 Unavailable web controls are replaced by an explanation naming the desktop
-application. The web build can still import the `.gw` genealogy.
+application; the web build offers no saved-connection controls. Its
+explanation points to the **A file** tab, which imports the same `.gw`
+genealogy without the media.
 
 ### 9.3 Step 1: GeneWeb tree
 
