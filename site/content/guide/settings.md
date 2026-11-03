@@ -15,7 +15,7 @@ Every setting is saved as soon as you change it; there is no save button to reme
 
 {{ <screenshot name="tree-settings" alt="Settings page of a tree, with its left menu" lang={lang} /> }}
 
-The tree settings' left menu has four groups: **Settings** (**Tree & Roots**, **Privacy**, **Anomaly thresholds**), **Tools** (**History**), **Export** (**Export Tree**), and **Global Preferences**, which repeats the application settings so you can reach them from a tree.
+The tree settings' left menu has four groups: **Settings** (**Tree & Roots**, **Privacy**, **Anomaly thresholds**), **Tools** (**History**), **Export** (**Export Tree**), and **Global Preferences**, which repeats the application settings so you can reach them from a tree. Once signed in to the web version, the tree settings leave this group out: your avatar's menu leads to the application settings from every page.
 
 On the web version, the owner of a tree also finds **Members** and **Sharing** in the first group, to share the tree (see [Share a tree](@/guide/sharing.md)). A member who is not its owner finds **Leave this tree** at the bottom of **Tree & Roots**.
 
@@ -70,7 +70,7 @@ Download the tree as GEDCOM or GEDZIP, choose the destination program and the op
 
 ## Application settings
 
-The application settings have seven sections: **Appearance**, **Language**, **Pedigree**, **Names**, **Date Display**, **Entry Options** and **API**. All but API also appear under **Global Preferences** in every tree's settings; it is the same preference in both places, not a setting of that tree, and it applies to every tree you open on this device.
+The application settings have seven sections: **Appearance**, **Language**, **Pedigree**, **Names**, **Date Display**, **Entry Options** and **API**. All but API also appear under **Global Preferences** in every tree's settings, unless you are signed in to the web version; it is the same preference in both places, not a setting of that tree, and it applies to every tree you open on this device.
 
 These preferences are kept on this device. On another computer, or in another browser, you choose them again.
 

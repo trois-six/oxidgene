@@ -10,7 +10,7 @@ Once your tree has taken shape, you will want to look at it from new angles and 
 
 The tree view can draw your pedigree in several ways. The choice is a display preference of your device, not of the tree.
 
-1. Open the application settings with the gear icon in the home page header (the same options are under **Global Preferences** in a tree's settings), then choose **Pedigree**.
+1. Open the application settings with the gear icon in the home page header, or, signed in to the web version, from your avatar's menu (without an account, the same options are also under **Global Preferences** in a tree's settings), then choose **Pedigree**.
 2. Under **Chart**, pick a view:
    - **Tree**: ancestors above, descendants below;
    - **Ancestor wheel** and **Fan chart**: ancestors in rings around the person, a full circle or a half circle, the father's side always on the left;

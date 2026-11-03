@@ -126,6 +126,11 @@ impl TreePermissions {
         }
     }
 
+    /// Whether the tree's access is still being asked for.
+    pub fn is_pending(self) -> bool {
+        matches!(self.0, Access::Pending)
+    }
+
     /// Whether the viewer is a Visitor of the tree (§3.1).
     pub fn is_visitor(self) -> bool {
         self.role() == Some(TreeRole::Visitor)

@@ -203,12 +203,13 @@ test("a guest reads a shared tree without any control that would change it", asy
         await expect(guest.locator(".tools-page, .ph-content")).toHaveCount(0);
     }
 
-    // The settings: the device's preferences and leaving the tree, none of
-    // the sections the owner manages.
+    // The settings: leaving the tree, none of the sections the owner
+    // manages, and not the device's preferences, which the avatar's menu
+    // leads to.
     await guest.goto(`/trees/${tree}/settings`);
     const nav = guest.locator(".settings-nav");
-    await expect(nav.getByRole("button", { name: "Appearance", exact: true })).toBeVisible();
-    for (const section of ["Privacy", "Anomaly thresholds", "History", "Export Tree", "Members", "Sharing"]) {
+    await expect(nav.getByRole("button", { name: "Tree & Roots", exact: true })).toBeVisible();
+    for (const section of ["Appearance", "Language", "Privacy", "Anomaly thresholds", "History", "Export Tree", "Members", "Sharing"]) {
         await expect(nav.getByRole("button", { name: section, exact: true })).toHaveCount(0);
     }
     await nav.getByRole("button", { name: "Tree & Roots", exact: true }).click();

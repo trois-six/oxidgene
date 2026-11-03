@@ -10,7 +10,7 @@ Une fois votre arbre bien avancé, vous aurez envie de le regarder sous de nouve
 
 La vue arbre peut dessiner votre généalogie de plusieurs façons. Ce choix est une préférence d'affichage de votre appareil, pas de l'arbre.
 
-1. Ouvrez les paramètres de l'application avec l'icône d'engrenage dans l'en-tête de la page d'accueil (les mêmes options se trouvent sous **Préférences globales** dans les paramètres d'un arbre), puis choisissez **Pedigree**.
+1. Ouvrez les paramètres de l'application avec l'icône d'engrenage dans l'en-tête de la page d'accueil, ou, connecté à la version web, depuis le menu de votre avatar (sans compte, les mêmes options se trouvent aussi sous **Préférences globales** dans les paramètres d'un arbre), puis choisissez **Pedigree**.
 2. Sous **Graphique**, choisissez une vue :
    - **Arbre** : les ancêtres au-dessus, les descendants au-dessous ;
    - **Roue des ancêtres** et **Éventail** : les ancêtres en couronnes autour de la personne, en cercle complet ou en demi-cercle, le côté paternel toujours à gauche ;

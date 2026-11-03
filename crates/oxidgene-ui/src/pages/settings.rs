@@ -179,8 +179,13 @@ const SETTINGS_NAV: [(&str, &[(&str, &str)]); 4] = [
 /// (docs/authorization.md §11): the tree's own settings to whom manages
 /// them — Tree & Roots also to a member leaving the tree — the history to
 /// whom reads it, the export to whom exports, and the device's preferences
-/// to everyone.
-fn offers_section(permissions: TreePermissions, leaves: bool, section: &str) -> bool {
+/// when the page is to repeat them (`preferences`).
+fn offers_section(
+    permissions: TreePermissions,
+    leaves: bool,
+    preferences: bool,
+    section: &str,
+) -> bool {
     match section {
         "tree-roots" => permissions.can(Permission::SettingsManage) || leaves,
         "privacy" | "anomalies" => permissions.can(Permission::SettingsManage),
@@ -188,8 +193,31 @@ fn offers_section(permissions: TreePermissions, leaves: bool, section: &str) -> 
         "export" => permissions.can(Permission::Export),
         // The owner's sections of the web build (§8c, §8d).
         "members" | "sharing" => permissions.shares() && permissions.can(Permission::MembersManage),
-        _ => true,
+        _ => preferences,
     }
+}
+
+/// The sections the settings page offers the viewer, or `None` while the
+/// account or the tree's access is still being asked for. The device's
+/// preferences are repeated without an account only: a signed-in user
+/// reaches them at all times from the avatar's menu (docs/ui-settings.md
+/// §4), the desktop and a web server run without authentication have no
+/// avatar.
+pub(crate) fn use_offered_sections() -> Option<Vec<&'static str>> {
+    let account = crate::account::use_account();
+    let permissions = use_tree_permissions();
+    let leaves = super::sharing_settings::use_tree_sharing(None)
+        .leaver
+        .is_some();
+    let account = account.read();
+    if matches!(*account, crate::account::AccountState::Loading) || permissions.is_pending() {
+        return None;
+    }
+    Some(offered_sections(
+        permissions,
+        leaves,
+        account.me().is_none(),
+    ))
 }
 
 /// Where a GEDZIP export is saved: in the browser, the save picker, opened
@@ -646,9 +674,16 @@ pub fn Settings(tree_id: String) -> Element {
         .filter(is_live)
         .map(|export| kept_export_label(&i18n, &export));
 
-    // A section the viewer is not offered opens the first one they are.
-    let offered = offered_sections(use_tree_permissions(), sharing.leaver.is_some());
-    let sec = shown_section(&offered, active_section());
+    // A section the viewer is not offered opens the first one they are;
+    // a viewer offered none, a signed-in Visitor, the forbidden page.
+    let offered = use_offered_sections();
+    let sec = shown_section(offered.as_deref().unwrap_or_default(), active_section());
+    let Some(offered) = offered else {
+        return rsx! {};
+    };
+    if offered.is_empty() {
+        return rsx! { super::not_found::Forbidden {} };
+    }
 
     rsx! {
         style { {SETTINGS_STYLES} }
@@ -723,14 +758,19 @@ pub fn Settings(tree_id: String) -> Element {
 }
 
 /// The sections of [`SETTINGS_NAV`], then the owner's, offered to the viewer
-/// `permissions` describes, who may leave the tree or not.
-fn offered_sections(permissions: TreePermissions, leaves: bool) -> Vec<&'static str> {
+/// `permissions` describes, who may leave the tree or not, with the device's
+/// preferences or not.
+fn offered_sections(
+    permissions: TreePermissions,
+    leaves: bool,
+    preferences: bool,
+) -> Vec<&'static str> {
     SETTINGS_NAV
         .iter()
         .flat_map(|(_, entries)| entries.iter())
         .map(|(section, _)| *section)
         .chain(["members", "sharing"])
-        .filter(|section| offers_section(permissions, leaves, section))
+        .filter(|section| offers_section(permissions, leaves, preferences, section))
         .collect()
 }
 
@@ -2171,7 +2211,7 @@ mod tests {
     #[test]
     fn the_owner_and_the_local_user_are_offered_every_section() {
         for permissions in [TreePermissions::local(), of(TreeRole::Owner)] {
-            let offered = offered_sections(permissions, false);
+            let offered = offered_sections(permissions, false, true);
             for section in ["tree-roots", "privacy", "anomalies", "history", "export"] {
                 assert!(offered.contains(&section), "{section}");
             }
@@ -2179,26 +2219,53 @@ mod tests {
         }
         // The owner's sharing sections exist where the tree has other
         // viewers: not on the desktop.
-        let local = offered_sections(TreePermissions::local(), false);
+        let local = offered_sections(TreePermissions::local(), false, true);
         assert!(!local.contains(&"members"));
-        let owner = offered_sections(of(TreeRole::Owner), false);
+        let owner = offered_sections(of(TreeRole::Owner), false, true);
         assert!(owner.contains(&"members") && owner.contains(&"sharing"));
         assert_eq!(shown_section(&owner, "members".into()), "members");
     }
 
     #[test]
     fn a_guest_is_offered_the_preferences_and_leaving() {
-        let offered = offered_sections(of(TreeRole::Guest), true);
+        let offered = offered_sections(of(TreeRole::Guest), true, true);
         let mut expected = vec!["tree-roots"];
         expected.extend(PREFERENCES);
         assert_eq!(offered, expected);
         // A Visitor, who is no member, not even Tree & Roots.
-        assert_eq!(offered_sections(of(TreeRole::Visitor), false), PREFERENCES);
+        assert_eq!(
+            offered_sections(of(TreeRole::Visitor), false, true),
+            PREFERENCES
+        );
+    }
+
+    #[test]
+    fn a_signed_in_viewer_finds_the_preferences_under_the_avatar_only() {
+        let owner = offered_sections(of(TreeRole::Owner), false, false);
+        assert!(PREFERENCES.iter().all(|section| !owner.contains(section)));
+        assert_eq!(
+            owner,
+            [
+                "tree-roots",
+                "privacy",
+                "anomalies",
+                "history",
+                "export",
+                "members",
+                "sharing"
+            ]
+        );
+        assert_eq!(
+            offered_sections(of(TreeRole::Guest), true, false),
+            ["tree-roots"]
+        );
+        // A signed-in Visitor is offered nothing: the page is forbidden.
+        assert!(offered_sections(of(TreeRole::Visitor), false, false).is_empty());
     }
 
     #[test]
     fn an_editor_reads_the_history_and_exports() {
-        let offered = offered_sections(of(TreeRole::Editor), true);
+        let offered = offered_sections(of(TreeRole::Editor), true, true);
         let mut expected = vec!["tree-roots", "history", "export"];
         expected.extend(PREFERENCES);
         assert_eq!(offered, expected);
@@ -2206,7 +2273,7 @@ mod tests {
 
     #[test]
     fn a_section_not_offered_gives_way_to_the_first_offered() {
-        let offered = offered_sections(of(TreeRole::Visitor), false);
+        let offered = offered_sections(of(TreeRole::Visitor), false, true);
         assert_eq!(shown_section(&offered, "tree-roots".into()), "appearance");
         assert_eq!(shown_section(&offered, "names".into()), "names");
         assert_eq!(shown_section(&[], "privacy".into()), "");

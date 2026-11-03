@@ -43,6 +43,9 @@ pub fn TreeIconSidebar(
     let permissions = use_tree_permissions();
     let adds_person = show_add_person && permissions.can(Permission::Create);
     let tools = permissions.can(Permission::Tools);
+    // A signed-in Visitor is offered no section of the settings.
+    let settings =
+        crate::pages::settings::use_offered_sections().is_some_and(|sections| !sections.is_empty());
 
     let profile_class = button_class(active_view == TreeSidebarView::Profile);
     let couple_class = button_class(active_view == TreeSidebarView::Couple);
@@ -147,7 +150,9 @@ pub fn TreeIconSidebar(
                     TreePageButton { page: TreePage::Tools, tree_id: tree_id.clone(), route: route.clone() }
                 }
                 PrintAction {}
-                TreePageButton { page: TreePage::Settings, tree_id, route }
+                if settings {
+                    TreePageButton { page: TreePage::Settings, tree_id, route }
+                }
             }
         }
     }

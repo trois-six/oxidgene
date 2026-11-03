@@ -1,9 +1,9 @@
 ---
 type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
-description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and the global preferences it shares with App Settings."
+description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and, without an account, the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T19:30:00Z }
 ---
 
 
@@ -16,7 +16,7 @@ generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
 
 ## 1. Overview
 
-The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, the thresholds of the anomaly rules, the change history, and export, and repeats the device's global preferences (§11). The tools that check a tree or work on it are on the [Tools](ui-tools.md) page. It is accessed via the **gear icon** in the [Tree View](ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](ui-home.md).
+The settings page (`/trees/{id}/settings`) is a dedicated full-page interface for configuring a single genealogy tree. It covers tree identity, privacy rules, the thresholds of the anomaly rules, the change history, and export, and, where there is no account, repeats the device's global preferences (§11). The tools that check a tree or work on it are on the [Tools](ui-tools.md) page. It is accessed via the **gear icon** in the [Tree View](ui-genealogy-tree.md) left sidebar or via tree card menus on the [Homepage](ui-home.md).
 
 ---
 
@@ -86,9 +86,17 @@ On the web build, each section is listed only for a viewer who may use it
 Privacy and Anomaly thresholds for whom manages the tree's settings
 (`settings_manage`) — Tree & Roots also for a member who may leave the tree,
 showing only **Leave this tree** (§8e) — History for whom reads it
-(`history_read`), Export for whom may export, and the Global Preferences for
-everyone. A group left without a section is not shown, and the page opens on
-the first section offered. The sidebar's gear always leads here.
+(`history_read`), Export for whom may export. A group left without a section
+is not shown, and the page opens on the first section offered.
+
+The Global Preferences group is shown where there is no account: on the
+desktop, on a web server run without authentication, and to an anonymous
+visitor. A signed-in user reaches the same preferences at all times from the
+avatar's menu ([App Settings](ui-app-settings.md)), so the tree's settings do
+not repeat them. A signed-in Visitor of a public tree is then offered no
+section: the sidebar shows no gear, and the page opened by its address is the
+forbidden page. Until the account and the tree's access are known the page
+draws nothing.
 
 Each group has an uppercase orange label. Each item is a text button. The active item has an orange text color, bold weight, and a subtle background (`var(--bg-card)`).
 
@@ -120,6 +128,8 @@ icon, not sections of this page.
 | Export tree | `export` |
 
 ### Group 4 — Global Preferences
+
+Without an account only (see above).
 | Item | Section ID |
 |---|---|
 | Appearance | `appearance` |
@@ -585,7 +595,8 @@ an upgrade) is described without its size.
 
 Appearance, language, pedigree, name-display, date display and entry
 options preferences are application-level settings shared with
-[App Settings](ui-app-settings.md), kept on the device. Changing them from the
+[App Settings](ui-app-settings.md), kept on the device. This group is shown
+without an account only (§4). Changing them from the
 tree settings page immediately updates the same global preference, for every
 tree opened on this device; they are not stored on the current tree, and are
 not entries of its history.

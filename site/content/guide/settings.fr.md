@@ -15,7 +15,7 @@ Chaque réglage est enregistré dès que vous le modifiez ; il n’y a pas de bo
 
 {{ <screenshot name="tree-settings" alt="Page des paramètres d’un arbre, avec son menu de gauche" lang={lang} /> }}
 
-Le menu de gauche des paramètres de l’arbre compte quatre groupes : **Paramètres** (**Arbre et racines**, **Confidentialité**, **Seuils des anomalies**), **Outils** (**Historique**), **Exporter** (**Exporter l’arbre**) et **Préférences globales**, qui reprend les paramètres de l’application pour que vous y accédiez depuis un arbre.
+Le menu de gauche des paramètres de l’arbre compte quatre groupes : **Paramètres** (**Arbre et racines**, **Confidentialité**, **Seuils des anomalies**), **Outils** (**Historique**), **Exporter** (**Exporter l’arbre**) et **Préférences globales**, qui reprend les paramètres de l’application pour que vous y accédiez depuis un arbre. Une fois connecté à la version web, les paramètres de l’arbre n’affichent pas ce groupe : le menu de votre avatar mène aux paramètres de l’application depuis toutes les pages.
 
 Dans la version web, le propriétaire d’un arbre trouve aussi **Membres** et **Partage** dans le premier groupe, pour partager l’arbre (voir [Partager un arbre](@/guide/sharing.fr.md)). Un membre qui n’en est pas le propriétaire trouve **Quitter cet arbre** en bas de **Arbre et racines**.
 
@@ -70,7 +70,7 @@ Téléchargez l’arbre en GEDCOM ou en GEDZIP, choisissez le logiciel de destin
 
 ## Paramètres de l’application
 
-Les paramètres de l’application comptent sept sections : **Apparence**, **Langue**, **Pedigree**, **Noms**, **Affichage des dates**, **Options de saisie** et **API**. Toutes sauf API figurent aussi sous **Préférences globales** dans les paramètres de chaque arbre ; c’est la même préférence aux deux endroits, et non un réglage de l’arbre, et elle vaut pour tous les arbres que vous ouvrez sur cet appareil.
+Les paramètres de l’application comptent sept sections : **Apparence**, **Langue**, **Pedigree**, **Noms**, **Affichage des dates**, **Options de saisie** et **API**. Toutes sauf API figurent aussi sous **Préférences globales** dans les paramètres de chaque arbre, sauf si vous êtes connecté à la version web ; c’est la même préférence aux deux endroits, et non un réglage de l’arbre, et elle vaut pour tous les arbres que vous ouvrez sur cet appareil.
 
 Ces préférences sont conservées sur cet appareil. Sur un autre ordinateur, ou dans un autre navigateur, vous les choisissez de nouveau.
 

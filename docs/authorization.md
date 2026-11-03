@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T19:30:00Z }
 ---
 
 # Authorization and Sharing
@@ -790,9 +790,11 @@ refuses (`401`) gives way to the invitation to sign in.
   and nothing of their body. The web build draws neither until
   `/auth/session` and the tree's access are known; the desktop and a server
   run without authentication open them at once, as before. The Settings
-  page opens to every viewer on the sections offered to them
+  page opens on the sections offered to the viewer
   ([Settings §4](ui-settings.md#4-left-navigation)): the device's
-  preferences at least.
+  preferences to an anonymous viewer, which a signed-in user finds under the
+  avatar instead. A signed-in Visitor, offered none, has no gear in the
+  sidebar and is shown the forbidden page.
 - **Visitor banner.** A Visitor's tree view carries a banner — *You are
   viewing this tree as a visitor* — with **Sign in** when anonymous.
 - **Tree Settings, owner only** ([Settings §4](ui-settings.md#4-left-navigation)):
