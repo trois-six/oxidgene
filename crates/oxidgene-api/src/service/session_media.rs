@@ -22,6 +22,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use oxidgene_core::OxidGeneError;
+use oxidgene_geneanet::archive::ArchiveSet;
 use oxidgene_geneanet::session::{self, Session};
 use tempfile::TempPath;
 
@@ -143,24 +144,78 @@ fn check_deposit_sizes(session: &Session) -> Result<(), OxidGeneError> {
 
 /// The archive of `session`, each of its media read from the path the
 /// wizard holds — staged by [`decode`] or fetched by the login window — and
-/// streamed into it. Reading hundreds of pictures and deflating them is
+/// streamed into it, with the originals step 2's archives hold.
+///
+/// Those originals are what the login window never fetches: the import reads
+/// a single-page deposit's original from the archive entry of its exact byte
+/// length. A file that left them out would bring the web build, which takes
+/// no archive, every medium but the photos. So each deposit whose size names
+/// an entry of `archive_paths`, and whose original the session does not hold
+/// already, has that entry written under its original's URL, as if the
+/// window had fetched it. Reading hundreds of pictures and deflating them is
 /// blocking work: it runs on the blocking pool, off the async workers the
 /// desktop shares with every page load.
 ///
 /// # Errors
 ///
 /// `Validation` for a session that cannot be encoded, such as one naming a
-/// medium that cannot be read.
-pub(crate) async fn encode(session: Session) -> Result<Vec<u8>, OxidGeneError> {
+/// medium that cannot be read, or whose collection is not one.
+pub(crate) async fn encode(
+    mut session: Session,
+    archive_paths: Vec<String>,
+) -> Result<Vec<u8>, OxidGeneError> {
     let span = tracing::info_span!(
         "geneanet.session.encode",
-        session.media.count = session.media.len()
+        session.media.count = session.media.len(),
+        archive.count = archive_paths.len()
     );
     super::blocking::run(span, move || {
-        session::encode_with_media(&session, open_staged_medium)
+        let (archives, _) = super::geneanet::index_archives(&archive_paths);
+        let entries = archived_originals(&session, &archives)?;
+        session.media.extend(
+            entries
+                .iter()
+                .map(|(handle, (url, _))| (url.clone(), handle.clone())),
+        );
+        session::encode_with_media(&session, |handle| match entries.get(handle) {
+            Some((_, position)) => archives
+                .read_at(*position)
+                .map(|bytes| Box::new(std::io::Cursor::new(bytes)) as Box<dyn Read>)
+                .map_err(std::io::Error::other),
+            None => open_staged_medium(handle),
+        })
+        .map_err(|error| OxidGeneError::Validation(error.to_string()))
     })
     .await?
-    .map_err(|error| OxidGeneError::Validation(error.to_string()))
+}
+
+/// The originals of `session`'s single-page deposits that `archives` hold and
+/// the session does not, by the handle [`encode`] names each with: a NUL
+/// first, which no path holds, then the entry's position. Each maps to the
+/// original's URL and the entry's position.
+fn archived_originals(
+    session: &Session,
+    archives: &ArchiveSet,
+) -> Result<HashMap<String, (String, usize)>, OxidGeneError> {
+    if archives.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let manifest = oxidgene_geneanet::manifest_from_collection(&session.collection)
+        .map_err(|error| OxidGeneError::Validation(error.to_string()))?;
+    let mut entries = HashMap::new();
+    for deposit in &manifest.deposits {
+        let url = &deposit.original;
+        if deposit.views.len() != 1 || url.is_empty() || session.media.contains_key(url) {
+            continue;
+        }
+        let Some(size) = session.deposit_sizes.get(&deposit.id) else {
+            continue;
+        };
+        if let Ok(Some(position)) = archives.locate_by_size(*size) {
+            entries.insert(format!("\0archive:{position}"), (url.clone(), position));
+        }
+    }
+    Ok(entries)
 }
 
 /// The medium the wizard holds at `path`, opened for

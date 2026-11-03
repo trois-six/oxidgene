@@ -1864,14 +1864,16 @@ impl TreeMutation {
                 .into_iter()
                 .map(|entry| (entry.url, entry.path))
                 .collect();
-            let archive =
-                crate::service::session_media::encode(oxidgene_geneanet::session::Session {
+            let archive = crate::service::session_media::encode(
+                oxidgene_geneanet::session::Session {
                     collection: input.collection,
                     deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
                     account: input.account,
                     media,
-                })
-                .await?;
+                },
+                input.archive_paths,
+            )
+            .await?;
             Ok(GqlGeneanetSessionArchive {
                 archive_base64: base64::engine::general_purpose::STANDARD.encode(archive),
             })

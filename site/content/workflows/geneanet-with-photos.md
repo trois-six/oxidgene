@@ -95,7 +95,7 @@ If someone created from a photo bears the same name as a person already in your 
 Reading your media list from Geneanet takes a while, and with your original files, matching your archives costs one more request per medium. You can save what was collected and avoid asking Geneanet again. Next to **Reuse a saved connection**, in the connection step and in the review step, you will find:
 
 - **Save what has been collected…** saves the media list after you signed in. A later import that loads it still opens the login window to fetch the media.
-- **Save everything, ready to import offline…** appears once the media have been gathered. A later import that loads this file needs no Geneanet connection at all.
+- **Save everything, ready to import offline…** appears once the media have been gathered. A later import that loads this file needs no Geneanet connection at all. When you added your media archives, both saves also carry the original photos found in them, so the file is enough without the archives.
 - **Load a saved file…** takes a saved file back. OxidGene sees what it holds and asks only for what is missing.
 
 This lets you start again after an interruption, or collect on one computer and import on another. It is also how the web version imports your photos: there, **Load a saved file…** is the connection step's only button. Choose your `.gw` file, load the file saved with **Save everything, ready to import offline…** in the desktop application, then review and import as usual; the file is sent with your tree, and the photos it does not hold are skipped, the last step saying how many. The saved file contains your media list and possibly your photos: keep it private, like your tree.

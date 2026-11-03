@@ -580,8 +580,8 @@ async fn graphql_reads_a_session_without_local_files() {
     a_session_is_read_without_local_files(true).await;
 }
 
-/// The multipart body of a session import.
-fn session_import_form(gw: &[u8], session: &[u8]) -> (String, Vec<u8>) {
+/// The multipart body of a session import keeping `fidelity`'s media.
+fn session_import_form(gw: &[u8], session: &[u8], fidelity: &str) -> (String, Vec<u8>) {
     let boundary = "oxidgene-test-boundary";
     let mut body = Vec::new();
     let mut part = |headers: &str, content: &[u8]| {
@@ -595,7 +595,7 @@ fn session_import_form(gw: &[u8], session: &[u8]) -> (String, Vec<u8>) {
     );
     part(
         "Content-Disposition: form-data; name=\"media_fidelity\"",
-        b"renditions",
+        fidelity.as_bytes(),
     );
     part(
         "Content-Disposition: form-data; name=\"session\"; filename=\"geneanet-session.zip\"\r\nContent-Type: application/zip",
@@ -605,10 +605,16 @@ fn session_import_form(gw: &[u8], session: &[u8]) -> (String, Vec<u8>) {
     (format!("multipart/form-data; boundary={boundary}"), body)
 }
 
-/// Start a session import of [`GENEWEB`] and [`session_with_one_photo`]
-/// into `tree_id` through REST or GraphQL, answering the job's id.
-async fn start_session_import(app: &axum::Router, tree_id: &str, graphql: bool) -> String {
-    let session = session_with_one_photo();
+/// Start a session import of [`GENEWEB`] and `session` into `tree_id`
+/// through REST or GraphQL, keeping `fidelity`'s media (`renditions` or
+/// `originals`), answering the job's id.
+async fn start_session_import(
+    app: &axum::Router,
+    tree_id: &str,
+    graphql: bool,
+    session: &[u8],
+    fidelity: &str,
+) -> String {
     if graphql {
         let response = common::gql(
             app,
@@ -618,8 +624,8 @@ async fn start_session_import(app: &axum::Router, tree_id: &str, graphql: bool) 
                 "input": {
                     "gwBase64": base64::engine::general_purpose::STANDARD.encode(GENEWEB),
                     "fileName": "family.gw",
-                    "sessionBase64": base64::engine::general_purpose::STANDARD.encode(&session),
-                    "mediaFidelity": "RENDITIONS",
+                    "sessionBase64": base64::engine::general_purpose::STANDARD.encode(session),
+                    "mediaFidelity": fidelity.to_uppercase(),
                 },
             }),
         )
@@ -630,7 +636,7 @@ async fn start_session_import(app: &axum::Router, tree_id: &str, graphql: bool) 
             .unwrap()
             .to_string()
     } else {
-        let (content_type, body) = session_import_form(GENEWEB.as_bytes(), &session);
+        let (content_type, body) = session_import_form(GENEWEB.as_bytes(), session, fidelity);
         let response = app
             .clone()
             .oneshot(
@@ -704,7 +710,14 @@ async fn a_session_import_runs_without_local_files(graphql: bool) {
     let app = build_router(state.clone());
     let tree_id = create_tree(&app).await;
 
-    let job_id = start_session_import(&app, &tree_id, graphql).await;
+    let job_id = start_session_import(
+        &app,
+        &tree_id,
+        graphql,
+        &session_with_one_photo(),
+        "renditions",
+    )
+    .await;
     let job: uuid::Uuid = job_id.parse().unwrap();
     // The session's medium is already in job storage, the extracted file gone.
     assert!(
@@ -742,6 +755,153 @@ async fn rest_imports_a_session_without_local_files() {
 #[tokio::test]
 async fn graphql_imports_a_session_without_local_files() {
     a_session_import_runs_without_local_files(true).await;
+}
+
+/// The session file the desktop saves with step 2's `archive` through REST
+/// or GraphQL, for `collection` whose deposits all measure `size` bytes.
+async fn save_session_with_archive(
+    collection: &str,
+    size: usize,
+    archive: &std::path::Path,
+    graphql: bool,
+) -> Vec<u8> {
+    let root = tempfile::tempdir().unwrap();
+    let app = build_router(AppState::new(setup_db().await, root.path()).with_local_file_access());
+    let archive = archive.to_string_lossy().into_owned();
+    if graphql {
+        let (status, value) = post_json(
+            &app,
+            "/graphql",
+            json!({
+                "query": "mutation($input: GeneanetSessionEncodeInput!) { encodeGeneanetSession(input: $input) { archiveBase64 } }",
+                "variables": {"input": {
+                    "collection": collection,
+                    "depositSizes": [{"depositId": 1, "size": size}, {"depositId": 2, "size": size}],
+                    "archivePaths": [archive],
+                }},
+            }),
+        )
+        .await;
+        assert!(
+            status.is_success() && value.get("errors").is_none(),
+            "{value}"
+        );
+        let archive = value["data"]["encodeGeneanetSession"]["archiveBase64"]
+            .as_str()
+            .unwrap();
+        base64::engine::general_purpose::STANDARD
+            .decode(archive)
+            .unwrap()
+    } else {
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/geneanet/session/encode")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "collection": collection,
+                            "deposit_sizes": {"1": size, "2": size},
+                            "archive_paths": [archive],
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec()
+    }
+}
+
+/// A session saved with step 2's archives carries the original of each
+/// single-page deposit they hold, under that original's URL — a document's
+/// pages, which the import never reads from an archive by length, stay out
+/// — and a server given no archive and no local file imports the photograph
+/// from that file alone.
+async fn a_session_saved_with_archives_brings_their_originals(graphql: bool) {
+    use std::io::Write as _;
+
+    let photo = png();
+    let work = tempfile::tempdir().unwrap();
+    let archive = work.path().join("export.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+    zip.start_file("media/photo.png", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(&photo).unwrap();
+    zip.finish().unwrap();
+    let collection = json!({
+        "deposits": [
+            {"id": 1, "views": [{"id": 10, "files": {"normal": RENDITION_URL}}]},
+            {"id": 2, "views": [
+                {"id": 20, "page": 1, "files": {"normal": "https://example.invalid/2-1.jpg"}},
+                {"id": 21, "page": 2, "files": {"normal": "https://example.invalid/2-2.jpg"}}
+            ]}
+        ],
+        "references": [{
+            "deposit": {"id": 1, "views": [{"id": 10}]},
+            "firstname": "Ada",
+            "lastname": "FICTIF",
+            "reference_extra_geneweb": {"ref": "fictif|ada|"},
+        }],
+        "view_references": {}
+    })
+    .to_string();
+    let saved = save_session_with_archive(&collection, photo.len(), &archive, graphql).await;
+    let session = oxidgene_geneanet::session::decode(&saved).unwrap();
+    let manifest = oxidgene_geneanet::manifest_from_collection(&collection).unwrap();
+    let original = &manifest.deposits[0].original;
+    assert_eq!(
+        session.media.keys().collect::<Vec<_>>(),
+        [original],
+        "the one original the archive holds"
+    );
+
+    let root = tempfile::tempdir().unwrap();
+    let state = AppState::new(setup_db().await, root.path());
+    let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+        state.db.clone(),
+        std::sync::Arc::clone(&state.profiles),
+        std::sync::Arc::clone(&state.media),
+        "geneanet-session-originals-worker",
+    );
+    let app = build_router(state);
+    let tree_id = create_tree(&app).await;
+    let job_id = start_session_import(&app, &tree_id, graphql, &saved, "originals").await;
+    assert!(worker.run_once().await.expect("run the session import"));
+    let (status, completed) = common::send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/v1/trees/{tree_id}/import-jobs/{job_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_one_photo_imported(&completed);
+    assert_eq!(
+        completed["geneanet_result"]["skipped"],
+        json!([]),
+        "{completed}"
+    );
+}
+
+#[tokio::test]
+async fn rest_session_saved_with_archives_brings_their_originals() {
+    a_session_saved_with_archives_brings_their_originals(false).await;
+}
+
+#[cfg(feature = "graphql")]
+#[tokio::test]
+async fn graphql_session_saved_with_archives_brings_their_originals() {
+    a_session_saved_with_archives_brings_their_originals(true).await;
 }
 
 /// The preview and the plan read no path unless they name an archive: one

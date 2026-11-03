@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: human:maintainer, at: 2026-11-03T15:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T21:00:00Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -711,6 +711,19 @@ makes a genuinely air-gapped import possible: collect on the machine that can
 reach Geneanet, import on the one that holds the archives, or holds nothing.
 The wizard reads what it was given and asks only for what is missing, so there
 is one *Load* button and no format for the user to choose between.
+
+**The archives' originals travel in it too.** The login window never fetches
+the original of a single-page deposit that step 2's archives hold: the import
+reads it from the archive entry of its exact byte length. A file holding only
+what the window fetched would leave exactly those out, and the web build,
+which takes no archive, would import every medium but the photographs. So a
+save made with archives writes, for each single-page deposit whose size names
+one of their entries and whose original the file does not hold already, that
+entry under the original's URL, as if the window had fetched it; read back,
+the import finds it among the fetched media. A document's pages stay out: the
+import never reads them from an archive by length, and the window fetches
+their renditions. A file saved before this rule, without them, has to be
+saved again from the desktop with the archives.
 
 **The container is a ZIP**, holding `session.json` and the media beside it as
 binary files, without base64 expansion.

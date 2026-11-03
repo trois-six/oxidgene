@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T15:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T21:00:00Z }
 ---
 
 
@@ -428,9 +428,10 @@ Unreachable steps remain visible but disabled.
 
 Unavailable web controls are replaced by an explanation naming the desktop
 application. On the web, step 3 offers **Load a saved file…**: a connection
-saved in the desktop application, its media with it, imports the tree and
-those media here, and media the file lacks are skipped, step 5 saying how
-many. Without one, the explanation points to the **A file** tab, which
+saved in the desktop application, its media with it — the originals its
+data archives hold included ([Geneanet media import §8](geneanet-media-import.md)) —
+imports the tree and those media here, and media the file lacks are skipped,
+step 5 saying how many. Without one, the explanation points to the **A file** tab, which
 imports the same `.gw` genealogy without the media.
 
 The web build exchanges no path with the server. Loading a file posts it to

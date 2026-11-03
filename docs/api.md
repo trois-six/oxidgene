@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-03T15:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T21:00:00Z }
 ---
 
 
@@ -1687,7 +1687,7 @@ answering.
 |---|---|---|
 | `POST` | `/geneweb/inspect?filename=name.gw` | **Step 1.** Parse a `.gw` and report `person_count`, `family_count` and `skipped_blocks`, writing nothing. Body is the raw file bytes, for the same encoding reason as the import above |
 | `POST` | `/geneanet/archives` | **Step 2.** JSON `{ "paths": [...] }`. Index each data archive's ZIP central directory **in place** — nothing is extracted and no bytes are uploaded. Returns per-archive `file_count`/`image_count`, and a per-archive `error` for one that could not be read, so the others still stand. Desktop only: it takes filesystem paths, which is sound because there the server is in-process |
-| `POST` | `/geneanet/session/encode` | Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all. `media` maps each URL to the path of its local file, streamed into the archive; a path that cannot be read fails the save with `400` rather than leaving the medium out |
+| `POST` | `/geneanet/session/encode` | Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all. `media` maps each URL to the path of its local file, streamed into the archive; a path that cannot be read fails the save with `400` rather than leaving the medium out. `archive_paths` (default empty) names step 2's data archives: each single-page deposit whose byte length names one of their entries, and whose original `media` does not hold, gets that entry written under its original's URL, so a build given no archive imports the original from the file |
 | `POST` | `/geneanet/session/decode` | Read a ZIP session or raw browser JSON collection, detected by content. Media references must resolve to archive entries; inline base64 media and missing entries are rejected, and so is a deposit size past 2^63 − 1. Refuses anything that is not a collection |
 | `POST` | `/geneanet/session/read` | Read a session as `decode` does — the same formats and refusals — keeping nothing: its media are checked and passed over. Answers `{ collection, deposit_sizes, account, photo_count, media_urls }`, `media_urls` the sorted addresses of the media the file carries. Served without local file access: the web build's step 3, which sends the same file again with its import. No body size limit, as for `decode` |
 | `POST` | `/geneanet/session/release` | JSON `{ "paths": [...] }`. Delete the media a decoded session staged that the wizard no longer needs — closed, or reset without importing. A path the backend did not stage is ignored. Returns `204` |

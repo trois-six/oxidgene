@@ -2197,6 +2197,8 @@ pub struct GeneanetSessionBody {
     /// Media already fetched. Saving after step 4 includes them, which is what
     /// makes the file importable with no connection.
     pub media: std::collections::HashMap<String, String>,
+    /// Step 2's archives, whose originals the file carries too.
+    pub archive_paths: Vec<String>,
 }
 
 /// What a saved session held.

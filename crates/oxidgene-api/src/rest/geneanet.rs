@@ -140,12 +140,15 @@ pub async fn encode_session_handler(
     state.local_file_access.require()?;
     // The wizard holds paths; the archive holds bytes. Each file is streamed
     // into the archive as it is read rather than carried through the UI.
-    let archive = crate::service::session_media::encode(session::Session {
-        collection: body.collection,
-        deposit_sizes: body.deposit_sizes,
-        account: body.account,
-        media: body.media,
-    })
+    let archive = crate::service::session_media::encode(
+        session::Session {
+            collection: body.collection,
+            deposit_sizes: body.deposit_sizes,
+            account: body.account,
+            media: body.media,
+        },
+        body.archive_paths,
+    )
     .await?;
 
     // The bytes themselves: the wizard writes them straight to the file the

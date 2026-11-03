@@ -1044,6 +1044,10 @@ pub struct EncodeSessionRequest {
     /// with no connection at all. A path that cannot be read fails the save.
     #[serde(default)]
     pub media: std::collections::HashMap<String, String>,
+    /// Step 2's archives, whose originals the file carries too: the web
+    /// build, which takes no archive, imports them from the file.
+    #[serde(default)]
+    pub archive_paths: Vec<String>,
 }
 
 /// The staged media of a decoded session the wizard no longer needs.

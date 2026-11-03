@@ -983,6 +983,13 @@ fn GeneanetTab(
     // How many steps this journey has, and therefore what each one is called.
     let archives_step = fidelity().uses_archives();
     let number = move |step: Step| step_number(step, archives_step);
+    // What a saved file carries the originals of: step 2's archives, when
+    // this run reads them.
+    let saved_archive_paths: Vec<String> = if archives_step {
+        archives.read().iter().map(|a| a.path.clone()).collect()
+    } else {
+        Vec::new()
+    };
 
     rsx! {
         div { class: "gn-steps",
@@ -1047,6 +1054,7 @@ fn GeneanetTab(
                     connecting: connecting(),
                     collected,
                     fetched,
+                    archive_paths: saved_archive_paths.clone(),
                     error: connect_error,
                     on_start: start_connect,
                     on_loaded: move |_| open.set(Step::Preview),
@@ -1067,6 +1075,7 @@ fn GeneanetTab(
                     fidelity: fidelity(),
                     collected,
                     fetched,
+                    archive_paths: saved_archive_paths,
                     session_error: preview_error,
                     gathering: gathering(),
                     fetch_progress: fetch_progress(),
@@ -1903,6 +1912,8 @@ fn ConnectStep(
     connecting: Option<Connecting>,
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
+    /// Step 2's archives, whose originals a saved file carries.
+    archive_paths: Vec<String>,
     error: Signal<Option<String>>,
     on_start: EventHandler<()>,
     on_loaded: EventHandler<()>,
@@ -1913,7 +1924,7 @@ fn ConnectStep(
     // effect watching `collected`. An effect runs on mount too, so reopening
     // an already-settled step 3 would read "a session exists" as "a session
     // just arrived" and bounce the user forward to step 4.
-    let reuse = rsx! { SessionControls { collected, fetched, error, on_loaded } };
+    let reuse = rsx! { SessionControls { collected, fetched, archive_paths, error, on_loaded } };
 
     if !available {
         return rsx! {
@@ -2158,6 +2169,9 @@ async fn load_session(
 fn SessionControls(
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
+    /// Step 2's archives: the saved file carries the originals they hold,
+    /// which the web build, given no archive, imports from it.
+    archive_paths: Vec<String>,
     error: Signal<Option<String>>,
     /// Fired only when a file has just been read — never merely because one
     /// was loaded earlier.
@@ -2177,12 +2191,14 @@ fn SessionControls(
         let api = api_save.clone();
         let trace = trace_save.clone();
         let Some(current) = collected() else { return };
+        let archive_paths = archive_paths.clone();
         spawn(async move {
             let body = GeneanetSessionBody {
                 collection: current.collection.clone(),
                 deposit_sizes: current.deposit_sizes.clone(),
                 account: current.account.clone(),
                 media: fetched.read().clone(),
+                archive_paths,
             };
             let archive: Vec<u8> = match trace
                 .step(
@@ -2441,6 +2457,8 @@ fn PreviewStep(
     fidelity: MediaFidelity,
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
+    /// Step 2's archives, whose originals a saved file carries.
+    archive_paths: Vec<String>,
     session_error: Signal<Option<String>>,
     gathering: bool,
     fetch_progress: Option<(usize, usize)>,
@@ -2481,7 +2499,7 @@ fn PreviewStep(
         // connection at all. Step 3 also collapses once settled, so a control
         // only there disappears exactly when it becomes worth using.
         if !gathering {
-            SessionControls { collected, fetched, error: session_error, on_loaded: None }
+            SessionControls { collected, fetched, archive_paths, error: session_error, on_loaded: None }
         }
 
         if gathering {
