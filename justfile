@@ -304,6 +304,18 @@ clean:
 server:
     cargo run --package oxidgene-server
 
+# The Compose stack run from the checkout (docker/docker-compose.dev.yml):
+# the server, the worker and the browser frontend rebuild themselves when a
+# source changes, on http://localhost:8081. The first start builds the
+# development image and every crate.
+# Run the Compose stack with backend and frontend rebuilt on every change
+dev-stack:
+    docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d --build --wait --remove-orphans
+
+# Stop the development Compose stack, keeping its data and build volumes
+dev-stack-down:
+    docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml down
+
 # Start the PostgreSQL development database
 dev-db-up:
     docker compose -f docker/docker-compose.yml up -d --wait postgres

@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-03T12:40:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T16:30:00Z }
 ---
 
 # Development Environment and Workflows
@@ -708,6 +708,35 @@ paths, so the application is opened on one origin,
 asked ([Authentication §8.5](authentication.md#85-development-stack)). The
 end-to-end journeys that sign in against that Rauthy are an opt-in suite,
 `just e2e-auth` ([Authentication §12](authentication.md#12-tests)).
+
+While working on the code, the same stack runs from the checkout instead of
+release images: `just dev-stack` adds the overlay
+`docker/docker-compose.dev.yml`, and `just dev-stack-down` stops it. Rebuilding
+the base stack's images compiles the whole workspace in release mode, with no
+cache, at every `up --build`; the overlay compiles in the debug profile,
+incrementally, in containers that watch the sources:
+
+- `backend-build` (the image of `docker/Dockerfile.dev`: the pinned Rust
+  release with its WebAssembly target, clang and mold, the Dioxus CLI and
+  watchexec) runs one `cargo build` of the server and the worker whenever a
+  file under `crates/`, `apps/` or `assets/` changes, restarting a build an
+  edit overtakes. One build for both keeps one feature resolution, so neither
+  rebuilds the other's dependencies;
+- `server` and `worker` run those binaries (`docker/dev-run.sh`) and run them
+  again when a build replaces them;
+- `frontend` runs `dx serve`, which rebuilds the bundle and hot-reloads the
+  page, and `web`, a plain nginx (`docker/nginx-dev-frontend.conf`), serves
+  it with the API, sign-in and assistant paths on one origin,
+  `http://localhost:8081`, as the base stack does.
+
+The checkout is mounted read-only; the builds write to their own volumes
+(`dev_target`, `dev_target_web`, `dev_cargo_registry`, and `dev_dx_tools` for
+the tools `dx` downloads), which
+`just dev-stack-down` keeps. The first start builds the image and every crate
+— several minutes; later starts and edits rebuild what changed. The data
+services, Rauthy and their volumes are the base stack's, shared with it.
+`docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml
+logs -f backend-build frontend` shows the builds.
 
 RustFS exposes its S3 API on `http://127.0.0.1:9000` and its console on
 `http://127.0.0.1:9001`. The one-shot `rustfs-init` service creates the

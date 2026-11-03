@@ -1,0 +1,122 @@
+# Development overlay of docker-compose.yml: the server, the worker and the
+# browser frontend run from the checkout and rebuild themselves when a source
+# changes, instead of release images rebuilt from scratch at every
+# `up --build` (docs/development.md §3).
+#
+#   just dev-stack            # docker compose … -f docker/docker-compose.dev.yml up
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml logs -f backend-build
+#   just dev-stack-down
+#
+# - backend-build watches the sources and runs one incremental debug
+#   `cargo build` of the server and the worker, into a volume of its own;
+# - server and worker run those binaries, and run them again when they are
+#   rebuilt (dev-run.sh);
+# - frontend runs `dx serve`, which rebuilds the WebAssembly bundle and
+#   hot-reloads the page; web, a plain nginx, serves it and the API on one
+#   origin, http://localhost:8081, as the base stack does.
+#
+# The checkout is mounted read-only: builds write only to the volumes. The
+# first start builds the image and every crate, which takes a while; later
+# starts and edits rebuild only what changed. The data services, Rauthy and
+# their volumes are the base stack's, shared with it.
+
+# Built once, by backend-build; the other services run the same image. A
+# `!reset` does not survive a merge key, so the services that replace a
+# base build reset it themselves.
+x-dev-image: &dev-image
+  image: oxidgene-dev:latest
+  pull_policy: never
+  working_dir: /app
+
+services:
+  backend-build:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dev
+    image: oxidgene-dev:latest
+    working_dir: /app
+    restart: unless-stopped
+    volumes:
+      - ..:/app:ro
+      - dev_target:/app/target
+      - dev_cargo_registry:/usr/local/cargo/registry
+    # One build of both binaries, so that they share one feature
+    # resolution and never rebuild each other's dependencies.
+    command:
+      - watchexec
+      - --on-busy-update=restart
+      - --debounce=500ms
+      - --watch=Cargo.toml
+      - --watch=Cargo.lock
+      - --watch=crates
+      - --watch=apps
+      - --watch=assets
+      - --
+      - cargo
+      - build
+      - --locked
+      - --package=oxidgene-server
+      - --package=oxidgene-worker
+
+  server:
+    <<: *dev-image
+    build: !reset null
+    command: ["sh", "/app/docker/dev-run.sh", "oxidgene-server"]
+    volumes:
+      - ..:/app:ro
+      - dev_target:/app/target:ro
+    environment:
+      OXIDGENE_WORK_DIR: "/tmp/oxidgene"
+    # The first start waits for the first build.
+    healthcheck:
+      start_period: 30m
+      start_interval: 5s
+
+  worker:
+    <<: *dev-image
+    build: !reset null
+    command: ["sh", "/app/docker/dev-run.sh", "oxidgene-worker"]
+    volumes:
+      - ..:/app:ro
+      - dev_target:/app/target:ro
+    environment:
+      OXIDGENE_WORK_DIR: "/tmp/oxidgene"
+
+  frontend:
+    <<: *dev-image
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ..:/app:ro
+      - dev_target_web:/app/target
+      - dev_cargo_registry:/usr/local/cargo/registry
+      # wasm-bindgen and esbuild, which dx downloads on its first build.
+      - dev_dx_tools:/root/.local/share/.dx
+    environment:
+      # Same-origin API calls, which web forwards to the server.
+      OXIDGENE_API_URL: ""
+      OXIDGENE_LOG_LEVEL: "${OXIDGENE_WEB_LOG_LEVEL:-info}"
+    command:
+      - scripts/dx.sh
+      - serve
+      - --package=oxidgene-web
+      - --platform=web
+      - --addr=0.0.0.0
+      - --port=8080
+      - --open=false
+      - --interactive=false
+
+  web:
+    build: !reset null
+    image: nginx:1.29-trixie
+    volumes:
+      - ./nginx-dev-frontend.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      frontend:
+        condition: service_started
+
+volumes:
+  dev_target:
+  dev_target_web:
+  dev_cargo_registry:
+  dev_dx_tools:

@@ -16,12 +16,23 @@
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^docker\\/Dockerfile\\.web$/"],
+      "managerFilePatterns": ["/^docker\\/Dockerfile\\.web$/", "/^docker\\/Dockerfile\\.dev$/"],
       "matchStrings": [
-        "cargo install dioxus-cli --version (?<currentValue>[^ ]+) --locked"
+        "cargo install (?:--locked )?dioxus-cli --version (?<currentValue>[^ ]+)"
       ],
       "datasourceTemplate": "crate",
       "depNameTemplate": "dioxus-cli",
+      "versioningTemplate": "cargo"
+    },
+    {
+      "customType": "regex",
+      "description": "The development image's file watcher",
+      "managerFilePatterns": ["/^docker\\/Dockerfile\\.dev$/"],
+      "matchStrings": [
+        "cargo install --locked watchexec-cli --version (?<currentValue>[^ ]+)"
+      ],
+      "datasourceTemplate": "crate",
+      "depNameTemplate": "watchexec-cli",
       "versioningTemplate": "cargo"
     },
     {
