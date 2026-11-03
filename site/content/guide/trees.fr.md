@@ -36,7 +36,7 @@ Si rien ne correspond à votre recherche, la page indique **Aucun arbre trouvé*
 
 ## Créer un arbre
 
-1. Cliquez sur **Nouvel arbre**, ou sur la carte **Créer un nouvel arbre** à la fin de la grille.
+1. Cliquez sur la carte **Créer un nouvel arbre** à la fin de la grille. Quand cette carte est sous le bas de la fenêtre, un bouton **Nouvel arbre** dans la barre d’outils vous évite de faire défiler la page.
 2. Saisissez un **Nom**. Il est obligatoire.
 3. Si vous le souhaitez, ajoutez une **Description (facultatif)** : la famille, la région ou la période couverte par l’arbre, par exemple.
 4. Cliquez sur **Créer**.

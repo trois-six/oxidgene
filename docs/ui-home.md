@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T18:00:00Z }
 ---
 
 
@@ -84,7 +84,7 @@ Both name orders ignore case.
 
 **Ownership filter** — web build with the sharing surfaces only, after the sort selector: **All trees** (default), **My trees** (the viewer owns them) or **Shared with me** (any other role).
 
-**"+ New tree" button** — rightmost element. Visually prominent: orange gradient background, Cinzel font, white text, subtle shadow. Opens the new tree modal on click. Always visible regardless of the number of existing trees, unless the signed-in user lacks the instance's tree creation right: then neither the button, the add card nor the empty state's button is shown.
+**"+ New tree" button** — rightmost element. Visually prominent: orange gradient background, Cinzel font, white text, subtle shadow. Opens the new tree modal on click. It spares a scroll down to the [create-a-tree card](#create-a-tree-card), so it is hidden while the page already shows a way to create a tree in full before any scroll: the card, or the empty state's **New tree** button. It shows whenever that way is below the fold (more trees than the first screen holds, a short window) or absent (no tree matches the search). The page measures this again when its size or content changes — a resized window, the list loaded, filtered or switched between grid and list — never on scroll, so the button does not come and go while scrolling. A signed-in user lacking the instance's tree creation right is offered none of the three: neither the button, the add card nor the empty state's button is shown.
 
 ---
 
@@ -146,7 +146,7 @@ reading.
 
 ### Create-a-tree card
 
-The last card in the grid. Dashed border, centered `+` icon in a green circle, "Create a new tree" label, and a subtitle. Clicking it opens the new tree modal (same as the "+ New tree" button).
+The last card in the grid. Dashed border, centered `+` icon in a green circle, "Create a new tree" label, and a subtitle. Clicking it opens the new tree modal (same as the "+ New tree" button, which it replaces while it is in full view before any scroll).
 
 ---
 

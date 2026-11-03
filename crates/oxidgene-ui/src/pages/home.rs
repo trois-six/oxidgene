@@ -115,6 +115,7 @@ fn HomeBody() -> Element {
     let creates = account.read().me().is_none_or(|me| me.can_create_trees);
 
     let i18n = use_i18n();
+    use_toolbar_create_fold();
 
     let api_del = api.clone();
     let on_confirm_delete = move |_| {
@@ -374,6 +375,53 @@ fn HomeHeader() -> Element {
     }
 }
 
+/// Hide the toolbar's new-tree button while the page's own way to create a
+/// tree — the add card, or the empty state's button — is in full view before
+/// any scroll: the button is there to spare a scroll to the card, and above
+/// the fold it only repeats it (docs/ui-home.md).
+///
+/// The page sets `data-create-in-view` on `.home-page`, measured again
+/// whenever the page or its content changes size (a resized window, the list
+/// loaded, filtered or switched to rows). A layout change, not a scroll, is
+/// what moves the card: the button does not come and go as the page scrolls.
+/// Hiding the button never moves the card down, so the two cannot alternate.
+/// The observer lets go once its page has left the document, or when the
+/// next homepage starts its own.
+fn use_toolbar_create_fold() {
+    use_effect(|| {
+        document::eval(
+            r#"
+            window.__oxHomeFold?.disconnect();
+            const page = document.querySelector('.home-page');
+            const main = page?.querySelector('.home-main');
+            if (page && main) {
+                const measure = () => {
+                    if (!page.isConnected) {
+                        observer.disconnect();
+                        return;
+                    }
+                    const target = page.querySelector('[data-create-tree]');
+                    let bottom = Infinity;
+                    if (target) {
+                        // Offsets, not the bounding box: the cards' entrance
+                        // animation shifts the box while they fade in.
+                        bottom = target.offsetHeight;
+                        for (let el = target; el && el !== page; el = el.offsetParent) {
+                            bottom += el.offsetTop;
+                        }
+                    }
+                    page.toggleAttribute('data-create-in-view', bottom <= page.clientHeight);
+                };
+                const observer = new ResizeObserver(measure);
+                observer.observe(page);
+                observer.observe(main);
+                window.__oxHomeFold = observer;
+            }
+            "#,
+        );
+    });
+}
+
 /// Search, sort, the list / grid switch and the new-tree button.
 #[component]
 fn HomeToolbar(
@@ -506,6 +554,7 @@ fn TreesGrid(
                     if creates {
                         button {
                             class: "home-btn-new",
+                            "data-create-tree": true,
                             onclick: move |_| on_create.call(()),
                             {i18n.t("home.new_tree")}
                         }
@@ -575,6 +624,7 @@ fn TreesGrid(
             if creates {
                 div {
                     class: "tree-card tree-card-add",
+                    "data-create-tree": true,
                     onclick: move |_| on_create.call(()),
                     div { class: "tree-card-add-icon", "＋" }
                     div { class: "tree-card-add-text", {i18n.t("home.add_card_title")} }
@@ -1261,6 +1311,8 @@ const HOME_STYLES: &str = r#"
         opacity: 0.9;
         transform: translateY(-1px);
     }
+
+    .home-page[data-create-in-view] .home-btn-new-toolbar { display: none; }
 
     /* ── Trees grid ──────────────────────────────────────────────── */
 

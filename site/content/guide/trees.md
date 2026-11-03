@@ -36,7 +36,7 @@ If nothing matches your search, the page says **No tree found**. When you have n
 
 ## Create a tree
 
-1. Click **New Tree**, or the **Create a new tree** card at the end of the grid.
+1. Click the **Create a new tree** card at the end of the grid. When that card is below the bottom of the window, a **New Tree** button in the toolbar saves you the scroll.
 2. Type a **Name**. It is required.
 3. Optionally, add a **Description (optional)**, such as the family, region or period the tree covers.
 4. Click **Create**.

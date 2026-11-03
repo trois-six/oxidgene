@@ -4,6 +4,9 @@ test("creates, renames and deletes a tree from the home page", async ({ page }) 
     const name = `E2E home ${Date.now()}`;
     const renamed = `${name} renamed`;
     await page.goto("/");
+    // Searching for the tree to come shows no card yet, so the toolbar
+    // offers New Tree whatever the other tests left on the page.
+    await page.locator(".home-search-input").fill(name);
 
     await page.locator(".home-toolbar").getByRole("button", { name: "New Tree" }).click();
     const createDialog = page.locator(".home-create-modal");
@@ -58,6 +61,28 @@ test("sorts the trees by name either way and lays them out as a list", async ({ 
     await page.getByRole("button", { name: "List of trees" }).click();
     await expect(grid).toHaveClass(/trees-list/);
     await expect(page.getByRole("button", { name: "List of trees" })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("the toolbar offers New Tree only while the add card is below the fold", async ({ page, tree }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+    await page.locator(".home-search-input").fill(tree.name);
+    await expect(page.locator(".tree-card-name")).toHaveCount(1);
+    const addCard = page.locator(".tree-card-add");
+    const toolbarButton = page.locator(".home-toolbar").getByRole("button", { name: "New Tree" });
+    await expect(addCard).toBeInViewport({ ratio: 1 });
+    await expect(toolbarButton).toBeHidden();
+
+    await page.setViewportSize({ width: 1280, height: 320 });
+    await expect(addCard).not.toBeInViewport({ ratio: 1 });
+    await expect(toolbarButton).toBeVisible();
+
+    // No card matches: nothing on the page creates a tree but the toolbar.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(toolbarButton).toBeHidden();
+    await page.locator(".home-search-input").fill(`${tree.name} none`);
+    await expect(addCard).toHaveCount(0);
+    await expect(toolbarButton).toBeVisible();
 });
 
 test("a tree card shows its ⋮ without hover, and the menu opens from it", async ({ page, tree }) => {
