@@ -4,7 +4,9 @@ import test from "node:test";
 
 const source = await readFile(new URL("../src/components/pdf_viewer.js", import.meta.url), "utf8");
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const run = new AsyncFunction("window", "document", "dioxus", source);
+// The Rust side sets the release pdf.js's files are under before the script
+// (pdf_viewer.rs); a fictitious one stands in for it here.
+const run = new AsyncFunction("window", "document", "dioxus", `const PDFJS_RELEASE = "0.0.0";\n${source}`);
 
 // A channel of the eval bridge: what the script sends, and what it receives.
 function channel() {
