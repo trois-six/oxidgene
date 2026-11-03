@@ -11,6 +11,7 @@ use dioxus::prelude::*;
 use uuid::Uuid;
 
 use crate::api::{ApiClient, NameScope, SuggestionField, ValueSuggestion};
+use crate::field_text::use_field_text;
 use crate::i18n::{I18n, use_i18n};
 use crate::prefs::use_entry_options;
 use crate::ui_observability::use_ui_resource;
@@ -56,6 +57,7 @@ pub(crate) fn SuggestInput(
     // The rows as mounted, so the keyboard can scroll the one it reaches
     // into view.
     let mut mounted = use_signal(HashMap::<usize, Rc<MountedData>>::new);
+    let field = use_field_text(&value);
     let count = rows.len();
     let list_visible = list_shown(open(), count);
 
@@ -112,13 +114,15 @@ pub(crate) fn SuggestInput(
         div { class: "suggest-input",
             input {
                 r#type: "text",
-                value: "{value}",
+                id: field.id(),
+                initial_value: "{value}",
                 placeholder: placeholder.unwrap_or_default(),
                 disabled,
                 autocomplete: "off",
                 "aria-autocomplete": "list",
                 "aria-expanded": "{list_visible}",
                 oninput: move |e: Event<FormData>| {
+                    field.typed(&e.value());
                     open.set(true);
                     highlight.set(None);
                     on_input.call(e.value());

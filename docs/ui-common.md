@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T12:30:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -1383,6 +1383,22 @@ Entering and leaving an element (`mouseenter`, `pointerleave`…) do not bubble,
 are listened to on the element alone, and are free to use. A repository guard
 (`continuous_listeners`) fails on a continuous listener written in the markup,
 and on gesture listeners spread elsewhere than on their wrapper.
+
+### 6.6 Typed text
+
+The renderer's changes reach the page after the event that caused them. A
+field bound to its text (`value`) is set again by every render whose text
+changed, the user's keystrokes included, so when a render is slow — a field
+listing suggestions as the user types — a later keystroke already in the
+field is undone: typed quickly, `abc` becomes `ab`. A field whose text the
+application writes too goes through `field_text::use_field_text`: the field
+takes its text when it is created (`initial_value`) and records each
+keystroke, and the application's text is written into it only when it is
+not what the user typed — a suggestion picked, a surname put in capitals —
+and only while the field still reads what the user last typed; otherwise a
+newer keystroke is on its way and wins. The fields with suggestions
+(§4.4), the topbar person search (§2.3) and the person search of the
+person picker (§4.2) work this way.
 
 ## 7. Printing
 

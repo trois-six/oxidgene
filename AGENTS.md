@@ -231,6 +231,10 @@ observability <- db/api (feature), server/worker/desktop
   one sends every such event of the window to Rust synchronously. Attach drag
   listeners with `listeners::while_active`, read a wheel with
   `listeners::forward_wheel` (`ui-common.md` §6.5).
+- A text field whose render can lag behind typing — one listing suggestions
+  as the user types — never binds `value`: it goes through
+  `field_text::use_field_text`, or fast typing loses keystrokes
+  (`ui-common.md` §6.6).
 
 ## Backend Rules
 

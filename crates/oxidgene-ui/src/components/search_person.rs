@@ -19,6 +19,7 @@ use crate::api::{ApiClient, CroppedSource};
 use crate::components::cropped_image::CroppedImage;
 use crate::components::event_icon::EventIcon;
 use crate::components::pedigree_chart::lifespan_tooltip;
+use crate::field_text::use_field_text;
 use crate::i18n::{I18n, use_i18n};
 use crate::placeholder::Placeholder;
 use crate::ui_observability::use_ui_resource;
@@ -275,6 +276,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let mut query = use_signal(String::new);
+    let field = use_field_text(&query.read());
     let tree_id = props.tree_id;
 
     let placeholder = if props.placeholder.is_empty() {
@@ -343,8 +345,12 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
                 input {
                     r#type: "text",
                     placeholder: "{placeholder}",
-                    value: "{query}",
-                    oninput: move |e: Event<FormData>| query.set(e.value()),
+                    id: field.id(),
+                    initial_value: "{query}",
+                    oninput: move |e: Event<FormData>| {
+                        field.typed(&e.value());
+                        query.set(e.value());
+                    },
                 }
                 if let Some(on_cancel) = props.on_cancel {
                     button {
