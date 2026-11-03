@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-03T23:30:00Z }
 ---
 
 # Authentication and Sessions
@@ -216,7 +216,13 @@ failure), `signup_closed` (§6.2), `account_deactivated` (§6.5),
 
 ### 4.3 Sign-in
 
-1. `/auth/login` creates a sign-in transaction: a `state` and a `nonce` of
+1. `/auth/login` asked on another host than `OXIDGENE_PUBLIC_URL`'s — the
+   application opened on `127.0.0.1` where the public URL names
+   `localhost` — first redirects to the same `/auth/login` there, its
+   `return_to` and `lang` kept, setting nothing: a binding cookie is the
+   host's that set it, and the provider comes back to the public URL,
+   where the browser would have none, so the sign-in would fail. On the
+   public URL's host, it creates a sign-in transaction: a `state` and a `nonce` of
    256 random bits each, a PKCE verifier, the validated `return_to`, the
    UI language. It stores it in the session store for ten minutes, keyed by
    the hash of `state`, with the hash of a fresh binding value, which it

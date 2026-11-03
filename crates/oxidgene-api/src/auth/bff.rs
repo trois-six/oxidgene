@@ -111,8 +111,20 @@ pub(crate) struct LoginQuery {
 }
 
 /// `GET /auth/login`: start a sign-in and send the browser to the provider.
-async fn login(State(state): State<AppState>, Query(query): Query<LoginQuery>) -> Response {
+///
+/// A sign-in asked on another host than the public URL's — `127.0.0.1`
+/// where it names `localhost` — is first sent to the same address there:
+/// the binding cookie is set for the host that answers, and the callback
+/// comes back to the public URL, whose browser would have none to show.
+async fn login(
+    State(state): State<AppState>,
+    Query(query): Query<LoginQuery>,
+    headers: HeaderMap,
+) -> Response {
     let oidc = oidc(&state);
+    if let Some(canonical) = canonical_login(&oidc.config, &headers, &query) {
+        return redirect(&canonical, &[]);
+    }
     let Ok(metadata) = oidc.provider.metadata().await else {
         log_failure("auth_unavailable", &oidc.config.client_id);
         return failed("auth_unavailable");
@@ -155,6 +167,29 @@ async fn login(State(state): State<AppState>, Query(query): Query<LoginQuery>) -
         Some(location) => redirect(&location, &[cookie::login(&binding)]),
         None => failed("auth_unavailable"),
     }
+}
+
+/// The same sign-in on the public URL's host, when `headers` name another:
+/// `return_to` and `lang` carried over, the first one made safe.
+fn canonical_login(
+    config: &super::config::OidcConfig,
+    headers: &HeaderMap,
+    query: &LoginQuery,
+) -> Option<String> {
+    let host = headers.get(header::HOST)?.to_str().ok()?;
+    let public_host = config
+        .public_origin
+        .split_once("://")
+        .map_or(config.public_origin.as_str(), |(_, authority)| authority);
+    if host.eq_ignore_ascii_case(public_host) {
+        return None;
+    }
+    let return_to = safe_return_to(query.return_to.as_deref());
+    let mut params = vec![("return_to", return_to.as_str())];
+    if let Some(lang) = query.lang.as_deref() {
+        params.push(("lang", lang));
+    }
+    with_query(&format!("{}/auth/login", config.public_url), &params)
 }
 
 #[derive(Debug, Deserialize)]

@@ -851,3 +851,48 @@ async fn the_none_mode_reports_itself_and_has_no_account() {
     let me = browser.gql("{ me { id } }", json!({})).await;
     assert_eq!(me.json["errors"][0]["extensions"]["code"], "NOT_FOUND");
 }
+
+/// A sign-in asked on another host than the public URL's (`127.0.0.1` for
+/// `localhost`) is sent to the same address there first, setting no
+/// binding cookie: one set on the asked host would be missing when the
+/// provider comes back to the public URL, and the sign-in would fail.
+#[tokio::test]
+async fn a_sign_in_on_another_host_starts_again_on_the_public_url() {
+    use tower::ServiceExt as _;
+    let provider = MockProvider::start().await;
+    let db = setup_db().await;
+    let (app, _) = provider.app(&db, &[]);
+
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/auth/login?return_to=/trees&lang=fr")
+                .header(header::HOST, "127.0.0.1:8081")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        format!("{PUBLIC_URL}/auth/login?return_to=%2Ftrees&lang=fr").as_str()
+    );
+    assert!(response.headers().get(header::SET_COOKIE).is_none());
+
+    // On the public URL's host the sign-in starts, its cookie set there.
+    let mut browser = Browser::new(&app);
+    let login = browser.get("/auth/login?return_to=/trees&lang=fr").await;
+    assert!(
+        login.location().contains("/authorize?"),
+        "{}",
+        login.location()
+    );
+    assert!(
+        login
+            .set_cookies()
+            .iter()
+            .any(|cookie| cookie.starts_with("__Host-oxidgene-login="))
+    );
+}
