@@ -101,6 +101,9 @@ test("the web build imports a Geneanet tree with the media of a saved session", 
                     references: [{ deposit: { id: 1, views: [{ id: 10 }] }, firstname: "Ada", lastname: "FICTIF", reference_extra_geneweb: { ref: "fictif|ada|" } }],
                     view_references: {},
                     oxidgene_media: { [rendition]: "media/00000.png" },
+                    // Keyed by deposit: the browser's read hands them back
+                    // with string keys.
+                    oxidgene_deposit_sizes: { "1": 4096 },
                 }),
                 "utf8",
             ),

@@ -2046,8 +2046,11 @@ async fn load_session(
 enum SessionReadEvent {
     Cancelled,
     Reading,
+    /// The server's answer, decoded on its own: an internally tagged enum
+    /// buffers its fields, and the buffer reads no number from the string
+    /// keys of `deposit_sizes`.
     Read {
-        session: crate::api::GeneanetSessionContents,
+        session: serde_json::Value,
     },
     Failed {
         status: u16,
@@ -2110,7 +2113,11 @@ async fn load_session(
             match eval.recv::<SessionReadEvent>().await {
                 Ok(SessionReadEvent::Reading) => busy.set(true),
                 Ok(SessionReadEvent::Cancelled) => return Ok(None),
-                Ok(SessionReadEvent::Read { session }) => return Ok(Some(session)),
+                Ok(SessionReadEvent::Read { session }) => {
+                    return serde_json::from_value::<crate::api::GeneanetSessionContents>(session)
+                        .map(Some)
+                        .map_err(ApiError::from);
+                }
                 Ok(SessionReadEvent::Failed { status: 0, .. }) | Err(_) => {
                     return Err(ApiError::Client("error.unreachable"));
                 }
