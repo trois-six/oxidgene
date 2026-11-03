@@ -525,6 +525,9 @@ async fn start_file_import_upload(
         .expect("an endpoint URL is JSON serializable");
     let format = serde_json::to_string(format.api_name())
         .expect("a static import format is JSON serializable");
+    // The browser sends the file itself, so the session's CSRF token is set
+    // here rather than by the API client (docs/authentication.md §4.4).
+    let csrf = serde_json::to_string(&api.csrf_token()).expect("a token is JSON serializable");
     let script = format!(
         r#"
         const input = document.getElementById('oxidgene-file-import-input');
@@ -538,6 +541,8 @@ async fn start_file_import_upload(
         const xhr = new XMLHttpRequest();
         xhr.open('POST', {endpoint} + '?' + params.toString());
         xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        const csrf = {csrf};
+        if (csrf) xhr.setRequestHeader('X-OxidGene-CSRF', csrf);
         xhr.responseType = 'json';
         xhr.upload.onprogress = event => dioxus.send({{
             kind: 'upload',

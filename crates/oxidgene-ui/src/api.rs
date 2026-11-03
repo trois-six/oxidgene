@@ -3275,6 +3275,14 @@ impl ApiClient {
         }
     }
 
+    /// The session's CSRF token, for a write the browser sends itself rather
+    /// than through this client: an upload streamed from a picked file
+    /// (docs/authentication.md §4.4).
+    #[cfg(target_arch = "wasm32")]
+    pub fn csrf_token(&self) -> Option<String> {
+        self.session.csrf()?.to_str().ok().map(str::to_owned)
+    }
+
     /// A stream receiving one message per `401` the backend answers from now
     /// on, replacing any earlier listener: how the account UI learns that a
     /// session ended (docs/authentication.md §10).
