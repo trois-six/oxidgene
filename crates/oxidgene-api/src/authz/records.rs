@@ -513,7 +513,7 @@ fn nothing_hidden(redaction: &Redaction) -> bool {
     redaction.class().hides_no_record()
 }
 
-/// The records `unseen` hides, each kind sorted: one statement.
+/// The records `unseen` hides, each kind sorted: one statement per kind.
 async fn hidden_records(
     db: &DatabaseConnection,
     unseen: &Unseen,

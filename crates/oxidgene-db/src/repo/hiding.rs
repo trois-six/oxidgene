@@ -15,8 +15,16 @@
 //! which decides for the projections in memory; the records' rules are
 //! decided here alone. A set is selected in one of two ways: inline, a
 //! subquery in the condition of a list ([`Unseen`]), or as a reference to a
-//! common table expression of the one statement that reads every hidden
-//! record at once ([`Unseen::hidden_records_query`]).
+//! common table expression of the statements that read the hidden records,
+//! one per kind ([`Unseen::hidden_records_queries`]).
+//!
+//! SQLite expands a common table expression again at every reference to
+//! it, materialized or not, and refuses since 3.54 a statement whose
+//! expansions open as many cursors as its expression depth limit (1,000):
+//! the sets name the ones before them several times over, so the closure of
+//! a set grows with each set it draws on. Every kind in one statement went
+//! past it with a scope, exclusions and privacy rules together; a statement
+//! per kind stays at the closure of its own set.
 
 use oxidgene_core::redaction::HidingRules;
 use oxidgene_core::types::RecordKind;
@@ -135,13 +143,33 @@ impl Unseen {
             .add(Expr::col(column.as_column_ref()).not_in_subquery(self.media_links(Mode::Inline)))
     }
 
-    /// The one statement reading every hidden record of the tree, as rows
-    /// of a kind — `event`, `citation`, `media`, `source`, `repository`,
-    /// `place`, `note`, `media_link`, `vignette` — and an identifier: each
-    /// set a common table expression, built once and named by those after
-    /// it.
+    /// The statements reading every hidden record of the tree, one per
+    /// kind — `event`, `citation`, `media`, `source`, `repository`,
+    /// `place`, `note`, `media_link`, `vignette` — each selecting the
+    /// identifiers of its set: the sets common table expressions, built
+    /// once in a statement and named by those after them. A statement
+    /// declares the sets up to its own, which come before it; one it does
+    /// not name is neither expanded nor evaluated.
     #[must_use]
-    pub fn hidden_records_query(&self) -> WithQuery {
+    pub fn hidden_records_queries(&self) -> [(&'static str, WithQuery); 9] {
+        // The persons and families a request knows from its redaction.
+        [
+            ("event", "hidden_event"),
+            ("citation", "hidden_citation"),
+            ("media", "hidden_media"),
+            ("source", "hidden_source"),
+            ("repository", "hidden_repository"),
+            ("place", "hidden_place"),
+            ("note", "hidden_note"),
+            ("media_link", "hidden_media_link"),
+            ("vignette", "hidden_vignette"),
+        ]
+        .map(|(kind, set)| (kind, self.selecting(set)))
+    }
+
+    /// `SELECT id FROM set`, with the sets up to `set` as its common table
+    /// expressions.
+    fn selecting(&self, set: &str) -> WithQuery {
         let mut with = WithClause::new();
         for name in SETS {
             let query = self.build(name, Mode::Named);
@@ -153,30 +181,11 @@ impl Unseen {
                     .materialized(true)
                     .to_owned(),
             );
+            if name == set {
+                break;
+            }
         }
-        // The persons and families a request knows from its redaction.
-        let rows = [
-            ("event", "hidden_event"),
-            ("citation", "hidden_citation"),
-            ("media", "hidden_media"),
-            ("source", "hidden_source"),
-            ("repository", "hidden_repository"),
-            ("place", "hidden_place"),
-            ("note", "hidden_note"),
-            ("media_link", "hidden_media_link"),
-            ("vignette", "hidden_vignette"),
-        ]
-        .map(|(kind, set)| {
-            Query::select()
-                .expr_as(Expr::val(kind), t("kind"))
-                .column(t("id"))
-                .from(t(set))
-                .to_owned()
-        });
-        let [first, rest @ ..] = rows;
-        let mut select = first;
-        select.unions(rest.into_iter().map(|query| (UnionType::All, query)));
-        select.with(with)
+        named(set).with(with)
     }
 
     // ── The sets ─────────────────────────────────────────────────────────
@@ -705,13 +714,14 @@ mod tests {
 
     #[test]
     fn the_hidden_records_bind_the_same_values_however_many_are_hidden() {
-        let query = visitor().hidden_records_query();
-        for (sql, values) in [
-            query.build(SqliteQueryBuilder),
-            query.build(PostgresQueryBuilder),
-        ] {
-            assert!(sql.starts_with("WITH "), "{sql}");
-            assert!(values.0.len() < 100, "{} values", values.0.len());
+        for (kind, query) in visitor().hidden_records_queries() {
+            for (sql, values) in [
+                query.build(SqliteQueryBuilder),
+                query.build(PostgresQueryBuilder),
+            ] {
+                assert!(sql.starts_with("WITH "), "{kind}: {sql}");
+                assert!(values.0.len() < 100, "{kind}: {} values", values.0.len());
+            }
         }
     }
 

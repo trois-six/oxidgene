@@ -99,30 +99,30 @@ impl RedactionRepo {
 
     /// Every record of the tree `unseen` hides, as `(kind, id)`: `kind` is
     /// `event`, `citation`, `media`, `source`, `repository`, `place`,
-    /// `note`, `media_link` or `vignette`. One statement, its bound values
-    /// the same few however many records are hidden.
+    /// `note`, `media_link` or `vignette`. One statement per kind, its bound
+    /// values the same few however many records are hidden
+    /// ([`Unseen::hidden_records_queries`]).
     pub async fn hidden_records(
         db: &impl ConnectionTrait,
         unseen: &Unseen,
     ) -> Result<Vec<(String, Uuid)>, OxidGeneError> {
         let backend = db.get_database_backend();
-        let query = unseen.hidden_records_query();
-        let (sql, values) = match backend {
-            DbBackend::Postgres => query.build(PostgresQueryBuilder),
-            _ => query.build(SqliteQueryBuilder),
-        };
-        let rows = db
-            .query_all_raw(Statement::from_sql_and_values(backend, sql, values))
-            .await
-            .map_err(db_err)?;
-        rows.iter()
-            .map(|row| {
-                Ok((
-                    row.try_get::<String>("", "kind").map_err(db_err)?,
-                    row.try_get::<Uuid>("", "id").map_err(db_err)?,
-                ))
-            })
-            .collect()
+        let mut hidden = Vec::new();
+        for (kind, query) in unseen.hidden_records_queries() {
+            let (sql, values) = match backend {
+                DbBackend::Postgres => query.build(PostgresQueryBuilder),
+                _ => query.build(SqliteQueryBuilder),
+            };
+            let rows = db
+                .query_all_raw(Statement::from_sql_and_values(backend, sql, values))
+                .await
+                .map_err(db_err)?;
+            for row in &rows {
+                let id = row.try_get::<Uuid>("", "id").map_err(db_err)?;
+                hidden.push((kind.to_owned(), id));
+            }
+        }
+        Ok(hidden)
     }
 
     /// The person each of the media links `links` attaches a medium to, one

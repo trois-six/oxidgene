@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-03T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-18T15:00:00Z }
 ---
 
 
@@ -192,8 +192,8 @@ answer, only the time of the next one.
   repositories, places, media links and vignettes. Otherwise every request
   of such a viewer reads the tree's excluded persons, the stored inputs of
   the contemporary rule of every person, every family with its spouses, a
-  scope's persons with the tree's family links, and the one statement
-  selecting every hidden record, which the redaction itself needs for the
+  scope's persons with the tree's family links, and the statements
+  selecting every hidden record, one per kind, which the redaction itself needs for the
   media and counts it withholds — so the hidden records are kept with it
   rather than read again. On a generated tree of 10,000 persons, release
   build, the pedigree page's three requests cost an Editor kept from 2,000

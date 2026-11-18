@@ -13,9 +13,10 @@ use oxidgene_db::repo::{
     EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, LeaveOut, MediaLinkRepo,
     MediaLinkTarget, MediaPatch, MediaRepo, NewBackgroundJob, NoteFilter, NoteRepo,
     PaginationParams, ParentLink, PersonDistinctRepo, PersonMergeRepo, PersonNamePieces,
-    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceFilter, PlaceRepo, RepositoryFields,
-    RepositoryRepo, SosaAncestor, SosaRepo, SourceFilter, SourceRepo, SourceRepositoryFields,
-    SourceRepositoryRepo, TreeChanges, TreeRepo, Unseen, UploadedMedia, UploadedMediaMetadata,
+    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, PlaceFilter, PlaceRepo, RedactionRepo,
+    RepositoryFields, RepositoryRepo, SosaAncestor, SosaRepo, SourceFilter, SourceRepo,
+    SourceRepositoryFields, SourceRepositoryRepo, TreeChanges, TreeRepo, Unseen, UploadedMedia,
+    UploadedMediaMetadata,
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, Value};
 use std::sync::{Arc, Mutex};
@@ -4357,4 +4358,32 @@ async fn a_stored_projection_leaves_its_columns_and_empty_fields_out() {
     assert_eq!(back.tree_id, tree_id);
     assert_eq!(back.built_at, built_at);
     assert_eq!(back.sex, oxidgene_core::Sex::Female);
+}
+
+/// Every rule at once — exclusions, a scope and the privacy rules — makes
+/// the deepest sets of hidden records: SQLite 3.54 refused them read in
+/// one statement ("VIEWs and/or subqueries nested too deep"), its common
+/// table expressions expanded at every reference past its limit of 1,000
+/// cursors.
+#[tokio::test]
+async fn the_hidden_records_of_every_rule_at_once_are_read() {
+    use oxidgene_core::redaction::{HidingRules, PrivacyRules};
+    let db = setup_db().await;
+    let tree_id = create_tree(&db).await;
+    let unseen = Unseen::new(
+        tree_id,
+        HidingRules {
+            exclusions: true,
+            scope: Some(Uuid::now_v7()),
+            privacy: Some(PrivacyRules {
+                default_private: true,
+                contemporary_after: Some(1926),
+                contemporary_photos: false,
+            }),
+        },
+    );
+    let hidden = RedactionRepo::hidden_records(&db, &unseen)
+        .await
+        .expect("every statement prepares");
+    assert!(hidden.is_empty(), "{hidden:?}");
 }

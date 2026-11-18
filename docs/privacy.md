@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-18T15:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -404,9 +404,14 @@ pseudonym, or absent, so nothing else names them.
   however many persons are hidden, under SQLite's 32,766 and PostgreSQL's
   65,535. The person rules are the same as the projections' redaction
   applies in memory. A direct read or a nested list deciding record by
-  record reads the hidden records of every kind in one statement whose
+  record reads the hidden records of each kind in one statement whose
   sets are common table expressions, so that a restricted viewer's read
-  costs the owner's plus a fixed few statements. The redaction itself
+  costs the owner's plus a fixed few statements. A statement per kind,
+  not one for every kind: SQLite expands a common table expression at
+  each reference to it and, since 3.54, refuses a statement whose
+  expansions open as many cursors as its expression depth limit (1,000),
+  which the sets of every kind together exceeded under a scope, exclusions
+  and privacy rules at once. The redaction itself
   reads the tree's families, with their privacy and live spouses, in one
   statement over the tree rather than by the identifiers of its families
   or of its excluded persons.

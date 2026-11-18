@@ -563,8 +563,8 @@ async fn the_sources_drill_down_costs_the_same_whatever_levels_it_skips() {
 }
 
 /// What an Editor's record reads cost beyond the owner's: the redaction's
-/// own reads and the one statement selecting every hidden record, never a
-/// read per kind of record (docs/privacy.md §7). Before, the records side
+/// own reads and the statements selecting the hidden records, one per kind
+/// of record and only while the redaction is built (docs/privacy.md §7). Before, the records side
 /// read the hidden records kind by kind on every request, some 39
 /// statements more than the owner's. Once the tree cache keeps the
 /// Editor's redaction (docs/architecture.md §4.1), a read costs the
@@ -586,8 +586,9 @@ async fn an_editors_record_reads_cost_a_fixed_few_statements_more() {
 
     /// The statements a restricted viewer's read may run beyond the owner's
     /// when its redaction is built: the access, the redaction generation,
-    /// the redaction's own reads and the hidden records.
-    const COLD_EXTRA: usize = 8;
+    /// the redaction's own reads and the hidden records, a statement for
+    /// each of their nine kinds (SQLite refuses them all in one).
+    const COLD_EXTRA: usize = 16;
     /// Beyond the owner's once the redaction is kept: the access and the
     /// redaction generation.
     const EXTRA: usize = 2;
