@@ -78,9 +78,9 @@
       "groupName": "Rust dependencies (non-major)"
     },
     {
-      "description": "Track GTK binding upgrades as an explicit desktop migration. Listed after the non-major group because the last matching rule wins",
+      "description": "Track GTK binding upgrades as an explicit desktop migration: wry pins webkit2gtk exactly and builds on gtk 0.18, so none of them moves before wry does. Listed after the non-major group because the last matching rule wins",
       "matchManagers": ["cargo"],
-      "matchPackageNames": ["glib", "gtk"],
+      "matchPackageNames": ["glib", "gtk", "webkit2gtk"],
       "groupName": "GTK bindings",
       "dependencyDashboardApproval": true,
       "automerge": false
