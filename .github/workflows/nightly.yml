@@ -128,7 +128,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.3.2
         with:
-          version: "0.13.1"
+          version: "0.13.7"
 
       - name: Build the native binaries
         run: cargo build --locked --release -p oxidgene-desktop -p oxidgene-server -p oxidgene-worker

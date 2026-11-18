@@ -232,7 +232,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.3.2
         with:
-          version: "0.13.1"
+          version: "0.13.7"
 
       # `just cyclomatic`: no function above a cyclomatic complexity of 15.
       - name: Check the cyclomatic complexity
@@ -312,7 +312,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.3.2
         with:
-          version: "0.13.1"
+          version: "0.13.7"
 
       - name: Check the duplicate rate
         run: uv run --quiet scripts/duplication.py
@@ -382,7 +382,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v10.3.2
         with:
-          version: "0.13.1"
+          version: "0.13.7"
 
       - name: Build chart dependencies
         run: helm dependency build charts/oxidgene
