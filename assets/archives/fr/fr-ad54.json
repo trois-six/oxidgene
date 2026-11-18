@@ -13,7 +13,7 @@
       "acts": ["B", "N", "M", "D", "S", "TD"],
       "platform": "arkotheque",
       "portal": {
-        "origin": "https://archivesenligne.meurthe-et-moselle.fr",
+        "origin": "https://archives.meurthe-et-moselle.fr",
         "transport": "browser",
         "search_path": "/archives-en-ligne/registres-paroissiaux-et-detat-civil",
         "engine": "arko_default_62bc67565d099",
@@ -44,7 +44,7 @@
       "acts": ["RP"],
       "platform": "arkotheque",
       "portal": {
-        "origin": "https://archivesenligne.meurthe-et-moselle.fr",
+        "origin": "https://archives.meurthe-et-moselle.fr",
         "transport": "browser",
         "search_path": "/archives-en-ligne/listes-nominatives-de-recensement-de-population",
         "engine": "arko_default_62bc69dac0628",
@@ -65,7 +65,7 @@
       "acts": ["RM"],
       "platform": "arkotheque",
       "portal": {
-        "origin": "https://archivesenligne.meurthe-et-moselle.fr",
+        "origin": "https://archives.meurthe-et-moselle.fr",
         "transport": "browser",
         "search_path": "/archives-en-ligne/registres-matricules-militaires",
         "engine": "arko_default_62bc69358b041",
@@ -91,7 +91,7 @@
       "acts": ["TSA"],
       "platform": "arkotheque",
       "portal": {
-        "origin": "https://archivesenligne.meurthe-et-moselle.fr",
+        "origin": "https://archives.meurthe-et-moselle.fr",
         "transport": "browser",
         "search_path": "/archives-en-ligne/tables-de-successions-et-absences",
         "engine": "arko_default_62bc6aac086d6",

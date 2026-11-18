@@ -16,6 +16,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.gironde.fr",
+        "transport": "browser",
         "search": "etatcivil",
         "node": 629,
         "fields": {
@@ -51,6 +52,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.gironde.fr",
+        "transport": "browser",
         "search": "recensement",
         "node": 634,
         "fields": {
@@ -71,6 +73,7 @@
       "platform": "ligeo",
       "portal": {
         "origin": "https://archives.gironde.fr",
+        "transport": "browser",
         "search": "enregistrement2",
         "node": 628,
         "fields": {
