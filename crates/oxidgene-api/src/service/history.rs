@@ -880,11 +880,6 @@ pub async fn recently_modified_persons(
 /// at most.
 const RECENT_PERSONS_HIDDEN_SLACK: usize = 200;
 
-/// The most trees one request may ask the recent persons of: a page of the
-/// tree list holds at most 100, and the home page asks for all its cards at
-/// once.
-pub const MAX_RECENT_PERSON_TREES: usize = 100;
-
 /// One tree's most recently modified persons, in a batch.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct TreeRecentPersons {
@@ -903,9 +898,10 @@ pub async fn recently_modified_persons_of_trees(
     tree_ids: &[Uuid],
     limit: usize,
 ) -> Result<Vec<TreeRecentPersons>, OxidGeneError> {
-    if tree_ids.len() > MAX_RECENT_PERSON_TREES {
+    if tree_ids.len() > oxidgene_core::history::MAX_RECENT_PERSON_TREES {
         return Err(OxidGeneError::Validation(format!(
-            "at most {MAX_RECENT_PERSON_TREES} trees can be read at once"
+            "at most {} trees can be read at once",
+            oxidgene_core::history::MAX_RECENT_PERSON_TREES
         )));
     }
     let mut out = Vec::with_capacity(tree_ids.len());

@@ -29,6 +29,10 @@ use crate::enums::{
 };
 use crate::types::RecordKind;
 
+/// The most trees one request may ask the recent persons of: a page of the
+/// tree list. A client with more trees splits its request.
+pub const MAX_RECENT_PERSON_TREES: usize = 100;
+
 /// Declares a string-backed history enum: snake_case on the wire and in the
 /// database, with `as_str` and `FromStr` agreeing with serde.
 macro_rules! string_enum {

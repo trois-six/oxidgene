@@ -189,3 +189,40 @@ test("a menu opened as the page appears stays open on its trigger, and closes wh
     await page.setViewportSize({ width: 1000, height: 700 });
     await expect(rename).toBeHidden();
 });
+
+test("a viewer with more trees than one request reads gets every card's recent persons", async ({ page, tree }) => {
+    // The list grows past a page with fictitious trees, which the server
+    // does not know and leaves out of its answers.
+    await page.route(/\/api\/v1\/trees\?/, async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+        const model = body.edges.find((edge: { node: { id: string } }) => edge.node.id === tree.treeId);
+        if (model) {
+            for (let index = 0; index < 120; index++) {
+                const id = `01900000-0000-7000-8000-${index.toString(16).padStart(12, "0")}`;
+                body.edges.push({ ...model, cursor: id, node: { ...model.node, id, name: `${tree.name} copy ${index}` } });
+            }
+        }
+        await route.fulfill({ response, json: body });
+    });
+    const asked: string[][] = [];
+    page.on("request", (request) => {
+        const url = new URL(request.url());
+        if (url.pathname === "/api/v1/trees/recent-persons") {
+            asked.push((url.searchParams.get("tree_ids") ?? "").split(","));
+        }
+    });
+
+    await page.goto("/");
+    await page.locator(".home-search-input").fill(tree.name);
+    await expect(page.locator(".tree-card-name")).toHaveCount(121);
+    // A card lists nobody when the read failed.
+    const card = page.locator(".tree-card").filter({ has: page.getByText(tree.name, { exact: true }) });
+    await expect(card.locator(".tree-card-persons-title")).toBeVisible();
+    await expect.poll(() => asked.flat().length).toBeGreaterThanOrEqual(121);
+    expect(asked.length, "one request per hundred trees").toBe(2);
+    for (const ids of asked) {
+        expect(ids.length).toBeLessThanOrEqual(100);
+    }
+    expect(asked.flat()).toContain(tree.treeId);
+});

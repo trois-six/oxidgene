@@ -4052,7 +4052,8 @@ impl ApiClient {
     }
 
     /// The persons modified most recently in each of `tree_ids`, in one
-    /// request; a tree the server no longer has is left out.
+    /// request per page of the tree list (the most trees the server reads at
+    /// once); a tree the server no longer has is left out.
     pub async fn recent_persons_of_trees(
         &self,
         tree_ids: &[Uuid],
@@ -4063,23 +4064,21 @@ impl ApiClient {
             tree_id: Uuid,
             persons: Vec<SearchEntry>,
         }
-        if tree_ids.is_empty() {
-            return Ok(HashMap::new());
+        let mut recent = HashMap::with_capacity(tree_ids.len());
+        for batch in tree_ids.chunks(oxidgene_core::history::MAX_RECENT_PERSON_TREES) {
+            let ids = batch
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            let trees: Vec<TreeRecentPersons> = self
+                .get(&format!(
+                    "{RECENT_PERSONS_PATH}?tree_ids={ids}&limit={limit}"
+                ))
+                .await?;
+            recent.extend(trees.into_iter().map(|tree| (tree.tree_id, tree.persons)));
         }
-        let ids = tree_ids
-            .iter()
-            .map(Uuid::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let trees: Vec<TreeRecentPersons> = self
-            .get(&format!(
-                "{RECENT_PERSONS_PATH}?tree_ids={ids}&limit={limit}"
-            ))
-            .await?;
-        Ok(trees
-            .into_iter()
-            .map(|tree| (tree.tree_id, tree.persons))
-            .collect())
+        Ok(recent)
     }
 
     /// Record that `person_id` is a different person from each of `others`.
