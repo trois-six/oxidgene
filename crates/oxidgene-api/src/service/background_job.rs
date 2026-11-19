@@ -1734,6 +1734,877 @@ fn downloadable_until(job: &BackgroundJob) -> Option<chrono::DateTime<chrono::Ut
     (chrono::Utc::now() < expires_at).then_some(expires_at)
 }
 
+fn safe_origin_file(filename: Option<&str>) -> String {
+    filename
+        .and_then(|name| Path::new(name).file_name())
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or("import.gw")
+        .to_string()
+}
+
+const fn import_phase(phase: gedcom::FileImportPhase) -> &'static str {
+    match phase {
+        gedcom::FileImportPhase::Starting => "starting",
+        gedcom::FileImportPhase::Parsing => "parsing",
+        gedcom::FileImportPhase::Media => "media",
+        gedcom::FileImportPhase::Database => "database",
+        gedcom::FileImportPhase::Projections => "projections",
+    }
+}
+
+fn as_i64(value: usize) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+const fn geneanet_phase(phase: geneanet::ImportPhase) -> &'static str {
+    match phase {
+        geneanet::ImportPhase::Starting => "starting",
+        geneanet::ImportPhase::People => "people",
+        geneanet::ImportPhase::Matching => "matching",
+        geneanet::ImportPhase::Media => "media",
+        geneanet::ImportPhase::Finishing => "projections",
+    }
+}
+
+fn geneanet_payload(job: &BackgroundJob) -> Result<GeneanetJobPayload, OxidGeneError> {
+    let payload = job
+        .payload_json
+        .as_deref()
+        .ok_or_else(|| OxidGeneError::Validation("Geneanet import job has no payload".into()))?;
+    serde_json::from_str(payload).map_err(|error| OxidGeneError::Validation(error.to_string()))
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct GeneanetJobPayload {
+    collection: String,
+    deposit_sizes: HashMap<i64, u64>,
+    archives: Vec<GeneanetArchiveInput>,
+    fetched: Vec<GeneanetFetchedInput>,
+    media_fidelity: geneanet::MediaFidelity,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct GeneanetArchiveInput {
+    key: String,
+    file_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct GeneanetFetchedInput {
+    url: String,
+    key: String,
+}
+
+/// Queue `job`: its row, announced to the workers of other processes in the
+/// same transaction (see [`BackgroundJobRepo::create`]), then, committed, to
+/// the worker of this one.
+async fn enqueue(db: &DatabaseConnection, job: NewBackgroundJob) -> Result<(), OxidGeneError> {
+    let transaction = db.begin().await.map_err(db_err)?;
+    BackgroundJobRepo::create(&transaction, job).await?;
+    transaction.commit().await.map_err(db_err)?;
+    job_queue::wake();
+    Ok(())
+}
+
+/// Put an uploaded genealogy file into job storage and queue its import job,
+/// whose id it answers.
+///
+/// The staged source is deleted again when the job row cannot be written, so
+/// a failed start leaves nothing behind.
+pub async fn stage_import(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+    format: &str,
+    filename: Option<String>,
+    path: &Path,
+) -> Result<Uuid, OxidGeneError> {
+    let job_id = Uuid::now_v7();
+    let source_key = job_blob_key(job_id, "source", format)?;
+    media.put_file(&source_key, path).await?;
+    let created = enqueue(
+        db,
+        NewBackgroundJob {
+            actor: viewer.job_actor(),
+            id: job_id,
+            tree_id,
+            kind: BackgroundJobKind::Import,
+            format: format.to_string(),
+            source_key: Some(source_key.clone()),
+            payload_json: None,
+            original_filename: filename,
+            include_notes_and_sources: true,
+            include_media: true,
+        },
+    )
+    .await;
+    if let Err(error) = created {
+        let _ = media.delete(&source_key).await;
+        return Err(error);
+    }
+    Ok(job_id)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
+)]
+pub async fn stage_geneanet_import(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    work_dir: &WorkDir,
+    tree_id: Uuid,
+    gw: &[u8],
+    file_name: String,
+    collection: String,
+    deposit_sizes: HashMap<i64, u64>,
+    archive_paths: &[String],
+    fetched_paths: &HashMap<String, String>,
+    media_fidelity: geneanet::MediaFidelity,
+) -> Result<Uuid, OxidGeneError> {
+    TreeRepo::get(db, tree_id).await?;
+    let job_id = Uuid::now_v7();
+    let scratch = work_dir.job_scratch(job_id)?;
+    let source_path = scratch.path().join("source.gw");
+    tokio::fs::write(&source_path, gw).await?;
+
+    let source_key = job_blob_key(job_id, "source", "gw")?;
+    let mut staged_keys = Vec::with_capacity(1 + archive_paths.len() + fetched_paths.len());
+    let staging = async {
+        media.put_file(&source_key, &source_path).await?;
+        staged_keys.push(source_key.clone());
+
+        let mut next_input = 0usize;
+        // Nothing is staged for a run that will not open them — a data archive
+        // is gigabytes, and copying it into job storage to be ignored is the
+        // most expensive way to do nothing.
+        let archive_paths: &[String] = if media_fidelity.uses_archives() {
+            archive_paths
+        } else {
+            &[]
+        };
+        let mut archives = Vec::with_capacity(archive_paths.len());
+        for path in archive_paths {
+            let key = job_input_blob_key(job_id, next_input);
+            next_input += 1;
+            media.put_file(&key, Path::new(path)).await?;
+            staged_keys.push(key.clone());
+            archives.push(GeneanetArchiveInput {
+                key,
+                file_name: safe_origin_file(Some(path)),
+            });
+        }
+
+        let mut fetched_entries: Vec<_> = fetched_paths.iter().collect();
+        fetched_entries.sort_by_key(|(url, _)| *url);
+        let mut fetched = Vec::with_capacity(fetched_entries.len());
+        for (url, path) in fetched_entries {
+            let key = job_input_blob_key(job_id, next_input);
+            next_input += 1;
+            media.put_file(&key, Path::new(path)).await?;
+            staged_keys.push(key.clone());
+            fetched.push(GeneanetFetchedInput {
+                url: url.clone(),
+                key,
+            });
+        }
+
+        let payload_json = serde_json::to_string(&GeneanetJobPayload {
+            collection,
+            deposit_sizes,
+            archives,
+            fetched,
+            media_fidelity,
+        })
+        .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
+        enqueue(
+            db,
+            NewBackgroundJob {
+                actor: viewer.job_actor(),
+                id: job_id,
+                tree_id,
+                kind: BackgroundJobKind::Import,
+                format: "geneanet".to_string(),
+                source_key: Some(source_key),
+                payload_json: Some(payload_json),
+                original_filename: Some(file_name),
+                include_notes_and_sources: true,
+                include_media: true,
+            },
+        )
+        .await?;
+        Ok::<(), OxidGeneError>(())
+    }
+    .await;
+
+    crate::service::session_media::remove_owned(fetched_paths.values().map(String::as_str));
+    if let Err(error) = staging {
+        for key in staged_keys {
+            let _ = media.delete(&key).await;
+        }
+        return Err(error);
+    }
+    Ok(job_id)
+}
+
+/// What a Geneanet import of a saved session brings: the `.gw` and the
+/// session file the user chose, spooled by the request.
+pub struct GeneanetSessionImport {
+    pub gw: Vec<u8>,
+    pub file_name: String,
+    /// The saved session: a ZIP with its media, or a bare JSON collection.
+    pub session: std::fs::File,
+    pub media_fidelity: geneanet::MediaFidelity,
+}
+
+/// Queue the Geneanet import of `import`, its session's media extracted and
+/// copied into job storage within this call: the web build's import, which
+/// exchanges no path with the browser (docs/geneanet-media-import.md §8).
+/// What the session lacks is not fetched; the job reports it skipped.
+///
+/// # Errors
+///
+/// `Validation` for a session file that is not one, and whatever staging
+/// the import refuses ([`stage_geneanet_import`]).
+pub async fn stage_geneanet_session_import(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    work_dir: &WorkDir,
+    tree_id: Uuid,
+    import: GeneanetSessionImport,
+) -> Result<Uuid, OxidGeneError> {
+    TreeRepo::get(db, tree_id).await?;
+    let GeneanetSessionImport {
+        gw,
+        file_name,
+        session,
+        media_fidelity,
+    } = import;
+    let extracting = work_dir.clone();
+    let extracted = super::blocking::spawn(move || {
+        crate::service::session_media::extract(session, &extracting)
+    })
+    .await
+    .map_err(|_| OxidGeneError::Internal("session decoding failed".into()))??;
+    // The extracted files go when `extracted` drops, once job storage holds
+    // their copies — or the import was refused.
+    let session = &extracted.session;
+    stage_geneanet_import(
+        viewer,
+        db,
+        media,
+        work_dir,
+        tree_id,
+        &gw,
+        file_name,
+        session.collection.clone(),
+        session.deposit_sizes.clone(),
+        &[],
+        &session.media,
+        media_fidelity,
+    )
+    .await
+}
+
+// ── Job status, as both surfaces report it ─────────────────────────────
+
+/// Where an export job stands.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportJobStatus {
+    pub phase: String,
+    /// Identifies this state, to wait for the next one with: see
+    /// [`job_watch`].
+    pub version: String,
+    pub done: i64,
+    pub total: i64,
+    /// Where to download the archive, once it is complete and until
+    /// `expires_at`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_url: Option<String>,
+    /// When the archive stops being downloadable: [`EXPORT_ARTIFACT_TTL`]
+    /// after the export completed, whatever the downloads meanwhile. Set
+    /// exactly when `download_url` is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// The archive's size in bytes, once the export has completed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<i64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// A stable error code, once the job has failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Where an import job stands, with its receipt once it has completed.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportJobStatus {
+    pub phase: String,
+    /// Identifies this state, to wait for the next one with: see
+    /// [`job_watch`].
+    pub version: String,
+    pub done: i64,
+    pub total: i64,
+    /// The receipt of a completed file import.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<gedcom::ImportSummary>,
+    /// The receipt of a completed Geneanet import.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geneanet_result: Option<geneanet::GeneanetImportSummary>,
+    /// A stable error code, once the job has failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// What a GEDZIP export holds. It has no merge: a GEDZIP is the complete
+/// export, and the merges serve the importers of a plain GEDCOM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArchiveChoices {
+    /// Write the notes, and the sources with their citations and
+    /// repositories.
+    pub include_notes_and_sources: bool,
+    /// Pack the media, and write their records, links and identifications.
+    pub include_media: bool,
+    /// The persons left out for privacy (docs/privacy.md §8).
+    pub privacy: gedcom::ExportPrivacy,
+}
+
+impl ArchiveChoices {
+    /// The choices a request's options make, REST's and GraphQL's alike: an
+    /// option left out keeps the complete export.
+    #[must_use]
+    pub fn from_options(
+        include_notes_and_sources: Option<bool>,
+        include_media: Option<bool>,
+        privacy: gedcom::ExportPrivacy,
+    ) -> Self {
+        Self {
+            include_notes_and_sources: include_notes_and_sources.unwrap_or(true),
+            include_media: include_media.unwrap_or(true),
+            privacy,
+        }
+    }
+}
+
+/// What an export job keeps in its payload until its worker runs it: the
+/// scope, and the privacy options.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct ExportJobPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scope: Option<TagTargetSpec>,
+    #[serde(default)]
+    leave_out_private: bool,
+    #[serde(default)]
+    leave_out_excluded: bool,
+    #[serde(default)]
+    apply_visitor_rules: bool,
+}
+
+/// Queue a GEDZIP export of tree `tree_id` made as `choices` say; the job's
+/// id. The job keeps the choices until its worker runs it.
+///
+/// A tree runs one job at a time: while another is queued or running, this
+/// is a [`OxidGeneError::Conflict`].
+pub async fn start_export_job(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    choices: ArchiveChoices,
+    scope: Option<&TagTargetSpec>,
+) -> Result<Uuid, OxidGeneError> {
+    TreeRepo::get(db, tree_id).await?;
+    if let Some(spec) = scope {
+        // Refused now rather than by the worker: a scope holding no person.
+        tag_bulk::export_persons(db, tree_id, spec).await?;
+    }
+    let job_id = Uuid::now_v7();
+    let ArchiveChoices {
+        include_notes_and_sources,
+        include_media,
+        privacy,
+    } = choices;
+    let payload = ExportJobPayload {
+        scope: scope.cloned(),
+        leave_out_private: privacy.leave_out_private,
+        leave_out_excluded: privacy.leave_out_excluded,
+        apply_visitor_rules: privacy.apply_visitor_rules,
+    };
+    enqueue(
+        db,
+        NewBackgroundJob {
+            actor: viewer.job_actor(),
+            id: job_id,
+            tree_id,
+            kind: BackgroundJobKind::Export,
+            format: "gedzip".into(),
+            source_key: None,
+            payload_json: Some(
+                serde_json::to_string(&payload)
+                    .map_err(|error| OxidGeneError::Internal(error.to_string()))?,
+            ),
+            original_filename: None,
+            include_notes_and_sources,
+            include_media,
+        },
+    )
+    .await?;
+    Ok(job_id)
+}
+
+/// What export job `job` was queued with: its scope, `None` for the whole
+/// tree, and its privacy options.
+fn export_payload_of(job: &BackgroundJob) -> Result<ExportJobPayload, OxidGeneError> {
+    job.payload_json
+        .as_deref()
+        .map(|text| {
+            serde_json::from_str(text).map_err(|error| OxidGeneError::Internal(error.to_string()))
+        })
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
+/// The choices export job `job` was queued with.
+fn choices_of(job: &BackgroundJob) -> gedcom::ExportChoices {
+    gedcom::ExportChoices {
+        include_notes_and_sources: job.include_notes_and_sources,
+        include_media: job.include_media,
+        ..gedcom::ExportChoices::default()
+    }
+}
+
+/// Where export job `job_id` of tree `tree_id` stands.
+async fn export_job_status(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<ExportJobStatus, OxidGeneError> {
+    if let Some(live) = live_state(tree_id, job_id, BackgroundJobKind::Export) {
+        let (done, total) = live.counts();
+        let phase = live.phase();
+        return Ok(ExportJobStatus {
+            version: version_of(&phase, done, total),
+            phase,
+            done,
+            total,
+            download_url: None,
+            expires_at: None,
+            size_bytes: None,
+            warnings: Vec::new(),
+            error: None,
+        });
+    }
+    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
+    let (warnings, size_bytes) = receipt::<ExportReceipt>(job.result_json.as_deref())?
+        .map_or((Vec::new(), None), |receipt| {
+            (receipt.warnings, receipt.size_bytes)
+        });
+    // An expired artifact is gone, or about to be, and so is its link.
+    let expires_at = downloadable_until(&job);
+    let download_url =
+        expires_at.map(|_| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
+    let (phase, done, total) = (reported_phase(&job), count(job.done), count(job.total));
+    Ok(ExportJobStatus {
+        version: version_of(&phase, done, total),
+        phase,
+        done,
+        total,
+        download_url,
+        expires_at,
+        size_bytes,
+        warnings,
+        error: job.error_code,
+    })
+}
+
+/// Where import job `job_id` of tree `tree_id` stands.
+pub async fn import_job_status(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<ImportJobStatus, OxidGeneError> {
+    if let Some(live) = live_state(tree_id, job_id, BackgroundJobKind::Import) {
+        let (done, total) = live.counts();
+        let phase = live.phase();
+        return Ok(ImportJobStatus {
+            version: version_of(&phase, done, total),
+            phase,
+            done,
+            total,
+            result: None,
+            geneanet_result: None,
+            error: None,
+        });
+    }
+    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Import).await?;
+    let serialized = job.result_json.as_deref();
+    let (result, geneanet_result) = if job.format == "geneanet" {
+        (None, receipt(serialized)?)
+    } else {
+        (receipt(serialized)?, None)
+    };
+    let (phase, done, total) = (reported_phase(&job), count(job.done), count(job.total));
+    Ok(ImportJobStatus {
+        version: version_of(&phase, done, total),
+        phase,
+        done,
+        total,
+        result,
+        geneanet_result,
+        error: job.error_code,
+    })
+}
+
+/// The phase a status read reports for `job`, read from the database:
+/// `cancelling` once a running job was asked to stop.
+fn reported_phase(job: &BackgroundJob) -> String {
+    if job.cancel_requested && job.status == BackgroundJobStatus::Running.as_str() {
+        PHASE_CANCELLING.to_string()
+    } else {
+        job.phase.clone()
+    }
+}
+
+/// Cancel import job `job_id` of tree `tree_id`: a queued job ends at once,
+/// a running one stops at its next unit of work and rolls back. Where it
+/// stands then.
+pub async fn cancel_import_job(
+    writer: &DatabaseConnection,
+    reader: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<ImportJobStatus, OxidGeneError> {
+    cancel_job(
+        writer,
+        reader,
+        media,
+        tree_id,
+        job_id,
+        BackgroundJobKind::Import,
+    )
+    .await?;
+    import_job_status(reader, tree_id, job_id).await
+}
+
+/// Cancel export job `job_id` of tree `tree_id`, which `viewer` made: a
+/// queued job ends at once, a running one stops at its next medium. Where
+/// it stands then.
+pub async fn cancel_export_job(
+    viewer: &ViewerContext,
+    writer: &DatabaseConnection,
+    reader: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<ExportJobStatus, OxidGeneError> {
+    require_export_author(reader, viewer, tree_id, job_id).await?;
+    cancel_job(
+        writer,
+        reader,
+        media,
+        tree_id,
+        job_id,
+        BackgroundJobKind::Export,
+    )
+    .await?;
+    export_job_status(reader, tree_id, job_id).await
+}
+
+/// Ask job `job_id` of `kind` in tree `tree_id` to stop.
+///
+/// A queued job ends at once, cancelled, unrun. A running job stops at its
+/// next unit of work — a batch of rows, a medium — rolls back everything it
+/// wrote and ends cancelled; its status reads `cancelling` meanwhile. A job
+/// that has ended already is left as it is.
+///
+/// The request waits for nothing the job holds. A job this process runs
+/// gets the request in memory. Under SQLite, whose only writer the running
+/// import holds, a request for any other job is noted in memory too, and
+/// the worker writes it once the writer is free — the statuses and the tree
+/// list report it meanwhile. Under PostgreSQL the request goes to the
+/// database, where the worker of another process reads it with its next
+/// progress report.
+async fn cancel_job(
+    writer: &DatabaseConnection,
+    reader: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+    job_id: Uuid,
+    kind: BackgroundJobKind,
+) -> Result<(), OxidGeneError> {
+    if cancel_here(tree_id, job_id, kind, None) {
+        return Ok(());
+    }
+    let job = job_of_kind(reader, tree_id, job_id, kind).await?;
+    let queued = job.status == BackgroundJobStatus::Queued.as_str();
+    if !queued && job.status != BackgroundJobStatus::Running.as_str() {
+        return Ok(());
+    }
+    if writer.get_database_backend() == DbBackend::Sqlite {
+        cancel_here(tree_id, job_id, kind, Some(queued));
+        return Ok(());
+    }
+    if queued && BackgroundJobRepo::cancel_queued(writer, job_id).await? {
+        if let Err(error) = media.delete_job(job_id).await {
+            tracing::warn!(
+                job_id = %job_id,
+                error.kind = error_kind(&error),
+                "could not delete the inputs of a cancelled job"
+            );
+        }
+    } else {
+        // Running, or claimed since it was read.
+        BackgroundJobRepo::request_cancel(writer, job_id).await?;
+    }
+    job_watch::announce(job_id);
+    Ok(())
+}
+
+/// Where import job `job_id` of tree `tree_id` stands, once it differs from
+/// what `wait` last read or `wait`'s time has run out (see [`job_watch`]).
+pub async fn wait_import_job_status(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+    wait: &JobWait,
+) -> Result<ImportJobStatus, OxidGeneError> {
+    job_watch::wait_for(job_id, wait, || import_job_status(db, tree_id, job_id)).await
+}
+
+/// Where export job `job_id` of tree `tree_id`, which `viewer` made,
+/// stands, once it differs from what `wait` last read or `wait`'s time has
+/// run out (see [`job_watch`]).
+pub async fn wait_export_job_status(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+    wait: &JobWait,
+) -> Result<ExportJobStatus, OxidGeneError> {
+    require_export_author(db, viewer, tree_id, job_id).await?;
+    job_watch::wait_for(job_id, wait, || export_job_status(db, tree_id, job_id)).await
+}
+
+/// What identifies a job's visible state: its phase and counts. Everything
+/// else a status carries changes only with its phase.
+fn version_of(phase: &str, done: i64, total: i64) -> String {
+    format!("{phase}.{done}.{total}")
+}
+
+/// Whether a job in `phase` has ended.
+fn has_ended(phase: &str) -> bool {
+    [
+        BackgroundJobStatus::Completed,
+        BackgroundJobStatus::Failed,
+        BackgroundJobStatus::Cancelled,
+    ]
+    .iter()
+    .any(|status| status.as_str() == phase)
+}
+
+impl Versioned for ImportJobStatus {
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn has_ended(&self) -> bool {
+        has_ended(&self.phase)
+    }
+}
+
+impl Versioned for ExportJobStatus {
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn has_ended(&self) -> bool {
+        has_ended(&self.phase)
+    }
+}
+
+/// A completed export of a tree whose archive can still be downloaded.
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadableExport {
+    pub job_id: Uuid,
+    /// The archive's format: `gedzip`, the only one exports run as jobs.
+    pub format: String,
+    /// Where to download the archive, until `expires_at`.
+    pub download_url: String,
+    /// When the archive stops being downloadable: [`EXPORT_ARTIFACT_TTL`]
+    /// after the export completed.
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    /// The archive's size in bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<i64>,
+    pub include_notes_and_sources: bool,
+    pub include_media: bool,
+}
+
+/// The most recent completed export of tree `tree_id` that `viewer` made
+/// whose archive can still be downloaded: not past [`EXPORT_ARTIFACT_TTL`],
+/// and still in `media`. `None` when there is none, which is no error: a
+/// page asks on load whether there is one to offer again.
+pub async fn downloadable_export(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    media: &dyn MediaStore,
+    tree_id: Uuid,
+) -> Result<Option<DownloadableExport>, OxidGeneError> {
+    crate::service::scope::require_live_tree(db, tree_id).await?;
+    let actor = if viewer.is_local() {
+        None
+    } else {
+        match viewer.user() {
+            Some(identity) => Some(identity.user_id),
+            None => return Ok(None),
+        }
+    };
+    let since = chrono::Utc::now()
+        - chrono::Duration::from_std(EXPORT_ARTIFACT_TTL).unwrap_or(chrono::TimeDelta::MAX);
+    let Some(job) = BackgroundJobRepo::latest_artifact_in_tree(db, tree_id, since, actor).await?
+    else {
+        return Ok(None);
+    };
+    let (Some(expires_at), Some(key)) = (downloadable_until(&job), job.artifact_key.as_deref())
+    else {
+        return Ok(None);
+    };
+    if !media.exists(key).await {
+        return Ok(None);
+    }
+    let size_bytes = receipt::<ExportReceipt>(job.result_json.as_deref())?
+        .and_then(|receipt| receipt.size_bytes);
+    Ok(Some(DownloadableExport {
+        job_id: job.id,
+        download_url: format!("/api/v1/trees/{tree_id}/export-jobs/{}/download", job.id),
+        format: job.format,
+        expires_at,
+        size_bytes,
+        include_notes_and_sources: job.include_notes_and_sources,
+        include_media: job.include_media,
+    }))
+}
+
+/// The export artifact of completed job `job_id` of tree `tree_id`, which
+/// `viewer` made: its storage key. It can be downloaded any number of times
+/// until [`EXPORT_ARTIFACT_TTL`] after the export completed; past it, it is
+/// not found, whether or not the maintenance pass has deleted it yet.
+pub async fn export_artifact(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<String, OxidGeneError> {
+    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
+    if !made_by(&job, viewer) {
+        return Err(export_not_found(job_id));
+    }
+    if job.status != BackgroundJobStatus::Completed.as_str() {
+        return Err(OxidGeneError::Validation(
+            "export artifact is not ready".into(),
+        ));
+    }
+    let not_found = OxidGeneError::NotFound {
+        entity: "ExportArtifact",
+        id: job_id,
+    };
+    if downloadable_until(&job).is_none() {
+        return Err(not_found);
+    }
+    job.artifact_key.ok_or(not_found)
+}
+
+/// Whether `viewer` made `job`: the local owner made every job.
+fn made_by(job: &BackgroundJob, viewer: &ViewerContext) -> bool {
+    viewer.is_local()
+        || job
+            .actor_user_id
+            .is_some_and(|actor| viewer.user().is_some_and(|user| user.user_id == actor))
+}
+
+fn export_not_found(job_id: Uuid) -> OxidGeneError {
+    OxidGeneError::NotFound {
+        entity: "ExportJob",
+        id: job_id,
+    }
+}
+
+/// Check that `viewer` made export job `job_id` of tree `tree_id`: an
+/// export's archive holds what its author sees — the owner's, everything —
+/// so nobody else finds, polls, cancels or downloads it (docs/privacy.md
+/// §8). The local owner's request reads nothing, so that the status of a
+/// job it runs still answers from memory.
+async fn require_export_author(
+    db: &DatabaseConnection,
+    viewer: &ViewerContext,
+    tree_id: Uuid,
+    job_id: Uuid,
+) -> Result<(), OxidGeneError> {
+    if viewer.is_local() {
+        return Ok(());
+    }
+    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
+    if made_by(&job, viewer) {
+        Ok(())
+    } else {
+        Err(export_not_found(job_id))
+    }
+}
+
+/// Job `job_id` of tree `tree_id`, which must be of `kind` and belong to a
+/// live tree.
+///
+/// The status reads answer a job this process is running from memory before
+/// coming here, so that a poll never waits on the database — the running job
+/// holds the SQLite writer, which on an in-memory database is also the only
+/// reader. The tree is checked here, once
+/// the answer has to come from the database anyway.
+async fn job_of_kind(
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    job_id: Uuid,
+    kind: BackgroundJobKind,
+) -> Result<BackgroundJob, OxidGeneError> {
+    crate::service::scope::require_live_tree(db, tree_id).await?;
+    let job = BackgroundJobRepo::get_in_tree(db, tree_id, job_id).await?;
+    if job.kind != kind.as_str() {
+        return Err(OxidGeneError::NotFound {
+            entity: match kind {
+                BackgroundJobKind::Export => "ExportJob",
+                BackgroundJobKind::Import => "ImportJob",
+            },
+            id: job_id,
+        });
+    }
+    Ok(job)
+}
+
+/// What a completed export job records about itself.
+#[derive(Deserialize, Serialize)]
+struct ExportReceipt {
+    warnings: Vec<String>,
+    /// The archive's size in bytes.
+    #[serde(default)]
+    size_bytes: Option<i64>,
+}
+
+/// A job's stored receipt, read back.
+fn receipt<T: DeserializeOwned>(serialized: Option<&str>) -> Result<Option<T>, OxidGeneError> {
+    serialized
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|error| OxidGeneError::Internal(error.to_string()))
+}
+
+/// A progress count as reported: never negative.
+fn count(value: i64) -> i64 {
+    value.max(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2709,875 +3580,4 @@ mod tests {
         assert_eq!(leaves(&db, job_id, "running").await, "completed");
         assert_eq!(job(&db, job_id).await.attempt, 2, "taken over once");
     }
-}
-
-fn safe_origin_file(filename: Option<&str>) -> String {
-    filename
-        .and_then(|name| Path::new(name).file_name())
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or("import.gw")
-        .to_string()
-}
-
-const fn import_phase(phase: gedcom::FileImportPhase) -> &'static str {
-    match phase {
-        gedcom::FileImportPhase::Starting => "starting",
-        gedcom::FileImportPhase::Parsing => "parsing",
-        gedcom::FileImportPhase::Media => "media",
-        gedcom::FileImportPhase::Database => "database",
-        gedcom::FileImportPhase::Projections => "projections",
-    }
-}
-
-fn as_i64(value: usize) -> i64 {
-    i64::try_from(value).unwrap_or(i64::MAX)
-}
-
-const fn geneanet_phase(phase: geneanet::ImportPhase) -> &'static str {
-    match phase {
-        geneanet::ImportPhase::Starting => "starting",
-        geneanet::ImportPhase::People => "people",
-        geneanet::ImportPhase::Matching => "matching",
-        geneanet::ImportPhase::Media => "media",
-        geneanet::ImportPhase::Finishing => "projections",
-    }
-}
-
-fn geneanet_payload(job: &BackgroundJob) -> Result<GeneanetJobPayload, OxidGeneError> {
-    let payload = job
-        .payload_json
-        .as_deref()
-        .ok_or_else(|| OxidGeneError::Validation("Geneanet import job has no payload".into()))?;
-    serde_json::from_str(payload).map_err(|error| OxidGeneError::Validation(error.to_string()))
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct GeneanetJobPayload {
-    collection: String,
-    deposit_sizes: HashMap<i64, u64>,
-    archives: Vec<GeneanetArchiveInput>,
-    fetched: Vec<GeneanetFetchedInput>,
-    media_fidelity: geneanet::MediaFidelity,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct GeneanetArchiveInput {
-    key: String,
-    file_name: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct GeneanetFetchedInput {
-    url: String,
-    key: String,
-}
-
-/// Queue `job`: its row, announced to the workers of other processes in the
-/// same transaction (see [`BackgroundJobRepo::create`]), then, committed, to
-/// the worker of this one.
-async fn enqueue(db: &DatabaseConnection, job: NewBackgroundJob) -> Result<(), OxidGeneError> {
-    let transaction = db.begin().await.map_err(db_err)?;
-    BackgroundJobRepo::create(&transaction, job).await?;
-    transaction.commit().await.map_err(db_err)?;
-    job_queue::wake();
-    Ok(())
-}
-
-/// Put an uploaded genealogy file into job storage and queue its import job,
-/// whose id it answers.
-///
-/// The staged source is deleted again when the job row cannot be written, so
-/// a failed start leaves nothing behind.
-pub async fn stage_import(
-    viewer: &ViewerContext,
-    db: &DatabaseConnection,
-    media: &dyn MediaStore,
-    tree_id: Uuid,
-    format: &str,
-    filename: Option<String>,
-    path: &Path,
-) -> Result<Uuid, OxidGeneError> {
-    let job_id = Uuid::now_v7();
-    let source_key = job_blob_key(job_id, "source", format)?;
-    media.put_file(&source_key, path).await?;
-    let created = enqueue(
-        db,
-        NewBackgroundJob {
-            actor: viewer.job_actor(),
-            id: job_id,
-            tree_id,
-            kind: BackgroundJobKind::Import,
-            format: format.to_string(),
-            source_key: Some(source_key.clone()),
-            payload_json: None,
-            original_filename: filename,
-            include_notes_and_sources: true,
-            include_media: true,
-        },
-    )
-    .await;
-    if let Err(error) = created {
-        let _ = media.delete(&source_key).await;
-        return Err(error);
-    }
-    Ok(job_id)
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the Geneanet import threads borrowed state of differently-owned sources (store, archives, manifest, indexes) through each step"
-)]
-pub async fn stage_geneanet_import(
-    viewer: &ViewerContext,
-    db: &DatabaseConnection,
-    media: &dyn MediaStore,
-    work_dir: &WorkDir,
-    tree_id: Uuid,
-    gw: &[u8],
-    file_name: String,
-    collection: String,
-    deposit_sizes: HashMap<i64, u64>,
-    archive_paths: &[String],
-    fetched_paths: &HashMap<String, String>,
-    media_fidelity: geneanet::MediaFidelity,
-) -> Result<Uuid, OxidGeneError> {
-    TreeRepo::get(db, tree_id).await?;
-    let job_id = Uuid::now_v7();
-    let scratch = work_dir.job_scratch(job_id)?;
-    let source_path = scratch.path().join("source.gw");
-    tokio::fs::write(&source_path, gw).await?;
-
-    let source_key = job_blob_key(job_id, "source", "gw")?;
-    let mut staged_keys = Vec::with_capacity(1 + archive_paths.len() + fetched_paths.len());
-    let staging = async {
-        media.put_file(&source_key, &source_path).await?;
-        staged_keys.push(source_key.clone());
-
-        let mut next_input = 0usize;
-        // Nothing is staged for a run that will not open them — a data archive
-        // is gigabytes, and copying it into job storage to be ignored is the
-        // most expensive way to do nothing.
-        let archive_paths: &[String] = if media_fidelity.uses_archives() {
-            archive_paths
-        } else {
-            &[]
-        };
-        let mut archives = Vec::with_capacity(archive_paths.len());
-        for path in archive_paths {
-            let key = job_input_blob_key(job_id, next_input);
-            next_input += 1;
-            media.put_file(&key, Path::new(path)).await?;
-            staged_keys.push(key.clone());
-            archives.push(GeneanetArchiveInput {
-                key,
-                file_name: safe_origin_file(Some(path)),
-            });
-        }
-
-        let mut fetched_entries: Vec<_> = fetched_paths.iter().collect();
-        fetched_entries.sort_by_key(|(url, _)| *url);
-        let mut fetched = Vec::with_capacity(fetched_entries.len());
-        for (url, path) in fetched_entries {
-            let key = job_input_blob_key(job_id, next_input);
-            next_input += 1;
-            media.put_file(&key, Path::new(path)).await?;
-            staged_keys.push(key.clone());
-            fetched.push(GeneanetFetchedInput {
-                url: url.clone(),
-                key,
-            });
-        }
-
-        let payload_json = serde_json::to_string(&GeneanetJobPayload {
-            collection,
-            deposit_sizes,
-            archives,
-            fetched,
-            media_fidelity,
-        })
-        .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
-        enqueue(
-            db,
-            NewBackgroundJob {
-                actor: viewer.job_actor(),
-                id: job_id,
-                tree_id,
-                kind: BackgroundJobKind::Import,
-                format: "geneanet".to_string(),
-                source_key: Some(source_key),
-                payload_json: Some(payload_json),
-                original_filename: Some(file_name),
-                include_notes_and_sources: true,
-                include_media: true,
-            },
-        )
-        .await?;
-        Ok::<(), OxidGeneError>(())
-    }
-    .await;
-
-    crate::service::session_media::remove_owned(fetched_paths.values().map(String::as_str));
-    if let Err(error) = staging {
-        for key in staged_keys {
-            let _ = media.delete(&key).await;
-        }
-        return Err(error);
-    }
-    Ok(job_id)
-}
-
-/// What a Geneanet import of a saved session brings: the `.gw` and the
-/// session file the user chose, spooled by the request.
-pub struct GeneanetSessionImport {
-    pub gw: Vec<u8>,
-    pub file_name: String,
-    /// The saved session: a ZIP with its media, or a bare JSON collection.
-    pub session: std::fs::File,
-    pub media_fidelity: geneanet::MediaFidelity,
-}
-
-/// Queue the Geneanet import of `import`, its session's media extracted and
-/// copied into job storage within this call: the web build's import, which
-/// exchanges no path with the browser (docs/geneanet-media-import.md §8).
-/// What the session lacks is not fetched; the job reports it skipped.
-///
-/// # Errors
-///
-/// `Validation` for a session file that is not one, and whatever staging
-/// the import refuses ([`stage_geneanet_import`]).
-pub async fn stage_geneanet_session_import(
-    viewer: &ViewerContext,
-    db: &DatabaseConnection,
-    media: &dyn MediaStore,
-    work_dir: &WorkDir,
-    tree_id: Uuid,
-    import: GeneanetSessionImport,
-) -> Result<Uuid, OxidGeneError> {
-    TreeRepo::get(db, tree_id).await?;
-    let GeneanetSessionImport {
-        gw,
-        file_name,
-        session,
-        media_fidelity,
-    } = import;
-    let extracting = work_dir.clone();
-    let extracted = super::blocking::spawn(move || {
-        crate::service::session_media::extract(session, &extracting)
-    })
-    .await
-    .map_err(|_| OxidGeneError::Internal("session decoding failed".into()))??;
-    // The extracted files go when `extracted` drops, once job storage holds
-    // their copies — or the import was refused.
-    let session = &extracted.session;
-    stage_geneanet_import(
-        viewer,
-        db,
-        media,
-        work_dir,
-        tree_id,
-        &gw,
-        file_name,
-        session.collection.clone(),
-        session.deposit_sizes.clone(),
-        &[],
-        &session.media,
-        media_fidelity,
-    )
-    .await
-}
-
-// ── Job status, as both surfaces report it ─────────────────────────────
-
-/// Where an export job stands.
-#[derive(Debug, Clone, Serialize)]
-pub struct ExportJobStatus {
-    pub phase: String,
-    /// Identifies this state, to wait for the next one with: see
-    /// [`job_watch`].
-    pub version: String,
-    pub done: i64,
-    pub total: i64,
-    /// Where to download the archive, once it is complete and until
-    /// `expires_at`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub download_url: Option<String>,
-    /// When the archive stops being downloadable: [`EXPORT_ARTIFACT_TTL`]
-    /// after the export completed, whatever the downloads meanwhile. Set
-    /// exactly when `download_url` is.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// The archive's size in bytes, once the export has completed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_bytes: Option<i64>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub warnings: Vec<String>,
-    /// A stable error code, once the job has failed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// Where an import job stands, with its receipt once it has completed.
-#[derive(Debug, Clone, Serialize)]
-pub struct ImportJobStatus {
-    pub phase: String,
-    /// Identifies this state, to wait for the next one with: see
-    /// [`job_watch`].
-    pub version: String,
-    pub done: i64,
-    pub total: i64,
-    /// The receipt of a completed file import.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<gedcom::ImportSummary>,
-    /// The receipt of a completed Geneanet import.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub geneanet_result: Option<geneanet::GeneanetImportSummary>,
-    /// A stable error code, once the job has failed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// What a GEDZIP export holds. It has no merge: a GEDZIP is the complete
-/// export, and the merges serve the importers of a plain GEDCOM.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ArchiveChoices {
-    /// Write the notes, and the sources with their citations and
-    /// repositories.
-    pub include_notes_and_sources: bool,
-    /// Pack the media, and write their records, links and identifications.
-    pub include_media: bool,
-    /// The persons left out for privacy (docs/privacy.md §8).
-    pub privacy: gedcom::ExportPrivacy,
-}
-
-impl ArchiveChoices {
-    /// The choices a request's options make, REST's and GraphQL's alike: an
-    /// option left out keeps the complete export.
-    #[must_use]
-    pub fn from_options(
-        include_notes_and_sources: Option<bool>,
-        include_media: Option<bool>,
-        privacy: gedcom::ExportPrivacy,
-    ) -> Self {
-        Self {
-            include_notes_and_sources: include_notes_and_sources.unwrap_or(true),
-            include_media: include_media.unwrap_or(true),
-            privacy,
-        }
-    }
-}
-
-/// What an export job keeps in its payload until its worker runs it: the
-/// scope, and the privacy options.
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
-struct ExportJobPayload {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    scope: Option<TagTargetSpec>,
-    #[serde(default)]
-    leave_out_private: bool,
-    #[serde(default)]
-    leave_out_excluded: bool,
-    #[serde(default)]
-    apply_visitor_rules: bool,
-}
-
-/// Queue a GEDZIP export of tree `tree_id` made as `choices` say; the job's
-/// id. The job keeps the choices until its worker runs it.
-///
-/// A tree runs one job at a time: while another is queued or running, this
-/// is a [`OxidGeneError::Conflict`].
-pub async fn start_export_job(
-    viewer: &ViewerContext,
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    choices: ArchiveChoices,
-    scope: Option<&TagTargetSpec>,
-) -> Result<Uuid, OxidGeneError> {
-    TreeRepo::get(db, tree_id).await?;
-    if let Some(spec) = scope {
-        // Refused now rather than by the worker: a scope holding no person.
-        tag_bulk::export_persons(db, tree_id, spec).await?;
-    }
-    let job_id = Uuid::now_v7();
-    let ArchiveChoices {
-        include_notes_and_sources,
-        include_media,
-        privacy,
-    } = choices;
-    let payload = ExportJobPayload {
-        scope: scope.cloned(),
-        leave_out_private: privacy.leave_out_private,
-        leave_out_excluded: privacy.leave_out_excluded,
-        apply_visitor_rules: privacy.apply_visitor_rules,
-    };
-    enqueue(
-        db,
-        NewBackgroundJob {
-            actor: viewer.job_actor(),
-            id: job_id,
-            tree_id,
-            kind: BackgroundJobKind::Export,
-            format: "gedzip".into(),
-            source_key: None,
-            payload_json: Some(
-                serde_json::to_string(&payload)
-                    .map_err(|error| OxidGeneError::Internal(error.to_string()))?,
-            ),
-            original_filename: None,
-            include_notes_and_sources,
-            include_media,
-        },
-    )
-    .await?;
-    Ok(job_id)
-}
-
-/// What export job `job` was queued with: its scope, `None` for the whole
-/// tree, and its privacy options.
-fn export_payload_of(job: &BackgroundJob) -> Result<ExportJobPayload, OxidGeneError> {
-    job.payload_json
-        .as_deref()
-        .map(|text| {
-            serde_json::from_str(text).map_err(|error| OxidGeneError::Internal(error.to_string()))
-        })
-        .transpose()
-        .map(Option::unwrap_or_default)
-}
-
-/// The choices export job `job` was queued with.
-fn choices_of(job: &BackgroundJob) -> gedcom::ExportChoices {
-    gedcom::ExportChoices {
-        include_notes_and_sources: job.include_notes_and_sources,
-        include_media: job.include_media,
-        ..gedcom::ExportChoices::default()
-    }
-}
-
-/// Where export job `job_id` of tree `tree_id` stands.
-async fn export_job_status(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    job_id: Uuid,
-) -> Result<ExportJobStatus, OxidGeneError> {
-    if let Some(live) = live_state(tree_id, job_id, BackgroundJobKind::Export) {
-        let (done, total) = live.counts();
-        let phase = live.phase();
-        return Ok(ExportJobStatus {
-            version: version_of(&phase, done, total),
-            phase,
-            done,
-            total,
-            download_url: None,
-            expires_at: None,
-            size_bytes: None,
-            warnings: Vec::new(),
-            error: None,
-        });
-    }
-    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
-    let (warnings, size_bytes) = receipt::<ExportReceipt>(job.result_json.as_deref())?
-        .map_or((Vec::new(), None), |receipt| {
-            (receipt.warnings, receipt.size_bytes)
-        });
-    // An expired artifact is gone, or about to be, and so is its link.
-    let expires_at = downloadable_until(&job);
-    let download_url =
-        expires_at.map(|_| format!("/api/v1/trees/{tree_id}/export-jobs/{job_id}/download"));
-    let (phase, done, total) = (reported_phase(&job), count(job.done), count(job.total));
-    Ok(ExportJobStatus {
-        version: version_of(&phase, done, total),
-        phase,
-        done,
-        total,
-        download_url,
-        expires_at,
-        size_bytes,
-        warnings,
-        error: job.error_code,
-    })
-}
-
-/// Where import job `job_id` of tree `tree_id` stands.
-pub async fn import_job_status(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    job_id: Uuid,
-) -> Result<ImportJobStatus, OxidGeneError> {
-    if let Some(live) = live_state(tree_id, job_id, BackgroundJobKind::Import) {
-        let (done, total) = live.counts();
-        let phase = live.phase();
-        return Ok(ImportJobStatus {
-            version: version_of(&phase, done, total),
-            phase,
-            done,
-            total,
-            result: None,
-            geneanet_result: None,
-            error: None,
-        });
-    }
-    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Import).await?;
-    let serialized = job.result_json.as_deref();
-    let (result, geneanet_result) = if job.format == "geneanet" {
-        (None, receipt(serialized)?)
-    } else {
-        (receipt(serialized)?, None)
-    };
-    let (phase, done, total) = (reported_phase(&job), count(job.done), count(job.total));
-    Ok(ImportJobStatus {
-        version: version_of(&phase, done, total),
-        phase,
-        done,
-        total,
-        result,
-        geneanet_result,
-        error: job.error_code,
-    })
-}
-
-/// The phase a status read reports for `job`, read from the database:
-/// `cancelling` once a running job was asked to stop.
-fn reported_phase(job: &BackgroundJob) -> String {
-    if job.cancel_requested && job.status == BackgroundJobStatus::Running.as_str() {
-        PHASE_CANCELLING.to_string()
-    } else {
-        job.phase.clone()
-    }
-}
-
-/// Cancel import job `job_id` of tree `tree_id`: a queued job ends at once,
-/// a running one stops at its next unit of work and rolls back. Where it
-/// stands then.
-pub async fn cancel_import_job(
-    writer: &DatabaseConnection,
-    reader: &DatabaseConnection,
-    media: &dyn MediaStore,
-    tree_id: Uuid,
-    job_id: Uuid,
-) -> Result<ImportJobStatus, OxidGeneError> {
-    cancel_job(
-        writer,
-        reader,
-        media,
-        tree_id,
-        job_id,
-        BackgroundJobKind::Import,
-    )
-    .await?;
-    import_job_status(reader, tree_id, job_id).await
-}
-
-/// Cancel export job `job_id` of tree `tree_id`, which `viewer` made: a
-/// queued job ends at once, a running one stops at its next medium. Where
-/// it stands then.
-pub async fn cancel_export_job(
-    viewer: &ViewerContext,
-    writer: &DatabaseConnection,
-    reader: &DatabaseConnection,
-    media: &dyn MediaStore,
-    tree_id: Uuid,
-    job_id: Uuid,
-) -> Result<ExportJobStatus, OxidGeneError> {
-    require_export_author(reader, viewer, tree_id, job_id).await?;
-    cancel_job(
-        writer,
-        reader,
-        media,
-        tree_id,
-        job_id,
-        BackgroundJobKind::Export,
-    )
-    .await?;
-    export_job_status(reader, tree_id, job_id).await
-}
-
-/// Ask job `job_id` of `kind` in tree `tree_id` to stop.
-///
-/// A queued job ends at once, cancelled, unrun. A running job stops at its
-/// next unit of work — a batch of rows, a medium — rolls back everything it
-/// wrote and ends cancelled; its status reads `cancelling` meanwhile. A job
-/// that has ended already is left as it is.
-///
-/// The request waits for nothing the job holds. A job this process runs
-/// gets the request in memory. Under SQLite, whose only writer the running
-/// import holds, a request for any other job is noted in memory too, and
-/// the worker writes it once the writer is free — the statuses and the tree
-/// list report it meanwhile. Under PostgreSQL the request goes to the
-/// database, where the worker of another process reads it with its next
-/// progress report.
-async fn cancel_job(
-    writer: &DatabaseConnection,
-    reader: &DatabaseConnection,
-    media: &dyn MediaStore,
-    tree_id: Uuid,
-    job_id: Uuid,
-    kind: BackgroundJobKind,
-) -> Result<(), OxidGeneError> {
-    if cancel_here(tree_id, job_id, kind, None) {
-        return Ok(());
-    }
-    let job = job_of_kind(reader, tree_id, job_id, kind).await?;
-    let queued = job.status == BackgroundJobStatus::Queued.as_str();
-    if !queued && job.status != BackgroundJobStatus::Running.as_str() {
-        return Ok(());
-    }
-    if writer.get_database_backend() == DbBackend::Sqlite {
-        cancel_here(tree_id, job_id, kind, Some(queued));
-        return Ok(());
-    }
-    if queued && BackgroundJobRepo::cancel_queued(writer, job_id).await? {
-        if let Err(error) = media.delete_job(job_id).await {
-            tracing::warn!(
-                job_id = %job_id,
-                error.kind = error_kind(&error),
-                "could not delete the inputs of a cancelled job"
-            );
-        }
-    } else {
-        // Running, or claimed since it was read.
-        BackgroundJobRepo::request_cancel(writer, job_id).await?;
-    }
-    job_watch::announce(job_id);
-    Ok(())
-}
-
-/// Where import job `job_id` of tree `tree_id` stands, once it differs from
-/// what `wait` last read or `wait`'s time has run out (see [`job_watch`]).
-pub async fn wait_import_job_status(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    job_id: Uuid,
-    wait: &JobWait,
-) -> Result<ImportJobStatus, OxidGeneError> {
-    job_watch::wait_for(job_id, wait, || import_job_status(db, tree_id, job_id)).await
-}
-
-/// Where export job `job_id` of tree `tree_id`, which `viewer` made,
-/// stands, once it differs from what `wait` last read or `wait`'s time has
-/// run out (see [`job_watch`]).
-pub async fn wait_export_job_status(
-    viewer: &ViewerContext,
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    job_id: Uuid,
-    wait: &JobWait,
-) -> Result<ExportJobStatus, OxidGeneError> {
-    require_export_author(db, viewer, tree_id, job_id).await?;
-    job_watch::wait_for(job_id, wait, || export_job_status(db, tree_id, job_id)).await
-}
-
-/// What identifies a job's visible state: its phase and counts. Everything
-/// else a status carries changes only with its phase.
-fn version_of(phase: &str, done: i64, total: i64) -> String {
-    format!("{phase}.{done}.{total}")
-}
-
-/// Whether a job in `phase` has ended.
-fn has_ended(phase: &str) -> bool {
-    [
-        BackgroundJobStatus::Completed,
-        BackgroundJobStatus::Failed,
-        BackgroundJobStatus::Cancelled,
-    ]
-    .iter()
-    .any(|status| status.as_str() == phase)
-}
-
-impl Versioned for ImportJobStatus {
-    fn version(&self) -> &str {
-        &self.version
-    }
-
-    fn has_ended(&self) -> bool {
-        has_ended(&self.phase)
-    }
-}
-
-impl Versioned for ExportJobStatus {
-    fn version(&self) -> &str {
-        &self.version
-    }
-
-    fn has_ended(&self) -> bool {
-        has_ended(&self.phase)
-    }
-}
-
-/// A completed export of a tree whose archive can still be downloaded.
-#[derive(Debug, Clone, Serialize)]
-pub struct DownloadableExport {
-    pub job_id: Uuid,
-    /// The archive's format: `gedzip`, the only one exports run as jobs.
-    pub format: String,
-    /// Where to download the archive, until `expires_at`.
-    pub download_url: String,
-    /// When the archive stops being downloadable: [`EXPORT_ARTIFACT_TTL`]
-    /// after the export completed.
-    pub expires_at: chrono::DateTime<chrono::Utc>,
-    /// The archive's size in bytes.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub size_bytes: Option<i64>,
-    pub include_notes_and_sources: bool,
-    pub include_media: bool,
-}
-
-/// The most recent completed export of tree `tree_id` that `viewer` made
-/// whose archive can still be downloaded: not past [`EXPORT_ARTIFACT_TTL`],
-/// and still in `media`. `None` when there is none, which is no error: a
-/// page asks on load whether there is one to offer again.
-pub async fn downloadable_export(
-    viewer: &ViewerContext,
-    db: &DatabaseConnection,
-    media: &dyn MediaStore,
-    tree_id: Uuid,
-) -> Result<Option<DownloadableExport>, OxidGeneError> {
-    crate::service::scope::require_live_tree(db, tree_id).await?;
-    let actor = if viewer.is_local() {
-        None
-    } else {
-        match viewer.user() {
-            Some(identity) => Some(identity.user_id),
-            None => return Ok(None),
-        }
-    };
-    let since = chrono::Utc::now()
-        - chrono::Duration::from_std(EXPORT_ARTIFACT_TTL).unwrap_or(chrono::TimeDelta::MAX);
-    let Some(job) = BackgroundJobRepo::latest_artifact_in_tree(db, tree_id, since, actor).await?
-    else {
-        return Ok(None);
-    };
-    let (Some(expires_at), Some(key)) = (downloadable_until(&job), job.artifact_key.as_deref())
-    else {
-        return Ok(None);
-    };
-    if !media.exists(key).await {
-        return Ok(None);
-    }
-    let size_bytes = receipt::<ExportReceipt>(job.result_json.as_deref())?
-        .and_then(|receipt| receipt.size_bytes);
-    Ok(Some(DownloadableExport {
-        job_id: job.id,
-        download_url: format!("/api/v1/trees/{tree_id}/export-jobs/{}/download", job.id),
-        format: job.format,
-        expires_at,
-        size_bytes,
-        include_notes_and_sources: job.include_notes_and_sources,
-        include_media: job.include_media,
-    }))
-}
-
-/// The export artifact of completed job `job_id` of tree `tree_id`, which
-/// `viewer` made: its storage key. It can be downloaded any number of times
-/// until [`EXPORT_ARTIFACT_TTL`] after the export completed; past it, it is
-/// not found, whether or not the maintenance pass has deleted it yet.
-pub async fn export_artifact(
-    viewer: &ViewerContext,
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    job_id: Uuid,
-) -> Result<String, OxidGeneError> {
-    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
-    if !made_by(&job, viewer) {
-        return Err(export_not_found(job_id));
-    }
-    if job.status != BackgroundJobStatus::Completed.as_str() {
-        return Err(OxidGeneError::Validation(
-            "export artifact is not ready".into(),
-        ));
-    }
-    let not_found = OxidGeneError::NotFound {
-        entity: "ExportArtifact",
-        id: job_id,
-    };
-    if downloadable_until(&job).is_none() {
-        return Err(not_found);
-    }
-    job.artifact_key.ok_or(not_found)
-}
-
-/// Whether `viewer` made `job`: the local owner made every job.
-fn made_by(job: &BackgroundJob, viewer: &ViewerContext) -> bool {
-    viewer.is_local()
-        || job
-            .actor_user_id
-            .is_some_and(|actor| viewer.user().is_some_and(|user| user.user_id == actor))
-}
-
-fn export_not_found(job_id: Uuid) -> OxidGeneError {
-    OxidGeneError::NotFound {
-        entity: "ExportJob",
-        id: job_id,
-    }
-}
-
-/// Check that `viewer` made export job `job_id` of tree `tree_id`: an
-/// export's archive holds what its author sees — the owner's, everything —
-/// so nobody else finds, polls, cancels or downloads it (docs/privacy.md
-/// §8). The local owner's request reads nothing, so that the status of a
-/// job it runs still answers from memory.
-async fn require_export_author(
-    db: &DatabaseConnection,
-    viewer: &ViewerContext,
-    tree_id: Uuid,
-    job_id: Uuid,
-) -> Result<(), OxidGeneError> {
-    if viewer.is_local() {
-        return Ok(());
-    }
-    let job = job_of_kind(db, tree_id, job_id, BackgroundJobKind::Export).await?;
-    if made_by(&job, viewer) {
-        Ok(())
-    } else {
-        Err(export_not_found(job_id))
-    }
-}
-
-/// Job `job_id` of tree `tree_id`, which must be of `kind` and belong to a
-/// live tree.
-///
-/// The status reads answer a job this process is running from memory before
-/// coming here, so that a poll never waits on the database — the running job
-/// holds the SQLite writer, which on an in-memory database is also the only
-/// reader. The tree is checked here, once
-/// the answer has to come from the database anyway.
-async fn job_of_kind(
-    db: &DatabaseConnection,
-    tree_id: Uuid,
-    job_id: Uuid,
-    kind: BackgroundJobKind,
-) -> Result<BackgroundJob, OxidGeneError> {
-    crate::service::scope::require_live_tree(db, tree_id).await?;
-    let job = BackgroundJobRepo::get_in_tree(db, tree_id, job_id).await?;
-    if job.kind != kind.as_str() {
-        return Err(OxidGeneError::NotFound {
-            entity: match kind {
-                BackgroundJobKind::Export => "ExportJob",
-                BackgroundJobKind::Import => "ImportJob",
-            },
-            id: job_id,
-        });
-    }
-    Ok(job)
-}
-
-/// What a completed export job records about itself.
-#[derive(Deserialize, Serialize)]
-struct ExportReceipt {
-    warnings: Vec<String>,
-    /// The archive's size in bytes.
-    #[serde(default)]
-    size_bytes: Option<i64>,
-}
-
-/// A job's stored receipt, read back.
-fn receipt<T: DeserializeOwned>(serialized: Option<&str>) -> Result<Option<T>, OxidGeneError> {
-    serialized
-        .map(serde_json::from_str)
-        .transpose()
-        .map_err(|error| OxidGeneError::Internal(error.to_string()))
-}
-
-/// A progress count as reported: never negative.
-fn count(value: i64) -> i64 {
-    value.max(0)
 }

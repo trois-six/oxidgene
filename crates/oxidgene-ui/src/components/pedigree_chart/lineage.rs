@@ -179,7 +179,7 @@ impl LineageLayout {
     pub(super) fn family_button(&self) -> Option<(f64, f64)> {
         let (x, y) = *self.centres.get(self.root_index)?;
         (self.lists_family && (!self.spouses.is_empty() || !self.children.is_empty()))
-            .then(|| (x - self.box_w / 2.0 - CHILDREN_BUTTON_ROOM / 2.0, y))
+            .then_some((x - self.box_w / 2.0 - CHILDREN_BUTTON_ROOM / 2.0, y))
     }
 }
 
