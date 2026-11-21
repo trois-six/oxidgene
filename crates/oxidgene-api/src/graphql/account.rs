@@ -383,6 +383,7 @@ impl AccountQuery {
     }
 
     /// Every user of the instance, for an administrator.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn users(
         &self,
         ctx: &Context<'_>,

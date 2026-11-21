@@ -253,6 +253,7 @@ pub struct NotificationQuery;
 #[Object]
 impl NotificationQuery {
     /// The signed-in user's notifications, newest first.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn notifications(
         &self,
         ctx: &Context<'_>,

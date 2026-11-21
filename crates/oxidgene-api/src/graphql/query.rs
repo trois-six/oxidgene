@@ -252,6 +252,7 @@ impl TreeQuery {
     // ── Trees ────────────────────────────────────────────────────────
 
     /// List all trees with cursor-based pagination.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn trees(
         &self,
         ctx: &Context<'_>,
@@ -281,6 +282,7 @@ impl TreeQuery {
     /// The tree's audit log, newest first, optionally narrowed to one
     /// category or to the writes about one record. Mirrors
     /// `GET /trees/{treeId}/audit`.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn audit_entries(
         &self,
         ctx: &Context<'_>,
@@ -329,6 +331,7 @@ impl TreeQuery {
 
     /// The versions one write produced, each beside the version it replaced.
     /// Mirrors `GET /trees/{treeId}/audit/{entryId}/changes`.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn audit_entry_changes(
         &self,
         ctx: &Context<'_>,
@@ -359,6 +362,7 @@ impl TreeQuery {
 
     /// A record's versions, latest — the live record — first. Mirrors
     /// `GET /trees/{treeId}/history/{recordType}/{recordId}`.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn record_versions(
         &self,
         ctx: &Context<'_>,
@@ -443,6 +447,7 @@ impl TreeQuery {
     // ── Persons ──────────────────────────────────────────────────────
 
     /// List persons in a tree with cursor-based pagination.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn persons(
         &self,
         ctx: &Context<'_>,
@@ -636,6 +641,7 @@ impl TreeQuery {
     // ── Families ─────────────────────────────────────────────────────
 
     /// List families in a tree with cursor-based pagination.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn families(
         &self,
         ctx: &Context<'_>,
@@ -676,6 +682,7 @@ impl TreeQuery {
         clippy::too_many_arguments,
         reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
     )]
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn events(
         &self,
         ctx: &Context<'_>,
@@ -725,6 +732,7 @@ impl TreeQuery {
         clippy::too_many_arguments,
         reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
     )]
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn places(
         &self,
         ctx: &Context<'_>,
@@ -772,6 +780,7 @@ impl TreeQuery {
     // ── Sources ──────────────────────────────────────────────────────
 
     /// List sources in a tree with cursor-based pagination.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn sources(
         &self,
         ctx: &Context<'_>,
@@ -819,6 +828,7 @@ impl TreeQuery {
     // ── Repositories ─────────────────────────────────────────────────
 
     /// List repositories in a tree with cursor-based pagination.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn repositories(
         &self,
         ctx: &Context<'_>,
@@ -864,6 +874,7 @@ impl TreeQuery {
         clippy::too_many_arguments,
         reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
     )]
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn citations(
         &self,
         ctx: &Context<'_>,
@@ -916,6 +927,7 @@ impl TreeQuery {
         clippy::too_many_arguments,
         reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
     )]
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn notes(
         &self,
         ctx: &Context<'_>,
@@ -1407,6 +1419,7 @@ impl TreeQuery {
     /// Suggest places from the place dictionary for `fr` or `en`. The text
     /// before the first comma matches place names; each part after a comma
     /// must start a word of the code, subdivision, region or country.
+    #[graphql(complexity = "crate::graphql::page_complexity(limit, child_complexity)")]
     async fn place_suggestions(
         &self,
         _ctx: &Context<'_>,
@@ -1434,6 +1447,7 @@ impl TreeQuery {
         clippy::too_many_arguments,
         reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
     )]
+    #[graphql(complexity = "crate::graphql::page_complexity(limit, child_complexity)")]
     async fn value_suggestions(
         &self,
         ctx: &Context<'_>,
@@ -1474,6 +1488,7 @@ impl TreeQuery {
     /// List a tree's documents with cursor-based pagination, narrowed by
     /// `filter`, each edge carrying the document's usage count. `offset`
     /// starts the page that many documents in, in place of `after`.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn media_list(
         &self,
         ctx: &Context<'_>,
@@ -1538,6 +1553,7 @@ impl TreeQuery {
     }
 
     /// One page of the live records of `kind` carrying a tag.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn tagged_records(
         &self,
         ctx: &Context<'_>,
@@ -2136,6 +2152,7 @@ impl TreeQuery {
     /// `GET /trees/{treeId}/profiles`.
     ///
     /// Materializes the tree first if it has never been built.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn person_profiles(
         &self,
         ctx: &Context<'_>,
@@ -2167,6 +2184,7 @@ impl TreeQuery {
         clippy::too_many_arguments,
         reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"
     )]
+    #[graphql(complexity = "crate::graphql::page_complexity(Some(limit), child_complexity)")]
     async fn search_persons(
         &self,
         ctx: &Context<'_>,
@@ -2262,6 +2280,7 @@ impl TreeQuery {
 
     /// The persons of the tree modified most recently, newest first.
     /// Mirrors `GET /trees/{treeId}/persons/recently-modified`.
+    #[graphql(complexity = "crate::graphql::page_complexity(Some(limit), child_complexity)")]
     async fn recently_modified_persons(
         &self,
         ctx: &Context<'_>,
@@ -2286,6 +2305,7 @@ impl TreeQuery {
     /// The persons modified most recently in each of several trees, in one
     /// operation; a tree that is missing or deleted is left out. Mirrors
     /// `GET /trees/recent-persons`.
+    #[graphql(complexity = "crate::graphql::page_complexity(Some(limit), child_complexity)")]
     async fn recent_persons_of_trees(
         &self,
         ctx: &Context<'_>,

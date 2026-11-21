@@ -5742,3 +5742,56 @@ async fn a_job_is_cancelled_and_waited_on_over_graphql() {
     assert_eq!(late["phase"], "completed");
     assert!(late["downloadUrl"].is_string());
 }
+
+/// A page weighs its selection once per ten rows it may return: the same
+/// selection that passes for ten rows, or for the default page, is refused
+/// for a hundred, each of which would resolve it again.
+#[tokio::test]
+async fn graphql_weighs_a_paginated_field_by_the_rows_of_its_page() {
+    let app = setup_app().await;
+    let tree = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "Weighed" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let selection = |fields: usize| {
+        (0..fields)
+            .map(|index| format!("a{index}: id"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let refused = |response: &Value| {
+        response["data"].is_null()
+            && response["errors"][0]["extensions"]["code"] == "VALIDATION_ERROR"
+    };
+
+    // A connection: 120 fields a row.
+    let wide = selection(120);
+    for (page, accepted) in [("(first: 100)", false), ("(first: 10)", true), ("", true)] {
+        let query = format!("query {{ trees{page} {{ edges {{ node {{ {wide} }} }} }} }}");
+        let response = graphql(app.clone(), &query, None).await;
+        assert_eq!(!refused(&response), accepted, "trees{page}: {response}");
+    }
+    // The default page weighs two and a half times its selection.
+    let wider = selection(420);
+    let query = format!("query {{ trees {{ edges {{ node {{ {wider} }} }} }} }}");
+    assert!(refused(&graphql(app.clone(), &query, None).await));
+    let query = format!("query {{ trees(first: 1) {{ edges {{ node {{ {wider} }} }} }} }}");
+    assert!(!refused(&graphql(app.clone(), &query, None).await));
+
+    // A search bounded by `limit` is weighed the same way.
+    for (limit, accepted) in [(100, false), (10, true)] {
+        let query = format!(
+            r#"query {{ searchPersons(treeId: "{tree}", query: "a", limit: {limit}) {{ entries {{ {} }} }} }}"#,
+            selection(120).replace(": id", ": personId")
+        );
+        let response = graphql(app.clone(), &query, None).await;
+        assert_eq!(!refused(&response), accepted, "limit {limit}: {response}");
+    }
+}

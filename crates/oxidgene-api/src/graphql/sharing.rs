@@ -321,6 +321,7 @@ impl SharingQuery {
     }
 
     /// The pending invitations of a tree, oldest first.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn tree_invitations(
         &self,
         ctx: &Context<'_>,
@@ -345,6 +346,7 @@ impl SharingQuery {
     }
 
     /// The share links of a tree not revoked, oldest first.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn share_links(
         &self,
         ctx: &Context<'_>,

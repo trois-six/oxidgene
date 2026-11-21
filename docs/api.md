@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-21T12:40:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T13:20:00Z }
 ---
 
 
@@ -2152,7 +2152,15 @@ regenerates: a guard fails while the two differ, so every schema change is
 reviewed as a diff of that file. A client reads the schema through standard
 introspection on `/graphql`, or browses it in GraphiQL where the deployment
 enables it. Every query is limited to a depth of 16 and a
-complexity of 1,000.
+complexity of 1,000. A field counts for one, and a paginated field — any
+taking `first` or `limit` — for its selection once per ten rows its page
+may return besides: the rows asked, the default page of 25 when none is,
+at most the 100 a page holds, and never less than once. A selection of
+forty fields so weighs 41 for ten rows or fewer, 101 for the default page
+and 401 for a full one: what a page costs follows the rows that resolve
+it, where it once cost the same for one row and for a hundred. Past the
+limit the query is refused whole (`VALIDATION_ERROR`); ask a smaller page.
+REST pages are bounded by their own limits.
 
 The schema mirrors §2 operation by operation, following these rules:
 

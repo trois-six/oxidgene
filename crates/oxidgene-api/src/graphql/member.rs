@@ -197,6 +197,7 @@ pub struct MemberQuery;
 impl MemberQuery {
     /// The members of a tree: all of them for its owner, the viewer's own
     /// membership for anyone else.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn tree_members(
         &self,
         ctx: &Context<'_>,
@@ -219,6 +220,7 @@ impl MemberQuery {
     }
 
     /// The access events of a tree, newest first, for its owner.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn tree_access_events(
         &self,
         ctx: &Context<'_>,
@@ -242,6 +244,7 @@ impl MemberQuery {
 
     /// Every tree of the instance with its owner and size, for an
     /// administrator: metadata only.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn admin_trees(
         &self,
         ctx: &Context<'_>,
@@ -261,6 +264,7 @@ impl MemberQuery {
     }
 
     /// The instance's access events, newest first, for an administrator.
+    #[graphql(complexity = "crate::graphql::page_complexity(first, child_complexity)")]
     async fn access_events(
         &self,
         ctx: &Context<'_>,

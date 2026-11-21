@@ -78,8 +78,43 @@ use self::error::SafeErrors;
 use self::tracing::Tracing;
 
 const MAX_QUERY_DEPTH: usize = 16;
+/// The most a query may weigh: one for each field it selects, and a
+/// paginated field's selection once per [`ROWS_PER_UNIT`] rows of its page
+/// ([`page_complexity`]).
 const MAX_QUERY_COMPLEXITY: usize = 1_000;
 const MAX_RECURSIVE_DEPTH: usize = 32;
+
+/// How many rows of a page weigh as one more selection of its fields.
+const ROWS_PER_UNIT: u64 = 10;
+
+/// What a paginated field weighs: itself, and its selection once per ten
+/// rows its page may return — `rows` as asked (`first` or `limit`), the
+/// default page when it is not, at most the rows a page holds — and never
+/// less than once.
+///
+/// Counted once, the fields of a page weighed the same for one row and for
+/// a hundred, each of which resolves them again: a query a hundred rows
+/// wide cost what a single record did. Every root field taking `first` or
+/// `limit` declares this as its complexity. A page of ten rows or fewer
+/// weighs what it always did, so nothing that was refused is accepted.
+pub(crate) fn page_complexity<N: TryInto<u64>>(rows: Option<N>, child_complexity: usize) -> usize {
+    use oxidgene_db::repo::PaginationParams;
+
+    // The repositories' own default and bound on a page.
+    let asked = rows.and_then(|rows| rows.try_into().ok());
+    let page = PaginationParams {
+        first: asked.unwrap_or(PaginationParams::default().first),
+        after: None,
+    };
+    let rows = page.clamped_first().max(ROWS_PER_UNIT);
+    let weight = u64::try_from(child_complexity)
+        .unwrap_or(u64::MAX)
+        .saturating_mul(rows)
+        .div_ceil(ROWS_PER_UNIT);
+    usize::try_from(weight)
+        .unwrap_or(usize::MAX)
+        .saturating_add(1)
+}
 
 /// The root query type: the tree queries and, in the web build, the
 /// account queries.
@@ -212,4 +247,27 @@ pub async fn graphql_playground(
         return crate::rest::error::unknown_route().await;
     }
     Html(GraphiQLSource::build().endpoint("/graphql").finish()).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_page_weighs_its_selection_once_per_ten_rows_and_never_less_than_once() {
+        // Ten rows or fewer: the selection and the field, as before.
+        for rows in [Some(1_u64), Some(10)] {
+            assert_eq!(page_complexity(rows, 40), 41);
+        }
+        // The default page, and a full one.
+        assert_eq!(page_complexity(None::<u64>, 40), 101);
+        assert_eq!(page_complexity(Some(100_u64), 40), 401);
+        // More than a page holds weighs as a full page; a negative count
+        // as the default.
+        assert_eq!(page_complexity(Some(5_000_usize), 40), 401);
+        assert_eq!(page_complexity(Some(-3_i32), 40), 101);
+        // However large the selection, the weight neither wraps nor
+        // falls under the limit.
+        assert!(page_complexity(Some(100_u64), usize::MAX) > MAX_QUERY_COMPLEXITY);
+    }
 }
