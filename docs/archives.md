@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the cited person's surname sent only to an index of persons searched by name, the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive — a desktop archive window or a web tab —, attaching cited views over IIIF as a remote multi-page document that can be cropped, built but not offered until the archives can be browsed freely, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: human:maintainer, at: 2026-11-19T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T10:50:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -2699,7 +2699,13 @@ load's TLS failure, when the page is on an origin the window was sent to
 (the collection's or the target's), over `https`, and an unknown issuer is
 the only error, the window fetches the one issuer the certificate names in
 its Authority Information Access extension (`caIssuers`, DER or PEM, 10
-seconds, 64 KiB, no retry), verifies the completed chain — that certificate,
+seconds, 64 KiB, no retry). That address comes from a certificate nothing
+has verified yet, so it is fetched as authorities publish their
+certificates and no other way: over plain `http`, without user
+information, from a host whose every address is public — one resolving to
+the reader's machine or network, a link-local, shared or reserved address
+is refused whole, and the addresses checked are the ones dialled — and
+without following a redirect. The window then verifies the completed chain — that certificate,
 that issuer, a root the system trusts (`rustls-native-certs`) — for the
 page's host name and the current time with rustls's verifier, and only then
 allows that exact certificate for that host in the archive windows' web
@@ -2708,7 +2714,12 @@ Verification is never disabled: any other failure, or a chain that does
 not verify, stays refused, the window says that the portal's certificate
 could not be verified (`archive_viewer.certificate`) with a button opening
 the page in the system browser (`archive_viewer.open_in_browser`), and a
-resolution waiting on that page fails `unreachable`.
+resolution waiting on that page fails `unreachable`. The button's request
+names no address — the window opens the page it recorded — and a page
+could post it as the button does, so it is offered, and taken, only for a
+page of the origins the window was sent to, from one of their pages or
+from the blank page a failed first load leaves: a failure anywhere else
+shows the message alone.
 
 **Attaching from the window.** Disabled for now (§6.3): the banner never
 offers it. With the offer on, over the views of an archive whose images
@@ -3012,7 +3023,9 @@ Archive portals are public services whose terms OxidGene follows:
 - The Linux window's certificate completion reads the issuer address of a
   certificate and verifies a completed chain with a test authority made for
   the test alone, refusing another name, an untrusted root, a wrong issuer
-  and an expired certificate.
+  and an expired certificate; it fetches an issuer over plain `http` from
+  public addresses only, and takes the request to open the system browser
+  from the archive's pages and the blank page alone.
 - Interface tests check each landing: the filtered search page on
   `challenged`, the view to go to on a portal without an address per view,
   and a target behind a reuse licence landing on its entry and going on to

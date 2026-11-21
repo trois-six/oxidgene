@@ -1011,13 +1011,38 @@ impl ArchiveWindow {
         target_os = "openbsd"
     ))]
     fn untrusted(&mut self, url: String) {
-        self.untrusted = Some(url);
+        // The button opens the system browser, and a page can post what
+        // its click posts: it is offered for a page of the archive's own
+        // origins only, from a page whose request will be taken.
+        let on_screen = self.webview.url().ok();
+        let offered = self.accepts(&url)
+            && on_screen
+                .as_deref()
+                .and_then(origin_of)
+                .is_none_or(|origin| self.accepts(origin));
+        self.untrusted = offered.then_some(url);
         self.eval(&script::banner(
             &self.texts.certificate,
             &self.texts.close,
-            Some((&self.texts.open_in_browser, "open_in_browser")),
+            offered.then_some((&self.texts.open_in_browser, "open_in_browser")),
             &[],
         ));
+    }
+
+    /// Whether `url` is a page of an origin the window was sent to.
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    fn accepts(&self, url: &str) -> bool {
+        origin_of(url).is_some_and(|origin| {
+            self.origins
+                .lock()
+                .is_ok_and(|accepted| accepted.iter().any(|known| known == origin))
+        })
     }
 
     #[cfg(any(
@@ -1374,9 +1399,11 @@ fn receive(
 }
 
 /// A message of [`script`]'s from a page on an accepted origin. The request
-/// to open the unverified page in the system browser is taken from any
-/// page — the page on screen is the one the failed load left — since it
-/// names nothing: the address is the one the window recorded.
+/// to open the unverified page in the system browser is also taken from a
+/// page with no origin: a first load that failed leaves the window on its
+/// blank page, where only the window's own banner runs. It names nothing —
+/// the address is the one the window recorded, a page of the archive's own
+/// origins — and a page of any other origin is refused it like the rest.
 fn read_message(
     accepted: &Mutex<Vec<String>>,
     uri: &dioxus::desktop::wry::http::Uri,
@@ -1390,7 +1417,7 @@ fn read_message(
         target_os = "netbsd",
         target_os = "openbsd"
     ))]
-    if matches!(message, Message::OpenInBrowser) {
+    if matches!(message, Message::OpenInBrowser) && page_origin(uri).is_none() {
         return Ok(message);
     }
     let origin = page_origin(uri).ok_or("no page origin")?;
@@ -1951,8 +1978,10 @@ mod tests {
         assert!(read_message(&accepted, &uri("https://archives.example.org/"), "{}").is_err());
     }
 
-    /// The request names no address: the window opens the one it recorded,
-    /// whichever page is on screen once the load failed.
+    /// The request names no address: the window opens the one it recorded.
+    /// It is taken from the blank page a failed first load leaves and from
+    /// the archive's own pages, and from no other page, which could post
+    /// it as the banner's button does.
     #[cfg(any(
         target_os = "linux",
         target_os = "dragonfly",
@@ -1961,15 +1990,29 @@ mod tests {
         target_os = "openbsd"
     ))]
     #[test]
-    fn the_request_to_open_the_browser_comes_from_any_page() {
-        let accepted = Mutex::new(vec!["https://viewer.example.org".to_owned()]);
-        let uri = "https://archives.example.org/search"
-            .parse::<dioxus::desktop::wry::http::Uri>()
-            .unwrap();
+    fn the_request_to_open_the_browser_comes_from_the_archive_or_the_blank_page() {
+        let accepted = Mutex::new(vec!["https://archives.example.org".to_owned()]);
+        let request = r#"{"kind": "open_in_browser"}"#;
+        let from = |page: &str| {
+            let uri = page.parse::<dioxus::desktop::wry::http::Uri>().unwrap();
+            read_message(&accepted, &uri, request)
+        };
         assert!(matches!(
-            read_message(&accepted, &uri, r#"{"kind": "open_in_browser"}"#),
+            from("https://archives.example.org/search"),
             Ok(Message::OpenInBrowser)
         ));
+        // A page without an origin: the path alone, as a blank page reads.
+        assert!(matches!(from("/blank"), Ok(Message::OpenInBrowser)));
+        for elsewhere in [
+            "https://elsewhere.example.org/",
+            "http://archives.example.org/search",
+            "https://archives.example.org.elsewhere.example.org/",
+        ] {
+            assert!(from(elsewhere).is_err(), "{elsewhere}");
+        }
+        // Nothing else is taken from a page without an origin.
+        let cancel = "/blank".parse::<dioxus::desktop::wry::http::Uri>().unwrap();
+        assert!(read_message(&accepted, &cancel, r#"{"kind": "cancel"}"#).is_err());
     }
 
     /// A page's message, posted outside any event of the event loop, wakes

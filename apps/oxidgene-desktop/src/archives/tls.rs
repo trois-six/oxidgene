@@ -14,6 +14,13 @@
 //! context, and loads the page again. Anything else stays refused, and the
 //! window says so, with a button opening the page in the system browser.
 //!
+//! The issuer's address comes from a certificate nothing has verified yet,
+//! so whoever serves it chooses where the application goes. It is fetched
+//! as authorities publish it and no other way: over plain `http`, from a
+//! public address — never the reader's own machine or network, which the
+//! address could otherwise be used to probe — without following a
+//! redirect, within ten seconds and 64 KiB.
+//!
 //! The fixtures are a test authority made with `openssl` for this test
 //! alone: a root, an intermediate, a certificate for `archives.example.org`
 //! naming the intermediate's address, and an unrelated root. Their keys were
@@ -21,6 +28,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -157,17 +165,102 @@ fn complete(leaf: &[u8], issuer: &str, host: &str) -> bool {
     verifies(leaf, &intermediate, host, UnixTime::now(), roots)
 }
 
-/// The issuer's certificate, DER or PEM, read once without a retry.
+/// Where an issuer's certificate is fetched: the host and port of an
+/// `http` address without user information. Authorities publish their
+/// certificates over plain `http` (RFC 5280 §4.2.2.1) — the certificate is
+/// verified once fetched, and `https` would need the very chain being
+/// completed — so any other scheme is somebody's attempt at something else.
+fn issuer_endpoint(url: &str) -> Option<(reqwest::Url, String, u16)> {
+    let url = reqwest::Url::parse(url).ok()?;
+    if url.scheme() != "http" || !url.username().is_empty() || url.password().is_some() {
+        return None;
+    }
+    let host = url.host_str()?.to_owned();
+    let port = url.port_or_known_default()?;
+    Some((url, host, port))
+}
+
+/// The IPv4 ranges that are not the public Internet, each with the length
+/// of its prefix (RFC 6890): "this network", private, carrier-grade NAT,
+/// loopback, link-local, protocol assignments, documentation, benchmarking,
+/// multicast, and the reserved block with the broadcast address.
+const LOCAL_V4: [([u8; 4], u32); 14] = [
+    ([0, 0, 0, 0], 8),
+    ([10, 0, 0, 0], 8),
+    ([100, 64, 0, 0], 10),
+    ([127, 0, 0, 0], 8),
+    ([169, 254, 0, 0], 16),
+    ([172, 16, 0, 0], 12),
+    ([192, 0, 0, 0], 24),
+    ([192, 0, 2, 0], 24),
+    ([192, 168, 0, 0], 16),
+    ([198, 18, 0, 0], 15),
+    ([198, 51, 100, 0], 24),
+    ([203, 0, 113, 0], 24),
+    ([224, 0, 0, 0], 4),
+    ([240, 0, 0, 0], 4),
+];
+
+/// The same for IPv6, by their first thirty-two bits: the reserved block
+/// holding the unspecified and loopback addresses, unique local,
+/// link-local, multicast, and documentation.
+const LOCAL_V6: [(u16, u16, u32); 5] = [
+    (0x0000, 0x0000, 8),
+    (0xfc00, 0x0000, 7),
+    (0xfe80, 0x0000, 10),
+    (0xff00, 0x0000, 8),
+    (0x2001, 0x0db8, 32),
+];
+
+/// Whether `address` is one of the public Internet: not this machine, not
+/// its local network, not a link-local, shared, multicast or reserved one.
+fn is_public(address: IpAddr) -> bool {
+    match address.to_canonical() {
+        IpAddr::V4(v4) => {
+            let bits = u32::from(v4);
+            !LOCAL_V4.iter().any(|(network, prefix)| {
+                (bits ^ u32::from_be_bytes(*network)) >> (32 - prefix) == 0
+            })
+        }
+        IpAddr::V6(v6) => {
+            let bits = u128::from(v6);
+            !LOCAL_V6.iter().any(|(first, second, prefix)| {
+                let network = (u128::from(*first) << 112) | (u128::from(*second) << 96);
+                (bits ^ network) >> (128 - prefix) == 0
+            })
+        }
+    }
+}
+
+/// The addresses `host` resolves to, when every one of them is public: a
+/// name with one address on the reader's network is refused whole, so that
+/// which one is dialled is never a matter of luck.
+async fn public_addresses(host: &str, port: u16) -> Option<Vec<SocketAddr>> {
+    let addresses: Vec<SocketAddr> = tokio::net::lookup_host((host, port)).await.ok()?.collect();
+    (!addresses.is_empty() && addresses.iter().all(|address| is_public(address.ip())))
+        .then_some(addresses)
+}
+
+/// The issuer's certificate, DER or PEM, read once without a retry, from
+/// the public addresses its host resolves to and no redirect.
 fn fetch(url: &str) -> Option<Vec<u8>> {
+    let (url, host, port) = issuer_endpoint(url)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .ok()?;
     let body = runtime.block_on(async {
+        // Resolved here and pinned in the client: the addresses checked are
+        // the addresses dialled, whatever the name answers a moment later.
+        let addresses = tokio::time::timeout(TIMEOUT, public_addresses(&host, port))
+            .await
+            .ok()??;
         let client = reqwest::Client::builder()
             .user_agent(oxidgene_archives::transport::USER_AGENT)
             .timeout(TIMEOUT)
             .retry(reqwest::retry::never())
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve_to_addrs(&host, &addresses)
             .build()
             .ok()?;
         let mut response = client.get(url).send().await.ok()?;
@@ -312,6 +405,96 @@ mod tests {
         let mut roots = RootCertStore::empty();
         roots.add(CertificateDer::from(root.to_vec())).unwrap();
         roots
+    }
+
+    /// The address comes from an unverified certificate: only what an
+    /// authority publishes its certificate at is fetched.
+    #[test]
+    fn an_issuer_is_fetched_over_plain_http_only() {
+        let (url, host, port) =
+            issuer_endpoint("http://ca.example.org/intermediate.der").expect("an http address");
+        assert_eq!(url.as_str(), "http://ca.example.org/intermediate.der");
+        assert_eq!((host.as_str(), port), ("ca.example.org", 80));
+        assert_eq!(
+            issuer_endpoint("http://ca.example.org:8080/i.der").map(|(_, _, port)| port),
+            Some(8080)
+        );
+        for refused in [
+            "https://ca.example.org/intermediate.der",
+            "ldap://ca.example.org/cn=intermediate",
+            "file:///etc/passwd",
+            "ftp://ca.example.org/intermediate.der",
+            "http://user:secret@ca.example.org/intermediate.der",
+            "http://",
+            "intermediate.der",
+        ] {
+            assert!(issuer_endpoint(refused).is_none(), "{refused}");
+        }
+    }
+
+    /// Never the reader's machine or network, which a certificate could
+    /// otherwise make the application probe.
+    #[test]
+    fn an_issuer_is_fetched_from_a_public_address_only() {
+        for public in ["93.184.215.14", "2606:2800:21f:cb07:6820:80da:af6b:8b2c"] {
+            assert!(is_public(public.parse().unwrap()), "{public}");
+        }
+        for refused in [
+            "127.0.0.1",
+            "127.8.9.10",
+            "10.1.2.3",
+            "172.16.0.1",
+            "172.31.255.254",
+            "192.168.1.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "0.1.2.3",
+            "192.0.0.8",
+            "192.0.2.1",
+            "198.18.0.1",
+            "224.0.0.1",
+            "255.255.255.255",
+            "240.0.0.1",
+            "::1",
+            "::",
+            "fe80::1",
+            "fd00::1",
+            "fc00::1",
+            "ff02::1",
+            "2001:db8::1",
+            "::ffff:127.0.0.1",
+            "::ffff:192.168.1.1",
+        ] {
+            assert!(!is_public(refused.parse().unwrap()), "{refused}");
+        }
+    }
+
+    /// A name is resolved once, here, and refused whole when it answers an
+    /// address of the reader's own: a literal, or `localhost`.
+    #[tokio::test]
+    async fn a_name_answering_a_local_address_is_refused() {
+        assert!(public_addresses("127.0.0.1", 80).await.is_none());
+        assert!(public_addresses("localhost", 80).await.is_none());
+        assert!(public_addresses("192.168.1.1", 8080).await.is_none());
+        assert_eq!(
+            public_addresses("93.184.215.14", 80).await,
+            Some(vec!["93.184.215.14:80".parse().unwrap()])
+        );
+    }
+
+    /// A local issuer is never dialled, whatever its certificate says, nor
+    /// one named by anything but an `http` address.
+    #[test]
+    fn a_local_or_foreign_issuer_is_not_fetched() {
+        for refused in [
+            "http://127.0.0.1:9/intermediate.der",
+            "http://localhost/intermediate.der",
+            "http://[::1]/intermediate.der",
+            "https://ca.example.org/intermediate.der",
+        ] {
+            assert!(fetch(refused).is_none(), "{refused}");
+        }
     }
 
     #[test]
