@@ -2497,6 +2497,92 @@ async fn sosa_generation_moves_with_every_input_of_the_ancestry() {
     moved(&db, tree_id, &mut last, "removing a spouse").await;
 }
 
+/// Under PostgreSQL a statement moves the generation of each tree whose
+/// links it writes once, however many links those are — an import writes a
+/// tree's in a few statements — and leaves it alone when it changes none
+/// that counts. SQLite has no statement trigger and moves it per link.
+#[tokio::test]
+async fn a_statement_writing_many_links_moves_its_trees_generation_once() {
+    use oxidgene_db::entities::{family_child, sea_enums};
+    use sea_orm::sea_query::{Expr, ExprTrait};
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
+
+    let db = setup_db().await;
+    let per_statement = db.get_database_backend() == sea_orm::DbBackend::Postgres;
+    let tree_id = create_tree(&db).await;
+    let other_tree = create_tree(&db).await;
+    let family_id = Uuid::now_v7();
+    FamilyRepo::create(&db, family_id, tree_id).await.unwrap();
+    let mut links = Vec::new();
+    for sort_order in 0..5 {
+        links.push(family_child::ActiveModel {
+            id: Set(Uuid::now_v7()),
+            tree_id: Set(tree_id),
+            family_id: Set(family_id),
+            person_id: Set(create_person(&db, tree_id).await),
+            child_type: Set(sea_enums::ChildType::Biological),
+            sort_order: Set(sort_order),
+        });
+    }
+    let elsewhere = sosa_generation(&db, other_tree).await;
+    let moves = |before: i64, after: i64, what: &str| {
+        if per_statement {
+            assert_eq!(after, before + 1, "{what}: one move for the statement");
+        } else {
+            assert!(after >= before + 5, "{what}: a move per link at least");
+        }
+    };
+
+    let before = sosa_generation(&db, tree_id).await;
+    family_child::Entity::insert_many(links)
+        .exec(&db)
+        .await
+        .expect("five links in one statement");
+    let inserted = sosa_generation(&db, tree_id).await;
+    moves(before, inserted, "an insert");
+
+    // An update that changes neither a family nor a person moves nothing.
+    let of_family = family_child::Column::FamilyId.eq(family_id);
+    family_child::Entity::update_many()
+        .col_expr(
+            family_child::Column::SortOrder,
+            Expr::col(family_child::Column::SortOrder).add(10),
+        )
+        .filter(of_family.clone())
+        .exec(&db)
+        .await
+        .expect("reordered");
+    assert_eq!(sosa_generation(&db, tree_id).await, inserted, "a reorder");
+
+    // One that moves the links to another family does, once.
+    let second_family = Uuid::now_v7();
+    FamilyRepo::create(&db, second_family, tree_id)
+        .await
+        .unwrap();
+    let before = sosa_generation(&db, tree_id).await;
+    family_child::Entity::update_many()
+        .col_expr(family_child::Column::FamilyId, Expr::value(second_family))
+        .filter(of_family)
+        .exec(&db)
+        .await
+        .expect("moved");
+    let updated = sosa_generation(&db, tree_id).await;
+    moves(before, updated, "an update");
+
+    family_child::Entity::delete_many()
+        .filter(family_child::Column::FamilyId.eq(second_family))
+        .exec(&db)
+        .await
+        .expect("five links removed in one statement");
+    moves(updated, sosa_generation(&db, tree_id).await, "a delete");
+
+    assert_eq!(
+        sosa_generation(&db, other_tree).await,
+        elsewhere,
+        "another tree's generation stays where it was"
+    );
+}
+
 /// A rebuild is current until the next change, and a change made between
 /// the start of a rebuild and its end leaves it stale.
 #[tokio::test]

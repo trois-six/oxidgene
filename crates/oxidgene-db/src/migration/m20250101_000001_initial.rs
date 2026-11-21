@@ -3268,11 +3268,8 @@ async fn create_sosa(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     Ok(())
 }
 
-/// The bump of the tree of family link `$row` (`NEW` or `OLD`), as a trigger
-/// body writes it: the link names its tree itself. Under PostgreSQL the SOSA
-/// functions move the tree's redaction generation first
-/// ([`touch_link_tree`]), so that every writer locks the tree's
-/// `projection_state` row before its `sosa_state` row.
+/// The bump of the tree of family link `$row` (`NEW` or `OLD`), as a SQLite
+/// trigger body writes it: the link names its tree itself.
 macro_rules! bump_link_tree {
     ($row:literal) => {
         concat!(
@@ -3339,12 +3336,40 @@ const SQLITE_SOSA_TRIGGERS: &[&str] = &[
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; END",
 ];
 
-/// [`bump_link_tree`]'s move of the redaction generation, under
-/// PostgreSQL: `projection_state` is locked before `sosa_state`
-/// ([`POSTGRES_REDACTION_FUNCTIONS`]).
-macro_rules! touch_link_tree {
-    ($row:literal) => {
-        concat!("PERFORM redaction_touch(", $row, ".tree_id);")
+/// The trees whose family links of kind `$changed` a PostgreSQL `UPDATE`
+/// statement changed: those of the rows whose family, person or — for a
+/// spouse — role differ between its transition tables. A statement that
+/// only reorders the links names none.
+macro_rules! trees_of_changed_links {
+    ($changed:literal) => {
+        concat!(
+            "SELECT o.tree_id FROM removed_rows o JOIN added_rows n ON n.id = o.id WHERE ",
+            $changed,
+            " UNION SELECT n.tree_id FROM removed_rows o JOIN added_rows n ON n.id = o.id WHERE ",
+            $changed,
+            " ORDER BY 1"
+        )
+    };
+}
+
+/// A PostgreSQL statement trigger named `$name` moving, after `$event` on
+/// `$table`, the SOSA generation of each tree the query `$trees` names over
+/// the statement's transition tables `$tables`.
+macro_rules! sosa_links_trigger {
+    ($name:literal, $event:literal, $table:literal, $tables:literal, $trees:expr) => {
+        concat!(
+            "CREATE TRIGGER ",
+            $name,
+            " AFTER ",
+            $event,
+            " ON ",
+            $table,
+            " REFERENCING ",
+            $tables,
+            " FOR EACH STATEMENT EXECUTE FUNCTION sosa_links_written('",
+            $trees,
+            "')"
+        )
     };
 }
 
@@ -3352,11 +3377,21 @@ macro_rules! touch_link_tree {
 const SOSA_TRIGGER_FUNCTIONS: &[&str] = &[
     "sosa_tree_insert",
     "sosa_tree_root",
-    "sosa_link_changed",
+    "sosa_links_written",
     "sosa_owner_changed",
 ];
 
 /// The PostgreSQL counterpart of [`SQLITE_SOSA_TRIGGERS`].
+///
+/// The family links move a tree's generation once per statement, through
+/// its transition tables, as the projection triggers do
+/// ([`POSTGRES_PROJECTION_TRIGGERS`]): an import writes a tree's links in a
+/// few statements, and one update of `sosa_state` per link would leave as
+/// many versions of that one row for every later read to walk. Not once per
+/// transaction, unlike the redaction generation: the exclusion union and
+/// the access scopes are rebuilt inside the transaction that changes the
+/// links and stamped with the generation they read, so a link written after
+/// such a rebuild has to move it again.
 const POSTGRES_SOSA_TRIGGERS: &[&str] = &[
     "CREATE FUNCTION sosa_tree_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
          INSERT INTO sosa_state (tree_id, generation) VALUES (NEW.id, 0); RETURN NULL; END $$",
@@ -3364,17 +3399,17 @@ const POSTGRES_SOSA_TRIGGERS: &[&str] = &[
          PERFORM redaction_touch(NEW.id); \
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.id; \
          RETURN NULL; END $$",
-    // A family link: the tree of the family it left, and of the one it joined.
-    concat!(
-        "CREATE FUNCTION sosa_link_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
-         IF TG_OP <> 'INSERT' THEN ",
-        touch_link_tree!("OLD"),
-        bump_link_tree!("OLD"),
-        " END IF; IF TG_OP <> 'DELETE' THEN ",
-        touch_link_tree!("NEW"),
-        bump_link_tree!("NEW"),
-        " END IF; RETURN NULL; END $$"
-    ),
+    // The family links a statement wrote: each tree its argument, a query
+    // over the transition tables, names. The redaction generation first,
+    // so that `projection_state` is locked before `sosa_state`
+    // ([`POSTGRES_REDACTION_FUNCTIONS`]); the trees in one order, so that
+    // two statements over several trees never wait on each other in a cycle.
+    "CREATE FUNCTION sosa_links_written() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         DECLARE tree uuid; BEGIN \
+         FOR tree IN EXECUTE TG_ARGV[0] LOOP \
+         PERFORM redaction_touch(tree); \
+         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = tree; \
+         END LOOP; RETURN NULL; END $$",
     // A family or a person, deleted or restored: the tree it belongs to.
     "CREATE FUNCTION sosa_owner_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
          IF TG_OP = 'DELETE' THEN \
@@ -3389,20 +3424,56 @@ const POSTGRES_SOSA_TRIGGERS: &[&str] = &[
     "CREATE TRIGGER sosa_tree_root AFTER UPDATE OF sosa_root_person_id ON tree FOR EACH ROW \
          WHEN (OLD.sosa_root_person_id IS DISTINCT FROM NEW.sosa_root_person_id) \
          EXECUTE FUNCTION sosa_tree_root()",
-    "CREATE TRIGGER sosa_family_child_change AFTER INSERT OR DELETE ON family_child \
-         FOR EACH ROW EXECUTE FUNCTION sosa_link_changed()",
-    "CREATE TRIGGER sosa_family_child_update AFTER UPDATE OF family_id, person_id \
-         ON family_child FOR EACH ROW \
-         WHEN (OLD.family_id IS DISTINCT FROM NEW.family_id \
-         OR OLD.person_id IS DISTINCT FROM NEW.person_id) \
-         EXECUTE FUNCTION sosa_link_changed()",
-    "CREATE TRIGGER sosa_family_spouse_change AFTER INSERT OR DELETE ON family_spouse \
-         FOR EACH ROW EXECUTE FUNCTION sosa_link_changed()",
-    "CREATE TRIGGER sosa_family_spouse_update AFTER UPDATE OF family_id, person_id, role \
-         ON family_spouse FOR EACH ROW \
-         WHEN (OLD.family_id IS DISTINCT FROM NEW.family_id \
-         OR OLD.person_id IS DISTINCT FROM NEW.person_id OR OLD.role IS DISTINCT FROM NEW.role) \
-         EXECUTE FUNCTION sosa_link_changed()",
+    sosa_links_trigger!(
+        "sosa_family_child_insert",
+        "INSERT",
+        "family_child",
+        "NEW TABLE AS added_rows",
+        "SELECT DISTINCT tree_id FROM added_rows ORDER BY 1"
+    ),
+    sosa_links_trigger!(
+        "sosa_family_child_delete",
+        "DELETE",
+        "family_child",
+        "OLD TABLE AS removed_rows",
+        "SELECT DISTINCT tree_id FROM removed_rows ORDER BY 1"
+    ),
+    // A transition table cannot be combined with a column list: the trigger
+    // fires on every update and its query keeps the links that changed.
+    sosa_links_trigger!(
+        "sosa_family_child_update",
+        "UPDATE",
+        "family_child",
+        "OLD TABLE AS removed_rows NEW TABLE AS added_rows",
+        trees_of_changed_links!(
+            "(o.family_id IS DISTINCT FROM n.family_id \
+             OR o.person_id IS DISTINCT FROM n.person_id)"
+        )
+    ),
+    sosa_links_trigger!(
+        "sosa_family_spouse_insert",
+        "INSERT",
+        "family_spouse",
+        "NEW TABLE AS added_rows",
+        "SELECT DISTINCT tree_id FROM added_rows ORDER BY 1"
+    ),
+    sosa_links_trigger!(
+        "sosa_family_spouse_delete",
+        "DELETE",
+        "family_spouse",
+        "OLD TABLE AS removed_rows",
+        "SELECT DISTINCT tree_id FROM removed_rows ORDER BY 1"
+    ),
+    sosa_links_trigger!(
+        "sosa_family_spouse_update",
+        "UPDATE",
+        "family_spouse",
+        "OLD TABLE AS removed_rows NEW TABLE AS added_rows",
+        trees_of_changed_links!(
+            "(o.family_id IS DISTINCT FROM n.family_id \
+             OR o.person_id IS DISTINCT FROM n.person_id OR o.role IS DISTINCT FROM n.role)"
+        )
+    ),
     "CREATE TRIGGER sosa_family_deleted AFTER UPDATE OF deleted_at ON family FOR EACH ROW \
          WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at) \
          EXECUTE FUNCTION sosa_owner_changed()",

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-21T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:04:43Z }
 ---
 
 
@@ -1407,6 +1407,23 @@ rather than marked current. On PostgreSQL the rebuild holds the state row
 locked, which also keeps two rebuilds of one tree from interleaving. A
 mutation therefore pays only the trigger's one-row update; the rebuild is paid
 once, by the next read that needs the marks.
+
+The family links move the generation once per statement and tree under
+PostgreSQL, through the statement's transition tables, as the projection
+triggers do (§4.1): an import writes a tree's links in a few statements, and
+one update of the state row per link would leave as many dead versions of
+that one row for every later read to step over. An update that changes
+neither a link's family, nor its person, nor a spouse's role names no tree
+and moves nothing. The move is per statement and not once per transaction,
+unlike the redaction generation's: the exclusion union and the access
+scopes (§6.5, §6.9) are rebuilt inside the transaction that changes the
+links and stamped with the generation they read, so a link written after
+such a rebuild has to move it again. SQLite has no statement-level trigger
+and moves the generation per link, an update in place that leaves nothing
+behind. Its redaction triggers stay per row for the same reason, and stay
+in the schema: a web deployment can run on SQLite — the chart's ephemeral
+mode ([Quickstart §4](quickstart.md#4-deploy-to-kubernetes-with-helm)) —
+and redacts there as it does on PostgreSQL.
 
 **Readers.** The person page bundle's `sosa_number` and `sosa_ancestor_ids`,
 the person read's `sosa_number`, and the pedigree nodes' `sosa_ancestor`
