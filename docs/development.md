@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T15:46:03Z }
+generated: { by: human:maintainer, at: 2026-11-21T16:13:30Z }
 ---
 
 # Development Environment and Workflows
@@ -392,7 +392,7 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 | Category | What | Command | CI job | Gates `CI` |
 |----------|------|---------|--------|------------|
 | Unit | The `#[cfg(test)]` modules of every library and binary, then the documentation examples, which nextest does not run | `just test-unit` | Unit tests | Yes |
-| Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database (on PostgreSQL under `just test-postgres`), repositories, migrations, GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
+| Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database (on PostgreSQL under `just test-postgres`), repositories, migrations — on an empty database, and on one where every table of the schema, read from the schema itself, holds a row (`populated_migration_test.rs`) — GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
 | Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Weekly: Scaling and import memory | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Weekly: Scaling and import memory | No |
@@ -736,7 +736,7 @@ failing).
 | udeps | 4 | `just udeps` | Weekly: Unused dependencies (udeps) | No dependency the compiler finds unused |
 | Reports | 4 | `just report-updates`, `just report-size` | Weekly: Reports | The pending and held-back updates, the size of the code (artifacts, never failing) |
 | Next toolchains | 4 | `just next-toolchain beta`, `just next-toolchain nightly`, `just future-incompat` | Weekly: Next toolchain | Lints and warnings of the next Rust releases, seen before they break the pinned one (reported, never failing) |
-| PostgreSQL | 4 | `just test-postgres` | Weekly: PostgreSQL suite | The migrations run up and down and the repository and API functional tests pass on PostgreSQL, the database of the web deployments: every backend-specific branch and raw statement the SQLite suites of tiers 1 and 2 never execute; jobs and notifications cross processes |
+| PostgreSQL | 4 | `just test-postgres` | Weekly: PostgreSQL suite | The migrations run up and down, on an empty database and over a row in every table, and the repository and API functional tests pass on PostgreSQL, the database of the web deployments: every backend-specific branch and raw statement the SQLite suites of tiers 1 and 2 never execute; jobs and notifications cross processes |
 | Redis | 4 | `just test-redis` | Weekly: Redis suite | Sessions are kept, indexed, expired and ended on Redis as in memory |
 | S3 | 4 | `just test-s3` | Weekly: S3 suite | Media and stored crops live and die on an S3 store as on disk |
 | Desktop feature set | 4 | `just test-desktop-api` | Weekly: API tests in the desktop's feature set | The API's tests pass built as the desktop builds it, without the features the workspace build unifies into it. Reported without failing the run for now: the tests that call GraphQL are not compiled out without the `graphql` feature and fail there ([Roadmap §12c](roadmap.md#12c-planned-structural-follow-ups)) |
@@ -1474,6 +1474,57 @@ packaging it. The SignPath side needs:
 
 The SignPath Foundation's terms also require the code signing policy that
 the README publishes, linked from each release's notes.
+
+### 6.1 First Release: the Schema
+
+Until the first release the schema is the single initial migration, edited
+in place, and a database of an earlier edit is recreated and its genealogy
+imported again ([Data Model](data-model.md)). Nothing in the code prepares
+an in-place upgrade beyond what this policy needs. From the first release
+on, a user's database outlives the build that created it, and the release
+that ships it must first:
+
+1. **Freeze the initial migration.** Set `RELEASED` in the migration policy
+   guard (§2.8): from then on a schema change is a new migration, and the
+   initial one is never edited again.
+2. **Freeze the schema's digest.** A SQLite file is opened today only when
+   the digest it recorded at its creation is the one this build creates,
+   computed by migrating a scratch database
+   ([Architecture §8.4](architecture.md#84-desktop-database-safety)); the
+   comparison stops as soon as a second migration exists, since a migrated
+   file's schema then no longer reads like a fresh one's. Replace it by
+   golden values: the digest of the schema at the end of each released
+   migration, kept in the code and checked by a test that migrates an empty
+   database; each migration records its digest in `schema_meta`, and a file
+   whose digest is none of the released ones is refused as today.
+3. **Test the upgrade on a populated database, on both backends.** The
+   populated migration test (§2.7) gives every table of the schema a row and
+   runs the migrations over them; it builds the current schema only. Keep,
+   for each released schema N, a populated fixture of fictitious data — a
+   SQLite file and a PostgreSQL dump made by release N — and a test that
+   upgrades each to N+1, checks that every row survived with its
+   constraints, and runs the functional checks of the derived rows on it.
+   It joins `just test` for SQLite and `just test-postgres` for PostgreSQL.
+4. **Introduce one derived epoch.** The search rows (`person_search_fts`),
+   the visibility rows (`person_visibility`) and the SOSA rows
+   (`sosa_ancestor`) are derived from the records, as the projections are,
+   which `PROJECTION_SCHEMA_VERSION` already rebuilds when their shape
+   changes. Rather than a data migration for each, add one integer, the
+   derived epoch, which a migration raises when the way any of them is
+   computed changes, and which a process finding it above the epoch its
+   derived rows were built at answers by rebuilding all three for every
+   tree.
+5. **Migrate nothing unseen.** The desktop already copies its file before a
+   pending migration ([Architecture §8.4](architecture.md#84-desktop-database-safety)).
+   The assistant's session (`oxidgene-desktop mcp`) applies migrations
+   itself and takes no copy: make it refuse a file with a pending
+   migration, telling the user to open the application. On the web, the
+   migrations run under an advisory lock while older replicas still serve
+   ([Architecture §4](architecture.md#4-backend-architecture)): a migration
+   adds before it removes, so that the previous release runs on the new
+   schema until it is replaced.
+6. **Say it.** Remove the recreate-and-reimport rule from the Data Model and
+   the user guide, and describe the upgrade and its copy instead.
 
 ## 7. Documentation Site
 

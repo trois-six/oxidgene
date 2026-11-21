@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T15:51:49Z }
+generated: { by: human:maintainer, at: 2026-11-21T16:13:30Z }
 ---
 
 
@@ -1338,7 +1338,8 @@ takes no snapshot and runs no integrity check, which are the
 application's. The check holds while the initial migration is the only
 one: once an incremental migration exists, a migrated file's schema no
 longer reads like a freshly created one's, and the first release has to
-replace the comparison.
+replace the comparison
+([Development §6.1](development.md#61-first-release-the-schema)).
 
 **Snapshots.** A snapshot is a consistent copy of the database written with
 `VACUUM INTO` to `snapshots/oxidgene-<UTC time>.db` in the state directory

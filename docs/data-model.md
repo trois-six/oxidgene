@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-21T15:51:49Z }
+generated: { by: human:maintainer, at: 2026-11-21T16:13:30Z }
 ---
 
 
@@ -26,8 +26,10 @@ than opened ([Architecture §8.4](architecture.md#84-desktop-database-safety)).
 `schema_meta` exists on SQLite only: a PostgreSQL schema is the migrator's
 alone.
 Once the product is released, changes ship as incremental migrations instead
-([Architecture §9](architecture.md)). Runtime projection versioning remains
-independent of this schema reset (see §4.1).
+([Architecture §9](architecture.md)), after the steps the first release must
+take first ([Development §6.1](development.md#61-first-release-the-schema)).
+Runtime projection versioning remains independent of this schema reset (see
+§4.1).
 
 ---
 
