@@ -15,6 +15,10 @@
 //! defaults, and gives the platform's equivalents on macOS and Windows. Those
 //! platforms have no state directory; state then goes to the local data
 //! directory, which they keep apart from roaming data.
+//!
+//! The desktop makes the four its user's alone ([`AppDirs::make_private`]):
+//! they hold a family's genealogy, the portals' cookies and the documents
+//! being imported, on a machine other accounts may share.
 
 use std::path::{Path, PathBuf};
 
@@ -101,6 +105,47 @@ impl AppDirs {
     pub fn work(&self) -> &Path {
         &self.cache
     }
+
+    /// Create the four directories for their user alone, and close those
+    /// that exist to everybody else: mode `0700` on Unix, whatever the
+    /// process's umask or an earlier version left. Everything beneath them
+    /// — the database, the media, the web profiles, the working files — is
+    /// then out of the other accounts' reach, whatever its own mode.
+    ///
+    /// Windows needs nothing: a profile's application-data directories are
+    /// the user's by the access list they inherit.
+    ///
+    /// Each directory answers for itself, in the order data, config, state,
+    /// cache: the application cannot run without its data, and can without
+    /// a configuration directory it may not write.
+    pub fn make_private(&self) -> [(&Path, std::io::Result<()>); 4] {
+        [&self.data, &self.config, &self.state, &self.cache]
+            .map(|directory| (directory.as_path(), make_private(directory)))
+    }
+}
+
+/// Create `directory`, with the parents it lacks, for its user alone, or
+/// close it to everybody else when it exists.
+#[cfg(unix)]
+fn make_private(directory: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+
+    /// Read, write and search for the owner; nothing for anybody else.
+    const OWNER_ONLY: u32 = 0o700;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(OWNER_ONLY)
+        .create(directory)?;
+    // The builder's mode is for what it creates: a directory that existed
+    // keeps the one it had.
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(OWNER_ONLY))
+}
+
+/// Create `directory` with the parents it lacks: the platform's
+/// application-data directories are already the user's alone.
+#[cfg(not(unix))]
+fn make_private(directory: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(directory)
 }
 
 /// The base directory of state: the platform's, or its local data directory
@@ -126,6 +171,40 @@ mod tests {
             Path::new("/s/oxidgene/archives-webview")
         );
         assert_eq!(dirs.work(), Path::new("/k/oxidgene"));
+    }
+
+    /// A directory another account could read, as an earlier version or a
+    /// permissive umask left it, is closed; a missing one is created closed.
+    #[cfg(unix)]
+    #[test]
+    fn the_directories_are_their_users_alone() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().expect("a directory for the bases");
+        let base = |name: &str| root.path().join(name);
+        let dirs = AppDirs::from_bases(base("data"), base("config"), base("state"), base("cache"));
+        std::fs::create_dir_all(dirs.media()).expect("an existing data directory");
+        for open in [&dirs.data, &dirs.media()] {
+            std::fs::set_permissions(open, std::fs::Permissions::from_mode(0o755))
+                .expect("opened to everybody");
+        }
+
+        for (directory, made) in dirs.make_private() {
+            made.unwrap_or_else(|error| panic!("{}: {error}", directory.display()));
+        }
+
+        let mode = |path: &Path| {
+            std::fs::metadata(path)
+                .expect("the directory exists")
+                .permissions()
+                .mode()
+                & 0o777
+        };
+        for directory in [&dirs.data, &dirs.config, &dirs.state, &dirs.cache] {
+            assert_eq!(mode(directory), 0o700, "{}", directory.display());
+        }
+        // What lies beneath keeps its mode: the closed parent covers it.
+        assert_eq!(mode(&dirs.media()), 0o755);
     }
 
     #[test]

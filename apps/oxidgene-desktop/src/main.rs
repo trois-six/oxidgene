@@ -87,7 +87,7 @@ use oxidgene_ui::theme::CustomThemeLoader;
 use tokio::net::TcpListener;
 #[cfg(feature = "telemetry")]
 use tower_http::trace::TraceLayer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 const ICON_PNG: &[u8] = include_bytes!("../../../assets/desktop/icon.png");
 
@@ -333,7 +333,7 @@ fn main() {
         std::process::exit(status);
     }
 
-    create_data_dir_or_exit(&app_dirs);
+    prepare_dirs_or_exit(&app_dirs);
 
     let db_path = app_dirs.database();
     let media_root = app_dirs.media();
@@ -499,12 +499,34 @@ fn app_dirs_or_exit() -> AppDirs {
     })
 }
 
-/// Create the data directory the database opens in, or end the process.
-fn create_data_dir_or_exit(app_dirs: &AppDirs) {
-    std::fs::create_dir_all(&app_dirs.data).unwrap_or_else(|_| {
-        error!(error = "data_directory", "Failed to create data directory");
-        std::process::exit(1);
-    });
+/// Create the application's directories for the user alone and close the
+/// existing ones to every other account (`AppDirs::make_private`). The
+/// process ends without the data directory, which the database opens in;
+/// another one that cannot be prepared is reported, and whatever writes
+/// there says so in its turn.
+fn prepare_dirs_or_exit(app_dirs: &AppDirs) {
+    for (directory, made) in app_dirs.make_private() {
+        let Err(failure) = made else { continue };
+        if directory == app_dirs.data {
+            exit_without_data_dir(&failure);
+        }
+        warn!(
+            error = "application_directory",
+            error.kind = %failure.kind(),
+            "Failed to prepare an application directory for its user alone"
+        );
+    }
+}
+
+/// End the process: the data directory could not be prepared. The kind of
+/// the failure is logged, never the path, which names the user.
+fn exit_without_data_dir(failure: &std::io::Error) -> ! {
+    error!(
+        error = "data_directory",
+        error.kind = %failure.kind(),
+        "Failed to prepare the data directory"
+    );
+    std::process::exit(1)
 }
 
 /// Wait for the embedded server to report its port, then build the client

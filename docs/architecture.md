@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T16:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T16:05:00Z }
 ---
 
 
@@ -1083,6 +1083,17 @@ directory.
 | Config | `~/.config/oxidgene/` | `themes/` and `languages/`, personal JSON theme and locale documents ([App Settings](ui-app-settings.md)) | No: written by the user |
 | State | `~/.local/state/oxidgene/` | `webview/`: the desktop window's cookies, local storage (the UI preferences: language, theme, pedigree defaults), media keys, storage; `archives-webview/`: the archive windows' own profile, the portals' cookies ([Archive Portals §6.1](archives.md#61-desktop)) | While the application is closed; the UI preferences reset, and a portal asks again for its reuse licence or challenge |
 | Cache | `~/.cache/oxidgene/` | `jobs/` (each running job's scratch: staged source, a Geneanet import's archives and pages, an export's media and archive), `staging/` (uploads, a decoded Geneanet session's media, the pages the Geneanet window fetched, a media archive being streamed), and WebKitGTK's `WebKitCache/` and `CacheStorage/` | Yes, while the application is closed |
+
+The desktop creates the four directories for its user alone at each start
+— mode `0700` on Linux and macOS — and closes those that exist to every
+other account, whatever the umask or an earlier version left: everything
+beneath them, the database, the media, the web profiles and the working
+files, is then out of reach of the machine's other accounts whatever its
+own mode. Windows needs nothing, a profile's application-data directories
+being the user's by the access list they inherit. The process ends when
+the data directory cannot be prepared and warns for another. The server
+and the worker leave their directories as the operator made them: a
+container's volumes and their modes are the deployment's.
 
 One file does not follow: WebKitGTK writes its HSTS store,
 `hsts-storage.sqlite`, at the root of the data directory, and neither Dioxus
