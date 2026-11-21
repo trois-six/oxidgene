@@ -124,7 +124,7 @@
       "groupName": "GitHub Actions (non-major)"
     },
     {
-      "description": "Automerge stable non-major updates after CI succeeds. GitHub Actions are left out: nearly all of them run in the release workflow or in the gates it calls, with the repository's tokens, so their updates wait for a review",
+      "description": "Automerge stable non-major updates after CI succeeds. GitHub Actions have their own rule below",
       "matchManagers": [
         "cargo",
         "docker-compose",
@@ -134,6 +134,20 @@
       ],
       "matchCurrentVersion": "/^v?[1-9][0-9]*(\\.[0-9]+)*/",
       "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "additionalBranchPrefix": "automerge-",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Automerge the stable non-major updates of the actions the pull-request tier alone runs: ci.yml and the build cache action only it uses. Every job that runs them holds read-only tokens and publishes nothing, and the release builds restore none of its caches. An action in any other file — the release, the scheduled tiers, the CI image build, the setup-just action the release's publishing jobs share — keeps the reviewed group above. Its own group and branch, because a branch is merged by the bot only when every update in it may be",
+      "matchManagers": ["github-actions"],
+      "matchFileNames": [
+        ".github/workflows/ci.yml",
+        ".github/actions/rust-build-cache/action.yml"
+      ],
+      "matchCurrentVersion": "/^v?[1-9][0-9]*(\\.[0-9]+)*/",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "groupName": "GitHub Actions of the pull-request tier (non-major)",
       "additionalBranchPrefix": "automerge-",
       "automerge": true,
       "automergeType": "pr"

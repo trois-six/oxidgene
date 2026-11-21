@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T12:57:00Z }
 ---
 
 # Development Environment and Workflows
@@ -1279,9 +1279,16 @@ the tagged sources and of inputs somebody reviewed:
   (`actions/checkout@<40 hexadecimal digits> # v7.0.1`), never by a tag its
   publisher can move. The `workflows` guard (§2.8) fails on any other form.
   Renovate proposes the next release with its commit
-  (`helpers:pinGitHubActionDigests`) and never merges it by itself: an
-  action runs with the workflow's tokens, and nearly all of them run in the
-  release or in the gates it calls.
+  (`helpers:pinGitHubActionDigests`). It merges by itself, once CI is
+  green, the non-major updates of the actions the pull-request tier alone
+  runs — those of `ci.yml` and of the `rust-build-cache` action only it
+  uses: every job that runs them holds read-only tokens and publishes
+  nothing, and the release builds restore none of its caches. Every other action waits for a
+  review, since it runs with the tokens of the release, of a scheduled
+  tier or of the CI image build; so does the `setup-just` action, which
+  the release's publishing jobs share. The same action can therefore sit
+  at two releases, the pull-request tier's a step ahead, until the
+  reviewed update is merged.
 - **Base images.** Renovate pins the base images of the Dockerfiles by
   digest (`rust:1-slim-trixie@sha256:…`) and proposes each new digest; it
   merges by itself only those of the CI and development images, never those
