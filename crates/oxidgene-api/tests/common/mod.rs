@@ -3,6 +3,7 @@
 
 pub mod canary;
 pub mod capture;
+pub mod measure;
 #[cfg(feature = "auth")]
 pub mod oidc;
 // Shared with the unit tests of `media`, which alone write a locked PDF.
@@ -12,6 +13,7 @@ pub mod oidc;
 )]
 pub mod pdf;
 pub mod populated;
+pub mod population;
 
 use axum::Router;
 use axum::body::Body;

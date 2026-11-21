@@ -13,11 +13,8 @@
 //! peak resident memory phase by phase, and fails when the job's peak or what
 //! the process keeps once the job is over exceeds its budget.
 
-use std::collections::HashMap;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use axum::Router;
@@ -31,11 +28,10 @@ use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::{connect, run_migrations};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
-use tracing::Subscriber;
-use tracing::span::{Attributes, Id};
-use tracing_subscriber::Layer;
-use tracing_subscriber::layer::{Context, SubscriberExt as _};
+use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
+
+use crate::common::measure::{PhaseMemory, highest_peak_mib, reset_highest_peak, status_mib};
 
 /// The most resident memory the process may reach while the job runs, in
 /// MiB. Measured at 400 MiB on a 16-thread machine, where eight pictures are
@@ -357,33 +353,8 @@ fn report(line: &str) {
     eprintln!("[import-memory] {line}");
 }
 
-/// A field of `/proc/self/status`, in MiB.
-fn status_mib(field: &str) -> u64 {
-    std::fs::read_to_string("/proc/self/status")
-        .ok()
-        .and_then(|status| {
-            status
-                .lines()
-                .find_map(|line| line.strip_prefix(field))
-                .and_then(|value| value.trim().trim_end_matches("kB").trim().parse().ok())
-        })
-        .map_or(0, |kib: u64| kib / 1024)
-}
-
-/// The highest peak [`take_peak_mib`] has read.
-static HIGHEST_PEAK: AtomicU64 = AtomicU64::new(0);
-
-/// The peak resident set since the last call, then a new start: writing 5 to
-/// `clear_refs` sets the peak back to the current resident set (Linux).
-fn take_peak_mib() -> u64 {
-    let peak = status_mib("VmHWM:");
-    let _ = std::fs::write("/proc/self/clear_refs", "5");
-    HIGHEST_PEAK.fetch_max(peak, Ordering::Relaxed);
-    peak
-}
-
 /// The import's phases, by the spans they run under.
-const PHASES: [&str; 8] = [
+const PHASES: &[&str] = &[
     "import.job",
     "import.parse",
     "import.persist",
@@ -393,43 +364,6 @@ const PHASES: [&str; 8] = [
     "import.media.prepare",
     "import.projections",
 ];
-
-/// Reports each phase's time and peak memory as its span closes.
-///
-/// The peak starts over as each phase opens and closes, so a phase that
-/// holds others reports what it held after the last of them: for
-/// `import.media`, its documents; for `import.job`, the end of the job.
-#[derive(Default)]
-struct PhaseMemory {
-    open: Mutex<HashMap<u64, (&'static str, Instant)>>,
-}
-
-impl<S: Subscriber> Layer<S> for PhaseMemory {
-    fn on_new_span(&self, attributes: &Attributes<'_>, id: &Id, _: Context<'_, S>) {
-        let name = attributes.metadata().name();
-        if PHASES.contains(&name) {
-            take_peak_mib();
-            if let Ok(mut open) = self.open.lock() {
-                open.insert(id.into_u64(), (name, Instant::now()));
-            }
-        }
-    }
-
-    fn on_close(&self, id: Id, _: Context<'_, S>) {
-        let closed = self
-            .open
-            .lock()
-            .ok()
-            .and_then(|mut open| open.remove(&id.into_u64()));
-        if let Some((name, opened)) = closed {
-            let peak = take_peak_mib();
-            report(&format!(
-                "{name}: {:.1} s, peak RSS {peak} MiB",
-                opened.elapsed().as_secs_f64()
-            ));
-        }
-    }
-}
 
 async fn send(
     app: &Router,
@@ -467,7 +401,7 @@ async fn a_geneanet_import_stays_within_its_memory_budget() {
     // As the desktop's `main` does first.
     oxidgene_api::memory::tune();
     tracing_subscriber::registry()
-        .with(PhaseMemory::default())
+        .with(PhaseMemory::new("import-memory", PHASES))
         .init();
     let work = WorkDir(PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("import-memory"));
     let _ = std::fs::remove_dir_all(&work.0);
@@ -524,15 +458,13 @@ async fn a_geneanet_import_stays_within_its_memory_budget() {
     let job_id = started["job_id"].as_str().unwrap();
 
     // The worker's own loop step, which also hands the job's memory back.
-    take_peak_mib();
-    HIGHEST_PEAK.store(0, Ordering::Relaxed);
+    reset_highest_peak();
     let started = Instant::now();
     assert!(
         worker.run_once().await.expect("runs the job"),
         "no job was queued"
     );
-    take_peak_mib();
-    let peak = HIGHEST_PEAK.load(Ordering::Relaxed);
+    let peak = highest_peak_mib();
     let retained = status_mib("VmRSS:");
     report(&format!(
         "job {:.1} s, peak RSS {peak} MiB; after it, RSS {retained} MiB",
