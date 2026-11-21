@@ -108,8 +108,16 @@ impl FamilyChildRepo {
                 "the person is already a child of the family".to_string(),
             ));
         }
+        let tree_id = crate::repo::tree_of::<crate::entities::family::Entity>(
+            db,
+            family_id,
+            crate::entities::family::Column::TreeId,
+            "Family",
+        )
+        .await?;
         let model = family_child::ActiveModel {
             id: Set(id),
+            tree_id: Set(tree_id),
             family_id: Set(family_id),
             person_id: Set(person_id),
             child_type: Set(sea_enums::ChildType::from(child_type)),

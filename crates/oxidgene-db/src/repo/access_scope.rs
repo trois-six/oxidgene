@@ -228,17 +228,21 @@ impl AccessScopeRepo {
         .await
         .map_err(db_err)?;
         let persons: Vec<Uuid> = persons.iter().copied().collect();
+        let tree_id = crate::repo::tree_of::<Entity>(db, id, Column::TreeId, "AccessScope").await?;
         for batch in persons.chunks(INSERT_BATCH) {
             let tuples = (0..batch.len())
-                .map(|i| format!("({})", placeholders(backend, 2 * i + 1, 2)))
+                .map(|i| format!("({})", placeholders(backend, 3 * i + 1, 3)))
                 .collect::<Vec<_>>()
                 .join(", ");
             let values = batch
                 .iter()
-                .flat_map(|person| [Value::from(id), Value::from(*person)]);
+                .flat_map(|person| [Value::from(tree_id), Value::from(id), Value::from(*person)]);
             db.execute_raw(Statement::from_sql_and_values(
                 backend,
-                format!("INSERT INTO access_scope_person (scope_id, person_id) VALUES {tuples}"),
+                format!(
+                    "INSERT INTO access_scope_person (tree_id, scope_id, person_id) \
+                     VALUES {tuples}"
+                ),
                 values,
             ))
             .await

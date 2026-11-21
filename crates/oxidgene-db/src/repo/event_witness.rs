@@ -116,8 +116,16 @@ impl EventWitnessRepo {
                 "the person already witnesses the event in this relation".to_string(),
             ));
         }
+        let tree_id = crate::repo::tree_of::<crate::entities::event::Entity>(
+            db,
+            event_id,
+            crate::entities::event::Column::TreeId,
+            "Event",
+        )
+        .await?;
         let model = event_witness::ActiveModel {
             id: Set(id),
+            tree_id: Set(tree_id),
             event_id: Set(event_id),
             person_id: Set(person_id),
             relation: Set(relation),

@@ -116,6 +116,7 @@ impl Fixture {
     fn spouse(&self, person_id: Uuid, role: sea_enums::SpouseRole) -> family_spouse::ActiveModel {
         family_spouse::ActiveModel {
             id: Set(Uuid::now_v7()),
+            tree_id: Set(self.tree),
             family_id: Set(self.family),
             person_id: Set(person_id),
             role: Set(role),
@@ -126,6 +127,7 @@ impl Fixture {
     fn child(&self, child_type: sea_enums::ChildType) -> family_child::ActiveModel {
         family_child::ActiveModel {
             id: Set(Uuid::now_v7()),
+            tree_id: Set(self.tree),
             family_id: Set(self.family),
             person_id: Set(self.other),
             child_type: Set(child_type),
@@ -136,6 +138,7 @@ impl Fixture {
     fn witness(&self, relation: Option<&str>) -> event_witness::ActiveModel {
         event_witness::ActiveModel {
             id: Set(Uuid::now_v7()),
+            tree_id: Set(self.tree),
             event_id: Set(self.event),
             person_id: Set(self.other),
             relation: Set(relation.map(str::to_owned)),
@@ -146,6 +149,7 @@ impl Fixture {
     fn name(&self, is_primary: bool) -> person_name::ActiveModel {
         person_name::ActiveModel {
             id: Set(Uuid::now_v7()),
+            tree_id: Set(self.tree),
             person_id: Set(self.person),
             name_type: Set(sea_enums::NameType::Birth),
             given_names: Set(Some("Sample".into())),
@@ -169,6 +173,7 @@ impl Fixture {
     ) -> citation::ActiveModel {
         citation::ActiveModel {
             id: Set(Uuid::now_v7()),
+            tree_id: Set(self.tree),
             source_id: Set(self.source),
             person_id: Set(person_id),
             event_id: Set(event_id),
@@ -188,6 +193,7 @@ impl Fixture {
     ) -> media_link::ActiveModel {
         media_link::ActiveModel {
             id: Set(Uuid::now_v7()),
+            tree_id: Set(self.tree),
             media_id: Set(self.media),
             person_id: Set(person_id),
             event_id: Set(None),
@@ -390,6 +396,108 @@ async fn a_citation_a_media_link_and_a_note_name_exactly_one_record() {
         .insert(&f.db)
         .await
         .expect("a note about one medium");
+}
+
+/// A row attached to records carries their tree, and its foreign keys pair
+/// each record with it: the database refuses a row naming a record of
+/// another tree, whichever of the two trees the row claims.
+#[tokio::test]
+async fn a_row_names_records_of_its_own_tree_only() {
+    let f = fixture().await;
+    let other_tree = Uuid::now_v7();
+    TreeRepo::create(&f.db, other_tree, "Another fictional tree".into(), None)
+        .await
+        .unwrap();
+    let stranger = Uuid::now_v7();
+    PersonRepo::create(&f.db, stranger, other_tree, Sex::Unknown)
+        .await
+        .unwrap();
+
+    // A spouse of another tree, under either tree's name.
+    for tree_id in [f.tree, other_tree] {
+        let mut link = f.spouse(stranger, sea_enums::SpouseRole::Wife);
+        link.tree_id = Set(tree_id);
+        assert!(
+            link.insert(&f.db).await.is_err(),
+            "a spouse of another tree"
+        );
+    }
+    let mut child = f.child(sea_enums::ChildType::Biological);
+    child.person_id = Set(stranger);
+    assert!(
+        child.insert(&f.db).await.is_err(),
+        "a child of another tree"
+    );
+    let mut witness = f.witness(None);
+    witness.person_id = Set(stranger);
+    assert!(
+        witness.insert(&f.db).await.is_err(),
+        "a witness of another tree"
+    );
+    let mut name = f.name(false);
+    name.tree_id = Set(other_tree);
+    assert!(
+        name.insert(&f.db).await.is_err(),
+        "a name filed under another tree than its person's"
+    );
+    assert!(
+        f.citation(Some(stranger), None, None)
+            .insert(&f.db)
+            .await
+            .is_err(),
+        "a citation about a person of another tree"
+    );
+    assert!(
+        f.media_link(Some(stranger), None)
+            .insert(&f.db)
+            .await
+            .is_err(),
+        "a medium linked to a person of another tree"
+    );
+    assert!(
+        f.note(Some(stranger), None).insert(&f.db).await.is_err(),
+        "a note about a person of another tree"
+    );
+    assert!(
+        f.set_event(f.event, event::Column::PersonId, Expr::value(stranger))
+            .await
+            .is_err(),
+        "an event given to a person of another tree"
+    );
+
+    // The repositories give a row the tree of the record it is attached to.
+    PersonNameRepo::create(
+        &f.db,
+        Uuid::now_v7(),
+        stranger,
+        NameType::Birth,
+        PersonNamePieces::default(),
+        true,
+        0,
+    )
+    .await
+    .expect("a name of the other tree's person");
+    let filed = person_name::Entity::find()
+        .filter(person_name::Column::PersonId.eq(stranger))
+        .one(&f.db)
+        .await
+        .unwrap()
+        .expect("the name");
+    assert_eq!(filed.tree_id, other_tree);
+    // And refuse, through the keys, what the services would have refused
+    // first: a person of another tree in this tree's family.
+    assert!(
+        FamilySpouseRepo::create(
+            &f.db,
+            Uuid::now_v7(),
+            f.family,
+            stranger,
+            SpouseRole::Wife,
+            0
+        )
+        .await
+        .is_err()
+    );
 }
 
 #[tokio::test]

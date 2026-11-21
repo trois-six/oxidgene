@@ -252,9 +252,13 @@ impl CitationRepo {
             "person_id, event_id and family_id",
             &[person_id, event_id, family_id],
         )?;
+        let tree_id =
+            crate::repo::tree_of::<source::Entity>(db, source_id, source::Column::TreeId, "Source")
+                .await?;
         let now = Utc::now();
         let model = citation::ActiveModel {
             id: Set(id),
+            tree_id: Set(tree_id),
             source_id: Set(source_id),
             person_id: Set(person_id),
             event_id: Set(event_id),

@@ -392,8 +392,16 @@ impl SourceRepositoryRepo {
         repository_id: Uuid,
         fields: SourceRepositoryFields,
     ) -> Result<SourceRepository, OxidGeneError> {
+        let tree_id = crate::repo::tree_of::<crate::entities::source::Entity>(
+            db,
+            source_id,
+            crate::entities::source::Column::TreeId,
+            "Source",
+        )
+        .await?;
         source_repository::ActiveModel {
             id: Set(id),
+            tree_id: Set(tree_id),
             source_id: Set(source_id),
             repository_id: Set(repository_id),
             call_number: Set(fields.call_number),

@@ -57,7 +57,7 @@ impl DictionaryRepo {
         let value = value.trim();
         let carrier_names: Vec<PersonName> = person_name::Entity::find()
             .join(JoinType::InnerJoin, person_name::Relation::Person.def())
-            .filter(person::Column::TreeId.eq(tree_id))
+            .filter(person_name::Column::TreeId.eq(tree_id))
             .filter(person::Column::DeletedAt.is_null())
             .filter(person_name::Column::Surname.is_in(root_candidates(value)))
             .all(db)

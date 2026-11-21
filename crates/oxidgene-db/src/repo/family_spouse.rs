@@ -129,8 +129,12 @@ impl FamilySpouseRepo {
                 "the person is already a spouse of the family".to_string(),
             ));
         }
+        let tree_id =
+            crate::repo::tree_of::<family::Entity>(db, family_id, family::Column::TreeId, "Family")
+                .await?;
         let model = family_spouse::ActiveModel {
             id: Set(id),
+            tree_id: Set(tree_id),
             family_id: Set(family_id),
             person_id: Set(person_id),
             role: Set(sea_enums::SpouseRole::from(role)),

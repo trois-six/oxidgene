@@ -161,10 +161,11 @@ impl VignetteRepo {
         id: Uuid,
         input: VignetteInput,
     ) -> Result<Vignette, OxidGeneError> {
-        validate_input(db, &input).await?;
+        let tree_id = validate_input(db, &input).await?;
         let now = Utc::now();
         let model = vignette::ActiveModel {
             id: Set(id),
+            tree_id: Set(tree_id),
             media_id: Set(input.media_id),
             x: Set(input.x),
             y: Set(input.y),
@@ -252,10 +253,11 @@ impl VignetteRepo {
     }
 }
 
+/// Check `input` against its page; the page's tree, which is the vignette's.
 async fn validate_input(
     db: &impl ConnectionTrait,
     input: &VignetteInput,
-) -> Result<(), OxidGeneError> {
+) -> Result<Uuid, OxidGeneError> {
     let media = MediaRepo::get(db, input.media_id).await?;
     media.validate_crop(input.x, input.y, input.width, input.height)?;
     if let Some(parent_id) = media.parent_media_id {
@@ -280,7 +282,7 @@ async fn validate_input(
             id,
         });
     }
-    Ok(())
+    Ok(media.tree_id)
 }
 
 fn into_domain(v: vignette::Model) -> Vignette {

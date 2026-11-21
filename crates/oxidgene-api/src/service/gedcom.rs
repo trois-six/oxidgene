@@ -674,6 +674,7 @@ async fn insert_repositories(
         .iter()
         .map(|l| source_repository::ActiveModel {
             id: Set(l.id),
+            tree_id: Set(result.tree_id),
             source_id: Set(l.source_id),
             repository_id: Set(l.repository_id),
             call_number: Set(l.call_number.clone()),
@@ -719,6 +720,7 @@ async fn insert_persons_and_families(
             .iter()
             .map(|pn| person_name::ActiveModel {
                 id: Set(pn.id),
+                tree_id: Set(result.tree_id),
                 person_id: Set(pn.person_id),
                 name_type: Set(sea_enums::NameType::from(pn.name_type)),
                 given_names: Set(pn.given_names.clone()),
@@ -760,6 +762,7 @@ async fn insert_persons_and_families(
             .iter()
             .map(|fs| family_spouse::ActiveModel {
                 id: Set(fs.id),
+                tree_id: Set(result.tree_id),
                 family_id: Set(fs.family_id),
                 person_id: Set(fs.person_id),
                 role: Set(sea_enums::SpouseRole::from(fs.role)),
@@ -776,6 +779,7 @@ async fn insert_persons_and_families(
             .iter()
             .map(|fc| family_child::ActiveModel {
                 id: Set(fc.id),
+                tree_id: Set(result.tree_id),
                 family_id: Set(fc.family_id),
                 person_id: Set(fc.person_id),
                 child_type: Set(sea_enums::ChildType::from(fc.child_type)),
@@ -838,6 +842,7 @@ async fn insert_attached_records(
             .iter()
             .map(|w| event_witness::ActiveModel {
                 id: Set(w.id),
+                tree_id: Set(result.tree_id),
                 event_id: Set(w.event_id),
                 person_id: Set(w.person_id),
                 relation: Set(w.relation.clone()),
@@ -854,6 +859,7 @@ async fn insert_attached_records(
             .iter()
             .map(|c| citation::ActiveModel {
                 id: Set(c.id),
+                tree_id: Set(result.tree_id),
                 source_id: Set(c.source_id),
                 person_id: Set(c.person_id),
                 event_id: Set(c.event_id),
@@ -875,6 +881,7 @@ async fn insert_attached_records(
             .iter()
             .map(|ml| media_link::ActiveModel {
                 id: Set(ml.id),
+                tree_id: Set(result.tree_id),
                 media_id: Set(ml.media_id),
                 person_id: Set(ml.person_id),
                 event_id: Set(ml.event_id),
@@ -893,6 +900,7 @@ async fn insert_attached_records(
             .iter()
             .map(|v| vignette::ActiveModel {
                 id: Set(v.id),
+                tree_id: Set(result.tree_id),
                 media_id: Set(v.media_id),
                 x: Set(v.x),
                 y: Set(v.y),
@@ -958,6 +966,7 @@ async fn insert_spouse_ages(
                 let membership = *memberships.get(&(family_id, age.person_id))?;
                 Some(event_spouse_age::ActiveModel {
                     id: Set(Uuid::now_v7()),
+                    tree_id: Set(result.tree_id),
                     event_id: Set(event_id),
                     family_spouse_id: Set(membership),
                     age: Set(age.age.clone()),

@@ -97,6 +97,13 @@ impl EventSpouseAgeRepo {
             .into_iter()
             .map(|s| (s.person_id, s.id))
             .collect();
+        let tree_id = crate::repo::tree_of::<crate::entities::family::Entity>(
+            db,
+            family_id,
+            crate::entities::family::Column::TreeId,
+            "Family",
+        )
+        .await?;
         let mut seen = HashSet::new();
         let mut rows = Vec::with_capacity(ages.len());
         for age in ages {
@@ -114,6 +121,7 @@ impl EventSpouseAgeRepo {
             }
             rows.push(event_spouse_age::ActiveModel {
                 id: Set(Uuid::now_v7()),
+                tree_id: Set(tree_id),
                 event_id: Set(event_id),
                 family_spouse_id: Set(family_spouse_id),
                 age: Set(age.age.clone()),

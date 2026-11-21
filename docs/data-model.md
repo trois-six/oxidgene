@@ -57,6 +57,7 @@ database sees them; the constraint is what stays true when one does not.
 | Rule | Constraint |
 |---|---|
 | A record attached to other records names the right number of them: an event at most one owner, a note, a citation and a media link exactly one, a person at most one portrait | `CHECK` on `event` (`ck_event_owner`, `ck_event_related_family`), `note` (`ck_note_owner`), `citation` (`ck_citation_owner`), `media_link` (`ck_media_link_target`), `person` (`ck_person_portrait`) and `record_tag`; each table's section says which columns |
+| A row names records of its own tree only | Every table attached to a record carries `tree_id`, and its foreign keys are composite: `(person_id, tree_id)` references `person (id, tree_id)`, and likewise for families, events, sources, repositories, media, places, notes, citations, tags, family memberships and access scopes, each of which is unique on `(tree_id, id)`. It holds for `person_name`, `family_spouse`, `family_child`, `event_witness`, `event_spouse_age`, `citation`, `source_repository`, `media_link`, `vignette`, `access_scope_person`, and for the owner columns of `event`, `note` and `record_tag`. A `NULL` column is not checked, so an optional owner stays optional. The two `SET NULL` references of an event, its place and its related family, stay single-column: SQLite could only null the tree with them |
 | A person is a spouse, and a child, of a family once | Unique `(family_id, person_id)` on `family_spouse` and on `family_child` |
 | A person witnesses an event once per relation | Unique `(event_id, person_id, COALESCE(relation, ''))` on `event_witness` |
 | A person has at most one primary name | Unique `(person_id)` on `person_name` where `is_primary` |
@@ -144,6 +145,7 @@ projection refresh of both persons' relatives.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | The tree of the record the row is attached to; every foreign key of the row pairs it with the record's own `tree_id` |
 | `person_id` | UUID v7 | FK → Person |
 | `name_type` | NameType | Enum |
 | `given_names` | String? | GEDCOM `GIVN`. Multiple given names stay in one string (`<given name 1> <given name 2>`) rather than becoming separate names |
@@ -200,6 +202,7 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | The tree of the record the row is attached to; every foreign key of the row pairs it with the record's own `tree_id` |
 | `family_id` | UUID v7 | FK → Family |
 | `person_id` | UUID v7 | FK → Person |
 | `role` | SpouseRole | Enum |
@@ -213,6 +216,7 @@ person_id)` is unique, and adding them again is a `conflict`.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | The tree of the record the row is attached to; every foreign key of the row pairs it with the record's own `tree_id` |
 | `family_id` | UUID v7 | FK → Family |
 | `person_id` | UUID v7 | FK → Person |
 | `child_type` | ChildType | Enum |
@@ -271,6 +275,7 @@ of `{ person_id, age }` that every event read fills for a family event.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | The tree of the record the row is attached to; every foreign key of the row pairs it with the record's own `tree_id` |
 | `event_id` | UUID v7 | FK → Event, cascade |
 | `family_spouse_id` | UUID v7 | FK → FamilySpouse, cascade: keyed by the spouse's membership, not the person, so the age follows the membership through a merge |
 | `age` | String | Canonical GEDCOM age, as for `event.age` |
@@ -284,6 +289,7 @@ Join table mirroring GEDCOM's `ASSO`/`RELA` associations — a witness, godparen
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | The tree of the record the row is attached to; every foreign key of the row pairs it with the record's own `tree_id` |
 | `event_id` | UUID v7 | FK → Event |
 | `person_id` | UUID v7 | FK → Person |
 | `relation` | String? | Free text (e.g. "Godmother", "Witness") |
@@ -376,6 +382,7 @@ at one repository has one row per call number.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | The tree of the record the row is attached to; every foreign key of the row pairs it with the record's own `tree_id` |
 | `source_id` | UUID v7 | FK → Source (cascade) |
 | `repository_id` | UUID v7 | FK → Repository (cascade) |
 | `call_number` | String? | The repository's reference for the source |
@@ -390,6 +397,7 @@ restoring it brings them back.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | The tree of the record the row is attached to; every foreign key of the row pairs it with the record's own `tree_id` |
 | `source_id` | UUID v7 | FK → Source |
 | `person_id` | UUID v7? | FK → Person — a citation about the person |
 | `event_id` | UUID v7? | FK → Event — a citation about one event, a person's or a family's |
@@ -548,8 +556,9 @@ by a `CHECK` constraint.
   cannot duplicate it.
 - One index per record column leading with that column, so a record's tags are
   one index range.
-- The repository checks that a record belongs to the tree before linking it,
-  since no key reaches the tree for every kind.
+- Each record column is a foreign key paired with `tree_id`, as the tag's
+  is: a link cannot name a record of another tree. The repository still
+  checks the record first, to answer `not_found` rather than a conflict.
 - Writing a link does not touch the tagged record's `updated_at` nor version it.
 
 The interface tags persons, couples (families), documents, events, places,
@@ -580,6 +589,7 @@ changes or goes ([Architecture §4.2](architecture.md#42-stored-crops)).
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | The tree of the record the row is attached to; every foreign key of the row pairs it with the record's own `tree_id` |
 | `media_id` | UUID v7 | FK → Media (cascade) — always a page, the row holding the pixels, never the document grouping pages |
 | `x` | i32 | Crop origin, in the source image's own pixel coordinates |
 | `y` | i32 | |
@@ -648,6 +658,7 @@ person.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | UUID v7 | PK |
+| `tree_id` | UUID v7 | The tree of the record the row is attached to; every foreign key of the row pairs it with the record's own `tree_id` |
 | `media_id` | UUID v7 | FK → Media |
 | `person_id` | UUID v7? | FK → Person |
 | `event_id` | UUID v7? | FK → Event |
@@ -1087,9 +1098,8 @@ update and delete of the tree's rows in `tree` (updates), `person`,
 `excluded_person`, `access_scope` and `access_scope_person`, and on the
 changes of `tree_membership` (`role`, `scope_id`, `expires_at`, deletion)
 and `share_link` (`revoked_at`, `scope_id`, `expires_at`, deletion) that
-end or change a viewer's access. A row without a `tree_id` names its tree
-through its family, medium, source or scope. Under SQLite one bump per
-row, as above. Under PostgreSQL one bump per transaction and tree: a write
+end or change a viewer's access. Each of those rows names its tree in its
+own `tree_id`. Under SQLite one bump per row, as above. Under PostgreSQL one bump per transaction and tree: a write
 statement's transition tables name the trees it touched, and a
 transaction-local setting (`oxidgene.redaction_touched`) records those
 already moved, since a reader stamping a redaction needs the value to
@@ -1330,10 +1340,15 @@ depend on the database or API implementation crates.
 - A single current profile read should be a primary-key lookup.
 - Pedigree assembly should issue bounded traversal and batched profile reads,
     never one profile query per node.
-- An index exists for a read that uses it. A `tree_id` index of its own is
+- An index exists for a read that uses it. The unique `(tree_id, id)` index
+    of a record table, the target of the composite foreign keys, is also what
+    a list of the tree's records pages through in id order; a `tree_id`
+    index of its own is
     not created where a composite index already leads with `tree_id`, and a
     column no read filters by equality or range is not indexed: every index
-    is paid for by every import's inserts. The person name's given names
+    is paid for by every import's inserts. A person name's surname is
+    indexed with its tree, `(tree_id, surname)`, so the dictionary's usage
+    list and descent read one tree's names. The person name's given names
     (read only by substring) and the event's `date_sort` (whose one range read,
     the media library's year filter, is answered faster from the tree's media
     than by scanning every tree's dated events) carry none.
@@ -1662,8 +1677,9 @@ the session store, by the digest of its `__Host-oxidgene-share` cookie
 `access_scope`: `id`, `tree_id` (cascade), `definition` (JSON: `kind`,
 `person_id`, `depth?`, `include_self`, `include_spouses`, `collateral`),
 `built_generation?`, `created_at`; indexed by `tree_id`.
-`access_scope_person`: `scope_id` (cascade), `person_id` (cascade), primary
-key on both, indexed by `person_id`. Rebuilt when `built_generation` differs
+`access_scope_person`: `tree_id`, `scope_id` (cascade), `person_id`
+(cascade), each paired with `tree_id` in its foreign key, primary
+key on `(scope_id, person_id)`, indexed by `person_id`. Rebuilt when `built_generation` differs
 from the tree's `sosa_state.generation` (§4.8). A scope belongs to the one
 membership, invitation, share link or tree visibility holding it; a merge
 re-roots the scopes of the person it absorbs; the worker's maintenance pass

@@ -160,12 +160,16 @@ impl PersonNameRepo {
         is_primary: bool,
         sort_order: i32,
     ) -> Result<PersonName, OxidGeneError> {
+        let tree_id =
+            crate::repo::tree_of::<person::Entity>(db, person_id, person::Column::TreeId, "Person")
+                .await?;
         if is_primary {
             Self::demote_others(db, person_id, id).await?;
         }
         let now = Utc::now();
         let model = person_name::ActiveModel {
             id: Set(id),
+            tree_id: Set(tree_id),
             person_id: Set(person_id),
             name_type: Set(sea_enums::NameType::from(name_type)),
             given_names: Set(pieces.given_names),

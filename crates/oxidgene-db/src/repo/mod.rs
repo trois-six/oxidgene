@@ -142,6 +142,31 @@ where
         .ok_or(oxidgene_core::OxidGeneError::NotFound { entity, id })
 }
 
+/// The tree of row `id` of entity `E`, read from its `tree_id` column
+/// `column`: what a row attached to that record stores as its own `tree_id`,
+/// so the two agree by construction. `NotFound` naming `entity` when the row
+/// is missing.
+pub(crate) async fn tree_of<E>(
+    db: &impl sea_orm::ConnectionTrait,
+    id: uuid::Uuid,
+    column: E::Column,
+    entity: &'static str,
+) -> Result<uuid::Uuid, oxidgene_core::OxidGeneError>
+where
+    E: sea_orm::EntityTrait,
+    E::PrimaryKey: sea_orm::PrimaryKeyTrait<ValueType = uuid::Uuid>,
+{
+    use sea_orm::QuerySelect;
+    E::find_by_id(id)
+        .select_only()
+        .column(column)
+        .into_tuple::<uuid::Uuid>()
+        .one(db)
+        .await
+        .map_err(db_err)?
+        .ok_or(oxidgene_core::OxidGeneError::NotFound { entity, id })
+}
+
 /// Refuse a row attached to no record or to several: `targets` are the
 /// owner columns of a `what` — a note, a citation, a media link — of which
 /// exactly one is set (docs/data-model.md). The schema's `CHECK` refuses the

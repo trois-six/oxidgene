@@ -153,7 +153,14 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
             "sosa_root_person_id, self_person_id, default_privacy, submitter_name, submitter_email, submitter_address, anomaly_thresholds",
         ),
         ("person", "privacy, portrait_media_id, portrait_vignette_id"),
-        ("person_name", "surname_prefix, sort_order"),
+        ("person_name", "tree_id, surname_prefix, sort_order"),
+        ("family_spouse", "tree_id"),
+        ("family_child", "tree_id"),
+        ("event_witness", "tree_id"),
+        ("event_spouse_age", "tree_id"),
+        ("citation", "tree_id"),
+        ("media_link", "tree_id"),
+        ("access_scope_person", "tree_id, scope_id, person_id"),
         ("family", "privacy"),
         (
             "event",
@@ -163,7 +170,7 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
         ("note", "repository_id"),
         (
             "source_repository",
-            "source_id, repository_id, call_number, media_type, sort_order",
+            "tree_id, source_id, repository_id, call_number, media_type, sort_order",
         ),
         (
             "media",
@@ -171,7 +178,7 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
         ),
         (
             "vignette",
-            "id, media_id, x, y, width, height, person_id, event_id, created_at, updated_at",
+            "id, tree_id, media_id, x, y, width, height, person_id, event_id, created_at, updated_at",
         ),
         (
             "tag",
@@ -242,6 +249,25 @@ async fn assert_indexes(db: &DatabaseConnection) {
         ("record_version", "idx_record_version_record"),
         ("record_version", "idx_record_version_audit_entry"),
         ("record_version", "idx_record_version_tree"),
+        // One row per rule (docs/data-model.md, Integrity constraints).
+        ("family_spouse", "uq_family_spouse_family_person"),
+        ("family_child", "uq_family_child_family_person"),
+        ("event_witness", "uq_event_witness_event_person_relation"),
+        ("person_name", "uq_person_name_primary"),
+        // `(tree_id, id)`: the target of the composite foreign keys, and a
+        // page of the tree's records in id order.
+        ("person", "uq_person_tree_id"),
+        ("family", "uq_family_tree_id"),
+        ("family_spouse", "uq_family_spouse_tree_id"),
+        ("event", "uq_event_tree_id"),
+        ("place", "uq_place_tree_id"),
+        ("source", "uq_source_tree_id"),
+        ("repository", "uq_repository_tree_id"),
+        ("citation", "uq_citation_tree_id"),
+        ("media", "uq_media_tree_id"),
+        ("note", "uq_note_tree_id"),
+        ("access_scope", "uq_access_scope_tree_id"),
+        ("person_name", "idx_person_name_tree_surname"),
     ] {
         assert!(
             manager.has_index(table, index).await.unwrap(),
@@ -255,6 +281,20 @@ async fn assert_indexes(db: &DatabaseConnection) {
         ("person_denorm", "idx_person_denorm_tree_id"),
         ("media", "idx_media_tree_id"),
         ("event", "idx_event_tree_id"),
+        // Replaced by the unique `(tree_id, id)` and `(family_id, person_id)`
+        // indexes, which lead with the same column.
+        ("person", "idx_person_tree_id"),
+        ("family", "idx_family_tree_id"),
+        ("place", "idx_place_tree_id"),
+        ("source", "idx_source_tree_id"),
+        ("repository", "idx_repository_tree_id"),
+        ("note", "idx_note_tree_id"),
+        ("access_scope", "idx_access_scope_tree_id"),
+        ("family_spouse", "idx_family_spouse_family_id"),
+        ("family_child", "idx_family_child_family_id"),
+        ("event_witness", "idx_event_witness_event_id"),
+        // The surname index of every tree at once.
+        ("person_name", "idx_person_name_surname"),
         // No read filters given names by equality or range.
         ("person_name", "idx_person_name_given_names"),
         // Its only range read is the media library's year filter, which

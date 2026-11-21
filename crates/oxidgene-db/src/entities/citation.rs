@@ -9,6 +9,9 @@ use super::sea_enums::Confidence;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
+    /// The tree of the record the row is attached to, held by the row so
+    /// that its foreign keys can pair it with each record's own tree.
+    pub tree_id: Uuid,
     pub source_id: Uuid,
     pub person_id: Option<Uuid>,
     pub event_id: Option<Uuid>,

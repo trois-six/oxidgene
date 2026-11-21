@@ -99,6 +99,7 @@ async fn hidden_persons(db: &DatabaseConnection, tree: Uuid, source: Uuid) {
         .expect("inserts the notes");
         citation::Entity::insert_many(chunk.iter().map(|&id| citation::ActiveModel {
             id: Set(Uuid::now_v7()),
+            tree_id: Set(tree),
             source_id: Set(source),
             person_id: Set(Some(id)),
             event_id: Set(None),

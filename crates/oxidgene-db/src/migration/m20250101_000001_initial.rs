@@ -228,6 +228,7 @@ enum AccessScope {
 #[derive(DeriveIden)]
 enum AccessScopePerson {
     Table,
+    TreeId,
     ScopeId,
     PersonId,
 }
@@ -371,6 +372,7 @@ enum PersonName {
     SurnamePrefix,
     SortOrder,
     Id,
+    TreeId,
     PersonId,
     NameType,
     GivenNames,
@@ -398,6 +400,7 @@ enum Family {
 enum FamilySpouse {
     Table,
     Id,
+    TreeId,
     FamilyId,
     PersonId,
     Role,
@@ -408,6 +411,7 @@ enum FamilySpouse {
 enum FamilyChild {
     Table,
     Id,
+    TreeId,
     FamilyId,
     PersonId,
     ChildType,
@@ -459,6 +463,7 @@ enum Event {
 enum EventSpouseAge {
     Table,
     Id,
+    TreeId,
     EventId,
     FamilySpouseId,
     Age,
@@ -468,6 +473,7 @@ enum EventSpouseAge {
 enum EventWitness {
     Table,
     Id,
+    TreeId,
     EventId,
     PersonId,
     Relation,
@@ -508,6 +514,7 @@ enum Repository {
 enum SourceRepository {
     Table,
     Id,
+    TreeId,
     SourceId,
     RepositoryId,
     CallNumber,
@@ -519,6 +526,7 @@ enum SourceRepository {
 enum Citation {
     Table,
     Id,
+    TreeId,
     SourceId,
     PersonId,
     EventId,
@@ -569,6 +577,7 @@ enum Media {
 enum MediaLink {
     Table,
     Id,
+    TreeId,
     MediaId,
     PersonId,
     EventId,
@@ -690,6 +699,7 @@ enum GedcomKept {
 enum Vignette {
     Table,
     Id,
+    TreeId,
     MediaId,
     X,
     Y,
@@ -896,12 +906,18 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
     manager
         .create_index(
             Index::create()
-                .name("idx_person_tree_id")
+                .name("uq_person_tree_id")
                 .table(Person::Table)
                 .col(Person::TreeId)
+                .col(Person::Id)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -931,6 +947,7 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(PersonName::Table)
                 .if_not_exists()
                 .col(uuid(PersonName::Id).primary_key())
+                .col(uuid(PersonName::TreeId))
                 .col(uuid(PersonName::PersonId))
                 .col(string_len(PersonName::NameType, 20))
                 .col(string_null(PersonName::GivenNames))
@@ -950,8 +967,11 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_person_name_person")
-                        .from(PersonName::Table, PersonName::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(
+                            PersonName::Table,
+                            (PersonName::PersonId, PersonName::TreeId),
+                        )
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
@@ -976,11 +996,15 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
              ON person_name (person_id) WHERE is_primary",
         ))
         .await?;
+    // The persons of a tree bearing a surname: the dictionary's usage list
+    // and descent. Leading with the tree, it reads one tree's names, not
+    // every tree's.
     manager
         .create_index(
             Index::create()
-                .name("idx_person_name_surname")
+                .name("idx_person_name_tree_surname")
                 .table(PersonName::Table)
+                .col(PersonName::TreeId)
                 .col(PersonName::Surname)
                 .to_owned(),
         )
@@ -1018,12 +1042,18 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
     manager
         .create_index(
             Index::create()
-                .name("idx_family_tree_id")
+                .name("uq_family_tree_id")
                 .table(Family::Table)
                 .col(Family::TreeId)
+                .col(Family::Id)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -1035,6 +1065,7 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(FamilySpouse::Table)
                 .if_not_exists()
                 .col(uuid(FamilySpouse::Id).primary_key())
+                .col(uuid(FamilySpouse::TreeId))
                 .col(uuid(FamilySpouse::FamilyId))
                 .col(uuid(FamilySpouse::PersonId))
                 .col(string_len(FamilySpouse::Role, 10))
@@ -1043,15 +1074,21 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_family_spouse_family")
-                        .from(FamilySpouse::Table, FamilySpouse::FamilyId)
-                        .to(Family::Table, Family::Id)
+                        .from(
+                            FamilySpouse::Table,
+                            (FamilySpouse::FamilyId, FamilySpouse::TreeId),
+                        )
+                        .to(Family::Table, (Family::Id, Family::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_family_spouse_person")
-                        .from(FamilySpouse::Table, FamilySpouse::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(
+                            FamilySpouse::Table,
+                            (FamilySpouse::PersonId, FamilySpouse::TreeId),
+                        )
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
@@ -1066,6 +1103,18 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(FamilySpouse::Table)
                 .col(FamilySpouse::FamilyId)
                 .col(FamilySpouse::PersonId)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
+    // The target of `event_spouse_age`'s composite foreign key.
+    manager
+        .create_index(
+            Index::create()
+                .name("uq_family_spouse_tree_id")
+                .table(FamilySpouse::Table)
+                .col(FamilySpouse::TreeId)
+                .col(FamilySpouse::Id)
                 .unique()
                 .to_owned(),
         )
@@ -1087,6 +1136,7 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(FamilyChild::Table)
                 .if_not_exists()
                 .col(uuid(FamilyChild::Id).primary_key())
+                .col(uuid(FamilyChild::TreeId))
                 .col(uuid(FamilyChild::FamilyId))
                 .col(uuid(FamilyChild::PersonId))
                 .col(string_len(FamilyChild::ChildType, 15))
@@ -1098,15 +1148,21 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_family_child_family")
-                        .from(FamilyChild::Table, FamilyChild::FamilyId)
-                        .to(Family::Table, Family::Id)
+                        .from(
+                            FamilyChild::Table,
+                            (FamilyChild::FamilyId, FamilyChild::TreeId),
+                        )
+                        .to(Family::Table, (Family::Id, Family::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_family_child_person")
-                        .from(FamilyChild::Table, FamilyChild::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(
+                            FamilyChild::Table,
+                            (FamilyChild::PersonId, FamilyChild::TreeId),
+                        )
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
@@ -1162,12 +1218,18 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
     manager
         .create_index(
             Index::create()
-                .name("idx_place_tree_id")
+                .name("uq_place_tree_id")
                 .table(Place::Table)
                 .col(Place::TreeId)
+                .col(Place::Id)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -1242,15 +1304,15 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_event_person")
-                        .from(Event::Table, Event::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(Event::Table, (Event::PersonId, Event::TreeId))
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_event_family")
-                        .from(Event::Table, Event::FamilyId)
-                        .to(Family::Table, Family::Id)
+                        .from(Event::Table, (Event::FamilyId, Event::TreeId))
+                        .to(Family::Table, (Family::Id, Family::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
@@ -1260,6 +1322,21 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .to(Family::Table, Family::Id)
                         .on_delete(ForeignKeyAction::SetNull),
                 )
+                .to_owned(),
+        )
+        .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
+    manager
+        .create_index(
+            Index::create()
+                .name("uq_event_tree_id")
+                .table(Event::Table)
+                .col(Event::TreeId)
+                .col(Event::Id)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -1298,6 +1375,7 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(EventWitness::Table)
                 .if_not_exists()
                 .col(uuid(EventWitness::Id).primary_key())
+                .col(uuid(EventWitness::TreeId))
                 .col(uuid(EventWitness::EventId))
                 .col(uuid(EventWitness::PersonId))
                 .col(string_null(EventWitness::Relation))
@@ -1305,15 +1383,21 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_event_witness_event")
-                        .from(EventWitness::Table, EventWitness::EventId)
-                        .to(Event::Table, Event::Id)
+                        .from(
+                            EventWitness::Table,
+                            (EventWitness::EventId, EventWitness::TreeId),
+                        )
+                        .to(Event::Table, (Event::Id, Event::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_event_witness_person")
-                        .from(EventWitness::Table, EventWitness::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(
+                            EventWitness::Table,
+                            (EventWitness::PersonId, EventWitness::TreeId),
+                        )
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
@@ -1349,21 +1433,31 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(EventSpouseAge::Table)
                 .if_not_exists()
                 .col(uuid(EventSpouseAge::Id).primary_key())
+                .col(uuid(EventSpouseAge::TreeId))
                 .col(uuid(EventSpouseAge::EventId))
                 .col(uuid(EventSpouseAge::FamilySpouseId))
                 .col(string(EventSpouseAge::Age))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_event_spouse_age_event")
-                        .from(EventSpouseAge::Table, EventSpouseAge::EventId)
-                        .to(Event::Table, Event::Id)
+                        .from(
+                            EventSpouseAge::Table,
+                            (EventSpouseAge::EventId, EventSpouseAge::TreeId),
+                        )
+                        .to(Event::Table, (Event::Id, Event::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_event_spouse_age_family_spouse")
-                        .from(EventSpouseAge::Table, EventSpouseAge::FamilySpouseId)
-                        .to(FamilySpouse::Table, FamilySpouse::Id)
+                        .from(
+                            EventSpouseAge::Table,
+                            (EventSpouseAge::FamilySpouseId, EventSpouseAge::TreeId),
+                        )
+                        .to(
+                            FamilySpouse::Table,
+                            (FamilySpouse::Id, FamilySpouse::TreeId),
+                        )
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
@@ -1420,12 +1514,18 @@ async fn create_sources(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
     manager
         .create_index(
             Index::create()
-                .name("idx_source_tree_id")
+                .name("uq_source_tree_id")
                 .table(Source::Table)
                 .col(Source::TreeId)
+                .col(Source::Id)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -1437,6 +1537,7 @@ async fn create_sources(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(Citation::Table)
                 .if_not_exists()
                 .col(uuid(Citation::Id).primary_key())
+                .col(uuid(Citation::TreeId))
                 .col(uuid(Citation::SourceId))
                 .col(uuid_null(Citation::PersonId))
                 .col(uuid_null(Citation::EventId))
@@ -1459,31 +1560,46 @@ async fn create_sources(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_citation_source")
-                        .from(Citation::Table, Citation::SourceId)
-                        .to(Source::Table, Source::Id)
+                        .from(Citation::Table, (Citation::SourceId, Citation::TreeId))
+                        .to(Source::Table, (Source::Id, Source::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_citation_person")
-                        .from(Citation::Table, Citation::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(Citation::Table, (Citation::PersonId, Citation::TreeId))
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_citation_event")
-                        .from(Citation::Table, Citation::EventId)
-                        .to(Event::Table, Event::Id)
+                        .from(Citation::Table, (Citation::EventId, Citation::TreeId))
+                        .to(Event::Table, (Event::Id, Event::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_citation_family")
-                        .from(Citation::Table, Citation::FamilyId)
-                        .to(Family::Table, Family::Id)
+                        .from(Citation::Table, (Citation::FamilyId, Citation::TreeId))
+                        .to(Family::Table, (Family::Id, Family::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
+                .to_owned(),
+        )
+        .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
+    manager
+        .create_index(
+            Index::create()
+                .name("uq_citation_tree_id")
+                .table(Citation::Table)
+                .col(Citation::TreeId)
+                .col(Citation::Id)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -1527,12 +1643,18 @@ async fn create_repositories(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
     manager
         .create_index(
             Index::create()
-                .name("idx_repository_tree_id")
+                .name("uq_repository_tree_id")
                 .table(Repository::Table)
                 .col(Repository::TreeId)
+                .col(Repository::Id)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -1545,6 +1667,7 @@ async fn create_repositories(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(SourceRepository::Table)
                 .if_not_exists()
                 .col(uuid(SourceRepository::Id).primary_key())
+                .col(uuid(SourceRepository::TreeId))
                 .col(uuid(SourceRepository::SourceId))
                 .col(uuid(SourceRepository::RepositoryId))
                 .col(string_null(SourceRepository::CallNumber))
@@ -1557,15 +1680,21 @@ async fn create_repositories(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_source_repository_source")
-                        .from(SourceRepository::Table, SourceRepository::SourceId)
-                        .to(Source::Table, Source::Id)
+                        .from(
+                            SourceRepository::Table,
+                            (SourceRepository::SourceId, SourceRepository::TreeId),
+                        )
+                        .to(Source::Table, (Source::Id, Source::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_source_repository_repository")
-                        .from(SourceRepository::Table, SourceRepository::RepositoryId)
-                        .to(Repository::Table, Repository::Id)
+                        .from(
+                            SourceRepository::Table,
+                            (SourceRepository::RepositoryId, SourceRepository::TreeId),
+                        )
+                        .to(Repository::Table, (Repository::Id, Repository::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
@@ -1678,6 +1807,21 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
+    manager
+        .create_index(
+            Index::create()
+                .name("uq_media_tree_id")
+                .table(Media::Table)
+                .col(Media::TreeId)
+                .col(Media::Id)
+                .unique()
+                .to_owned(),
+        )
+        .await?;
     manager
         .create_index(
             Index::create()
@@ -1706,6 +1850,7 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(MediaLink::Table)
                 .if_not_exists()
                 .col(uuid(MediaLink::Id).primary_key())
+                .col(uuid(MediaLink::TreeId))
                 .col(uuid(MediaLink::MediaId))
                 .col(uuid_null(MediaLink::PersonId))
                 .col(uuid_null(MediaLink::EventId))
@@ -1721,36 +1866,36 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_media_link_media")
-                        .from(MediaLink::Table, MediaLink::MediaId)
-                        .to(Media::Table, Media::Id)
+                        .from(MediaLink::Table, (MediaLink::MediaId, MediaLink::TreeId))
+                        .to(Media::Table, (Media::Id, Media::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_media_link_person")
-                        .from(MediaLink::Table, MediaLink::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(MediaLink::Table, (MediaLink::PersonId, MediaLink::TreeId))
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_media_link_event")
-                        .from(MediaLink::Table, MediaLink::EventId)
-                        .to(Event::Table, Event::Id)
+                        .from(MediaLink::Table, (MediaLink::EventId, MediaLink::TreeId))
+                        .to(Event::Table, (Event::Id, Event::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_media_link_source")
-                        .from(MediaLink::Table, MediaLink::SourceId)
-                        .to(Source::Table, Source::Id)
+                        .from(MediaLink::Table, (MediaLink::SourceId, MediaLink::TreeId))
+                        .to(Source::Table, (Source::Id, Source::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_media_link_family")
-                        .from(MediaLink::Table, MediaLink::FamilyId)
-                        .to(Family::Table, Family::Id)
+                        .from(MediaLink::Table, (MediaLink::FamilyId, MediaLink::TreeId))
+                        .to(Family::Table, (Family::Id, Family::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
@@ -1813,47 +1958,53 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_note_person")
-                        .from(Note::Table, Note::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(Note::Table, (Note::PersonId, Note::TreeId))
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_note_event")
-                        .from(Note::Table, Note::EventId)
-                        .to(Event::Table, Event::Id)
+                        .from(Note::Table, (Note::EventId, Note::TreeId))
+                        .to(Event::Table, (Event::Id, Event::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_note_family")
-                        .from(Note::Table, Note::FamilyId)
-                        .to(Family::Table, Family::Id)
+                        .from(Note::Table, (Note::FamilyId, Note::TreeId))
+                        .to(Family::Table, (Family::Id, Family::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_note_source")
-                        .from(Note::Table, Note::SourceId)
-                        .to(Source::Table, Source::Id)
+                        .from(Note::Table, (Note::SourceId, Note::TreeId))
+                        .to(Source::Table, (Source::Id, Source::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_note_repository")
-                        .from(Note::Table, Note::RepositoryId)
-                        .to(Repository::Table, Repository::Id)
+                        .from(Note::Table, (Note::RepositoryId, Note::TreeId))
+                        .to(Repository::Table, (Repository::Id, Repository::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
         )
         .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
     manager
         .create_index(
             Index::create()
-                .name("idx_note_tree_id")
+                .name("uq_note_tree_id")
                 .table(Note::Table)
                 .col(Note::TreeId)
+                .col(Note::Id)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -1892,6 +2043,7 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .table(Vignette::Table)
                 .if_not_exists()
                 .col(uuid(Vignette::Id).primary_key())
+                .col(uuid(Vignette::TreeId))
                 .col(uuid(Vignette::MediaId))
                 .col(integer(Vignette::X))
                 .col(integer(Vignette::Y))
@@ -1904,22 +2056,22 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_vignette_media")
-                        .from(Vignette::Table, Vignette::MediaId)
-                        .to(Media::Table, Media::Id)
+                        .from(Vignette::Table, (Vignette::MediaId, Vignette::TreeId))
+                        .to(Media::Table, (Media::Id, Media::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_vignette_person")
-                        .from(Vignette::Table, Vignette::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(Vignette::Table, (Vignette::PersonId, Vignette::TreeId))
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_vignette_event")
-                        .from(Vignette::Table, Vignette::EventId)
-                        .to(Event::Table, Event::Id)
+                        .from(Vignette::Table, (Vignette::EventId, Vignette::TreeId))
+                        .to(Event::Table, (Event::Id, Event::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
@@ -2054,11 +2206,12 @@ async fn create_tags(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         (RecordTag::MediaId, "media"),
         (RecordTag::NoteId, "note"),
     ] {
+        // Composite, so a link's record belongs to the link's tree.
         table.foreign_key(
             ForeignKey::create()
                 .name(format!("fk_record_tag_{name}"))
-                .from(RecordTag::Table, column)
-                .to(Alias::new(name), Alias::new("id"))
+                .from(RecordTag::Table, (column, RecordTag::TreeId))
+                .to(Alias::new(name), (Alias::new("id"), Alias::new("tree_id")))
                 .on_delete(ForeignKeyAction::Cascade),
         );
     }
@@ -2724,46 +2877,31 @@ const REDACTION_TRIGGER_FUNCTIONS: &[&str] = &[
     "redaction_access_changed()",
 ];
 
-/// How a row of a table a redaction reads names its tree.
-#[derive(Clone, Copy)]
-enum TreeOf {
-    /// Its own `tree_id`.
-    Column,
-    /// The tree of the `parent` row its column `key` names.
-    Via {
-        parent: &'static str,
-        key: &'static str,
-    },
-}
-
-const fn via(parent: &'static str, key: &'static str) -> TreeOf {
-    TreeOf::Via { parent, key }
-}
-
 /// Every table a restricted viewer's redaction reads (docs/architecture.md
 /// §4.1, Tree cache): a write to any of their rows moves the tree's
-/// redaction generation. `tree` itself is moved on update only — inserted,
-/// it has no redaction yet; deleted, it takes its `projection_state` row.
-const REDACTION_INPUTS: &[(&str, TreeOf)] = &[
-    ("person", TreeOf::Column),
-    ("family", TreeOf::Column),
-    ("family_spouse", via("family", "family_id")),
-    ("family_child", via("family", "family_id")),
-    ("event", TreeOf::Column),
-    ("citation", via("source", "source_id")),
-    ("note", TreeOf::Column),
-    ("media", TreeOf::Column),
-    ("media_link", via("media", "media_id")),
-    ("vignette", via("media", "media_id")),
-    ("source", TreeOf::Column),
-    ("source_repository", via("source", "source_id")),
-    ("repository", TreeOf::Column),
-    ("place", TreeOf::Column),
-    ("person_visibility", TreeOf::Column),
-    ("privacy_exclusion", TreeOf::Column),
-    ("excluded_person", TreeOf::Column),
-    ("access_scope", TreeOf::Column),
-    ("access_scope_person", via("access_scope", "scope_id")),
+/// redaction generation. Each row names its tree in its own `tree_id`.
+/// `tree` itself is moved on update only — inserted, it has no redaction
+/// yet; deleted, it takes its `projection_state` row.
+const REDACTION_INPUTS: &[&str] = &[
+    "person",
+    "family",
+    "family_spouse",
+    "family_child",
+    "event",
+    "citation",
+    "note",
+    "media",
+    "media_link",
+    "vignette",
+    "source",
+    "source_repository",
+    "repository",
+    "place",
+    "person_visibility",
+    "privacy_exclusion",
+    "excluded_person",
+    "access_scope",
+    "access_scope_person",
 ];
 
 /// The changes to a viewer's access that end or change what a kept
@@ -2775,46 +2913,23 @@ const REDACTION_ACCESS: &[(&str, &str)] = &[
     ("share_link", "revoked_at, scope_id, expires_at"),
 ];
 
-/// The tree of row `row` (`NEW` or `OLD`) of a table whose rows name it as
-/// `tree_of` says, as a SQLite trigger body reads it.
-fn sqlite_tree(row: &str, tree_of: TreeOf) -> String {
-    match tree_of {
-        TreeOf::Column => format!("{row}.tree_id"),
-        TreeOf::Via { parent, key } => {
-            format!("(SELECT tree_id FROM {parent} WHERE id = {row}.{key})")
-        }
-    }
-}
-
-/// The trees the rows of transition table `rows` name, as a PostgreSQL
-/// statement trigger reads them.
-fn postgres_trees(rows: &str, tree_of: TreeOf) -> String {
-    match tree_of {
-        TreeOf::Column => format!("SELECT tree_id FROM {rows}"),
-        TreeOf::Via { parent, key } => {
-            format!("SELECT p.tree_id FROM {parent} p JOIN {rows} r ON p.id = r.{key}")
-        }
-    }
-}
-
 /// The SQLite triggers moving the redaction generation: one bump per row.
 fn sqlite_redaction_triggers() -> Vec<String> {
     const BUMP: &str =
         "UPDATE projection_state SET redaction_generation = redaction_generation + 1";
     let mut out = Vec::new();
-    for &(table, tree_of) in REDACTION_INPUTS {
-        let (new, old) = (sqlite_tree("NEW", tree_of), sqlite_tree("OLD", tree_of));
+    for table in REDACTION_INPUTS {
         out.push(format!(
             "CREATE TRIGGER redaction_{table}_insert AFTER INSERT ON {table} BEGIN \
-             {BUMP} WHERE tree_id = {new}; END"
+             {BUMP} WHERE tree_id = NEW.tree_id; END"
         ));
         out.push(format!(
             "CREATE TRIGGER redaction_{table}_update AFTER UPDATE ON {table} BEGIN \
-             {BUMP} WHERE tree_id IN ({old}, {new}); END"
+             {BUMP} WHERE tree_id IN (OLD.tree_id, NEW.tree_id); END"
         ));
         out.push(format!(
             "CREATE TRIGGER redaction_{table}_delete AFTER DELETE ON {table} BEGIN \
-             {BUMP} WHERE tree_id = {old}; END"
+             {BUMP} WHERE tree_id = OLD.tree_id; END"
         ));
     }
     out.push(format!(
@@ -2847,26 +2962,21 @@ fn postgres_redaction_triggers() -> Vec<String> {
         )
     };
     let mut out = Vec::new();
-    for &(table, tree_of) in REDACTION_INPUTS {
-        let added = postgres_trees("added_rows", tree_of);
-        let removed = postgres_trees("removed_rows", tree_of);
-        out.push(statement(
-            table,
-            "INSERT",
-            "NEW TABLE AS added_rows",
-            &added,
-        ));
+    const ADDED: &str = "SELECT tree_id FROM added_rows";
+    const REMOVED: &str = "SELECT tree_id FROM removed_rows";
+    for table in REDACTION_INPUTS {
+        out.push(statement(table, "INSERT", "NEW TABLE AS added_rows", ADDED));
         out.push(statement(
             table,
             "UPDATE",
             "OLD TABLE AS removed_rows NEW TABLE AS added_rows",
-            &format!("{added} UNION {removed}"),
+            &format!("{ADDED} UNION {REMOVED}"),
         ));
         out.push(statement(
             table,
             "DELETE",
             "OLD TABLE AS removed_rows",
-            &removed,
+            REMOVED,
         ));
     }
     out.push(statement(
@@ -2981,24 +3091,23 @@ async fn create_sosa(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     Ok(())
 }
 
-/// The bump of the tree owning family `$family`, as a trigger body writes it.
-/// Under PostgreSQL the SOSA functions move the tree's redaction generation
-/// first ([`touch_family_tree`]), so that every writer locks the tree's
+/// The bump of the tree of family link `$row` (`NEW` or `OLD`), as a trigger
+/// body writes it: the link names its tree itself. Under PostgreSQL the SOSA
+/// functions move the tree's redaction generation first
+/// ([`touch_link_tree`]), so that every writer locks the tree's
 /// `projection_state` row before its `sosa_state` row.
-macro_rules! bump_family_tree {
-    ($family:literal) => {
+macro_rules! bump_link_tree {
+    ($row:literal) => {
         concat!(
-            "UPDATE sosa_state SET generation = generation + 1 \
-             WHERE tree_id = (SELECT tree_id FROM family WHERE id = ",
-            $family,
-            ");"
+            "UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = ",
+            $row,
+            ".tree_id;"
         )
     };
 }
 
 /// The SQLite triggers that keep `sosa_state.generation` moving. A row
-/// deleted by a cascade fires its table's trigger too; when the family it
-/// belonged to is already gone, the family's own trigger has bumped the tree.
+/// deleted by a cascade fires its table's trigger too.
 const SQLITE_SOSA_TRIGGERS: &[&str] = &[
     "CREATE TRIGGER sosa_tree_insert AFTER INSERT ON tree BEGIN \
          INSERT INTO sosa_state (tree_id, generation) VALUES (NEW.id, 0); END",
@@ -3007,38 +3116,38 @@ const SQLITE_SOSA_TRIGGERS: &[&str] = &[
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.id; END",
     concat!(
         "CREATE TRIGGER sosa_family_child_insert AFTER INSERT ON family_child BEGIN ",
-        bump_family_tree!("NEW.family_id"),
+        bump_link_tree!("NEW"),
         " END"
     ),
     concat!(
         "CREATE TRIGGER sosa_family_child_delete AFTER DELETE ON family_child BEGIN ",
-        bump_family_tree!("OLD.family_id"),
+        bump_link_tree!("OLD"),
         " END"
     ),
     concat!(
         "CREATE TRIGGER sosa_family_child_update AFTER UPDATE OF family_id, person_id \
          ON family_child WHEN OLD.family_id IS NOT NEW.family_id \
          OR OLD.person_id IS NOT NEW.person_id BEGIN ",
-        bump_family_tree!("OLD.family_id"),
-        bump_family_tree!("NEW.family_id"),
+        bump_link_tree!("OLD"),
+        bump_link_tree!("NEW"),
         " END"
     ),
     concat!(
         "CREATE TRIGGER sosa_family_spouse_insert AFTER INSERT ON family_spouse BEGIN ",
-        bump_family_tree!("NEW.family_id"),
+        bump_link_tree!("NEW"),
         " END"
     ),
     concat!(
         "CREATE TRIGGER sosa_family_spouse_delete AFTER DELETE ON family_spouse BEGIN ",
-        bump_family_tree!("OLD.family_id"),
+        bump_link_tree!("OLD"),
         " END"
     ),
     concat!(
         "CREATE TRIGGER sosa_family_spouse_update AFTER UPDATE OF family_id, person_id, role \
          ON family_spouse WHEN OLD.family_id IS NOT NEW.family_id \
          OR OLD.person_id IS NOT NEW.person_id OR OLD.role IS NOT NEW.role BEGIN ",
-        bump_family_tree!("OLD.family_id"),
-        bump_family_tree!("NEW.family_id"),
+        bump_link_tree!("OLD"),
+        bump_link_tree!("NEW"),
         " END"
     ),
     "CREATE TRIGGER sosa_family_deleted AFTER UPDATE OF deleted_at ON family \
@@ -3053,16 +3162,12 @@ const SQLITE_SOSA_TRIGGERS: &[&str] = &[
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; END",
 ];
 
-/// [`bump_family_tree`]'s move of the redaction generation, under
+/// [`bump_link_tree`]'s move of the redaction generation, under
 /// PostgreSQL: `projection_state` is locked before `sosa_state`
 /// ([`POSTGRES_REDACTION_FUNCTIONS`]).
-macro_rules! touch_family_tree {
-    ($family:literal) => {
-        concat!(
-            "PERFORM redaction_touch((SELECT tree_id FROM family WHERE id = ",
-            $family,
-            "));"
-        )
+macro_rules! touch_link_tree {
+    ($row:literal) => {
+        concat!("PERFORM redaction_touch(", $row, ".tree_id);")
     };
 }
 
@@ -3086,11 +3191,11 @@ const POSTGRES_SOSA_TRIGGERS: &[&str] = &[
     concat!(
         "CREATE FUNCTION sosa_link_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
          IF TG_OP <> 'INSERT' THEN ",
-        touch_family_tree!("OLD.family_id"),
-        bump_family_tree!("OLD.family_id"),
+        touch_link_tree!("OLD"),
+        bump_link_tree!("OLD"),
         " END IF; IF TG_OP <> 'DELETE' THEN ",
-        touch_family_tree!("NEW.family_id"),
-        bump_family_tree!("NEW.family_id"),
+        touch_link_tree!("NEW"),
+        bump_link_tree!("NEW"),
         " END IF; RETURN NULL; END $$"
     ),
     // A family or a person, deleted or restored: the tree it belongs to.
@@ -3669,12 +3774,18 @@ async fn create_access_scopes(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
                 .to_owned(),
         )
         .await?;
+    // `(tree_id, id)` is unique so that a row naming this record can pair it
+    // with its own tree in a composite foreign key: it cannot name a record
+    // of another tree (docs/data-model.md, Integrity constraints). The index
+    // also reads the tree's records in id order, a page of a list.
     manager
         .create_index(
             Index::create()
-                .name("idx_access_scope_tree_id")
+                .name("uq_access_scope_tree_id")
                 .table(AccessScope::Table)
                 .col(AccessScope::TreeId)
+                .col(AccessScope::Id)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -3683,6 +3794,7 @@ async fn create_access_scopes(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
             Table::create()
                 .table(AccessScopePerson::Table)
                 .if_not_exists()
+                .col(uuid(AccessScopePerson::TreeId))
                 .col(uuid(AccessScopePerson::ScopeId))
                 .col(uuid(AccessScopePerson::PersonId))
                 .primary_key(
@@ -3693,15 +3805,21 @@ async fn create_access_scopes(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_access_scope_person_scope")
-                        .from(AccessScopePerson::Table, AccessScopePerson::ScopeId)
-                        .to(AccessScope::Table, AccessScope::Id)
+                        .from(
+                            AccessScopePerson::Table,
+                            (AccessScopePerson::ScopeId, AccessScopePerson::TreeId),
+                        )
+                        .to(AccessScope::Table, (AccessScope::Id, AccessScope::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_access_scope_person_person")
-                        .from(AccessScopePerson::Table, AccessScopePerson::PersonId)
-                        .to(Person::Table, Person::Id)
+                        .from(
+                            AccessScopePerson::Table,
+                            (AccessScopePerson::PersonId, AccessScopePerson::TreeId),
+                        )
+                        .to(Person::Table, (Person::Id, Person::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),

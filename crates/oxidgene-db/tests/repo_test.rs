@@ -144,12 +144,7 @@ where
 
 #[tokio::test(flavor = "current_thread")]
 async fn database_spans_include_parameterized_sql_without_bound_values() {
-    use tracing_subscriber::layer::SubscriberExt as _;
-
-    let captured = CapturedDbSpans::default();
-    let subscriber = tracing_subscriber::registry().with(captured.clone());
-    tracing::subscriber::set_global_default(subscriber).expect("install capture subscriber");
-    tracing::callsite::rebuild_interest_cache();
+    let captured = capture_statements();
     let db = setup_db().await;
     create_tree(&db).await;
 
@@ -184,6 +179,78 @@ async fn database_spans_include_parameterized_sql_without_bound_values() {
             .iter()
             .all(|statement| !statement.contains("Test Tree"))
     );
+}
+
+/// Capture the statements SeaORM runs from now on, in this test's process.
+fn capture_statements() -> CapturedDbSpans {
+    use tracing_subscriber::layer::SubscriberExt as _;
+
+    let captured = CapturedDbSpans::default();
+    let subscriber = tracing_subscriber::registry().with(captured.clone());
+    tracing::subscriber::set_global_default(subscriber).expect("install capture subscriber");
+    tracing::callsite::rebuild_interest_cache();
+    captured
+}
+
+impl CapturedDbSpans {
+    /// The statements captured so far that mention `fragment`, emptying
+    /// the capture.
+    fn take_statements(&self, fragment: &str) -> Vec<String> {
+        let mut spans = self.0.lock().expect("capture lock");
+        let statements = spans
+            .iter()
+            .flat_map(|(_, fields)| fields)
+            .filter(|(field, statement)| field == "db.statement" && statement.contains(fragment))
+            .map(|(_, statement)| statement.clone())
+            .collect();
+        spans.clear();
+        statements
+    }
+}
+
+/// SQLite's plan for `sql`, its parameters bound to `NULL`: the `detail` of
+/// each step, joined.
+async fn query_plan(db: &DatabaseConnection, sql: &str) -> String {
+    let parameters = vec![Value::String(None); sql.matches('?').count()];
+    db.query_all_raw(Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Sqlite,
+        format!("EXPLAIN QUERY PLAN {sql}"),
+        parameters,
+    ))
+    .await
+    .unwrap_or_else(|error| panic!("EXPLAIN {sql}: {error}"))
+    .iter()
+    .map(|row| row.try_get::<String>("", "detail").expect("detail"))
+    .collect::<Vec<_>>()
+    .join(" | ")
+}
+
+/// The dictionary's two reads of the persons bearing a surname name the
+/// tree on the name itself, and SQLite answers them from the
+/// `(tree_id, surname)` index: one tree's names, not every tree's.
+#[tokio::test(flavor = "current_thread")]
+async fn the_surname_reads_take_the_tree_and_surname_index() {
+    let captured = capture_statements();
+    let db = crate::common::setup_sqlite_db().await;
+    let tree_id = create_tree(&db).await;
+    captured.take_statements("");
+
+    DictionaryRepo::family_name_usage_person_ids(&db, tree_id, "Fixture")
+        .await
+        .expect("usage");
+    DictionaryRepo::load_family_name_descent(&db, tree_id, "Fixture")
+        .await
+        .expect("descent");
+
+    let reads = captured.take_statements("\"surname\" IN");
+    assert_eq!(reads.len(), 2, "{reads:?}");
+    for sql in reads {
+        let plan = query_plan(&db, &sql).await;
+        assert!(
+            plan.contains("idx_person_name_tree_surname"),
+            "{sql}\n{plan}"
+        );
+    }
 }
 
 #[cfg(feature = "telemetry-context")]

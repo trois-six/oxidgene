@@ -1396,6 +1396,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
         let now = Utc::now();
         let row = person_name::ActiveModel {
             id: Set(name.id),
+            tree_id: Set(self.tree_id),
             person_id: Set(person_id),
             name_type: Set(name.name_type.into()),
             given_names: Set(name.given_names.clone()),
@@ -1519,6 +1520,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             }
             let row = event_witness::ActiveModel {
                 id: Set(witness.id),
+                tree_id: Set(self.tree_id),
                 event_id: Set(event_id),
                 person_id: Set(witness.person_id),
                 relation: Set(witness.relation.clone()),
@@ -1559,6 +1561,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             }
             let row = event_spouse_age::ActiveModel {
                 id: Set(age.id),
+                tree_id: Set(self.tree_id),
                 event_id: Set(event_id),
                 family_spouse_id: Set(age.family_spouse_id),
                 age: Set(age.age.clone()),
@@ -1671,6 +1674,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             }
             let row = source_repository::ActiveModel {
                 id: Set(link.id),
+                tree_id: Set(self.tree_id),
                 source_id: Set(source_id),
                 repository_id: Set(link.repository_id),
                 call_number: Set(link.call_number.clone()),
@@ -1717,6 +1721,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             }
             let row = citation::ActiveModel {
                 id: Set(snapshot.id),
+                tree_id: Set(self.tree_id),
                 source_id: Set(snapshot.source_id),
                 person_id: Set(person_id),
                 event_id: Set(event_id),
@@ -1741,6 +1746,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
     async fn child_link(&mut self, link: &ChildLinkSnapshot) -> Result<(), OxidGeneError> {
         let row = family_child::ActiveModel {
             id: Set(link.id),
+            tree_id: Set(self.tree_id),
             family_id: Set(link.family_id),
             person_id: Set(link.person_id),
             child_type: Set(link.child_type.into()),
@@ -1878,6 +1884,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             }
             let row = family_spouse::ActiveModel {
                 id: Set(spouse.id),
+                tree_id: Set(self.tree_id),
                 family_id: Set(family_id),
                 person_id: Set(spouse.person_id),
                 role: Set(spouse.role.into()),

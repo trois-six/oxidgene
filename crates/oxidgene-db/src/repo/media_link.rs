@@ -297,8 +297,16 @@ impl MediaLinkRepo {
             ));
         }
 
+        let tree_id = crate::repo::tree_of::<crate::entities::media::Entity>(
+            db,
+            media_id,
+            crate::entities::media::Column::TreeId,
+            "Media",
+        )
+        .await?;
         let model = media_link::ActiveModel {
             id: Set(id),
+            tree_id: Set(tree_id),
             media_id: Set(media_id),
             person_id: Set(person_id),
             event_id: Set(event_id),
