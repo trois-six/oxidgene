@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T13:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -681,7 +681,7 @@ failing).
 | Typed text | 1 | `just test` (`oxidgene-guards`) | Repository guards | No `input` or `textarea` of the markup is bound to its text by `value` while listening to `oninput`: typed fields are `TextInput` and `TextArea` ([Common UI §6.6](ui-common.md)) |
 | Conditional hooks | 1 | `just test` (`oxidgene-guards`) | Repository guards | No interface hook (`use_…`) is called on the right of `&&` or `\|\|`, where a render could skip it and shift the hooks after it |
 | Test targets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every crate builds at most one integration test binary, whose root declares every file of `tests/` (§2.7) |
-| Workflows | 1 | `just test` (`oxidgene-guards`) | Repository guards | No workflow step runs cargo, npm, uv, Helm's or Docker's checks or a script of `scripts/` itself: it calls `just <recipe>`, a recipe that exists; every action installs, caches, builds an image or publishes; the jobs of `ci.yml` run exactly what `just check` runs; the CI image and the runners install the same `just` (§2.9) |
+| Workflows | 1 | `just test` (`oxidgene-guards`) | Repository guards | No workflow step runs cargo, npm, uv, Helm's or Docker's checks or a script of `scripts/` itself: it calls `just <recipe>`, a recipe that exists; every action installs, caches, builds an image or publishes, and is pinned to a commit (§5.10); the jobs of `ci.yml` run exactly what `just check` runs; the CI image and the runners install the same `just` (§2.9) |
 | i18n keys | 1 | `just test-unit` | Unit tests | The eight tables carry the same keys and placeholders; every literal key exists; every key is used |
 | Projection shape | 1 | `just test` | Functional tests | `PersonProfile`'s JSON shape changes only with `PROJECTION_SCHEMA_VERSION` |
 | REST/GraphQL parity | 1 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every route is mapped to its GraphQL twin in a declared table, every root field to a route |
@@ -1266,6 +1266,44 @@ archive, image, or session changes, run the relevant focused regression tests
 and fuzz target where practical. Do not run concurrent Cargo builds in the same
 workspace target directory; they add contention and make failures harder to
 attribute.
+
+### 5.10 Build supply chain
+
+What builds and publishes OxidGene is pinned, so that a release is made of
+the tagged sources and of inputs somebody reviewed:
+
+- **Actions.** Every action of a workflow or composite action is named by
+  the commit of its release, the release in a trailing comment
+  (`actions/checkout@<40 hexadecimal digits> # v7.0.1`), never by a tag its
+  publisher can move. The `workflows` guard (§2.8) fails on any other form.
+  Renovate proposes the next release with its commit
+  (`helpers:pinGitHubActionDigests`) and never merges it by itself: an
+  action runs with the workflow's tokens, and nearly all of them run in the
+  release or in the gates it calls.
+- **Base images.** Renovate pins the base images of the Dockerfiles by
+  digest (`rust:1-slim-trixie@sha256:…`) and proposes each new digest; it
+  merges by itself only those of the CI and development images, never those
+  of the images a release publishes.
+- **Tools.** A tool a workflow installs is a named release — `just` checked
+  against its published digest in the CI image, the others by
+  `taiki-e/install-action`, which checks the digest of each tool it has a
+  manifest for — and the Rust toolchain is the one `rust-toolchain.toml`
+  pins.
+- **Published artifacts.** The release jobs that build the images and the
+  desktop restore no build cache and no image layer cache: a cache is
+  written by other runs, and what is signed, attested and published is
+  compiled from the tag's sources and the lockfile's crates alone. The
+  gates the release calls keep their caches, since nothing they build is
+  published.
+- **The CI image.** The jobs name `ci-runner` by its `latest` tag, not by a
+  digest. The image is this repository's own, built from
+  `docker/Dockerfile.ci` by `build-ci-image.yml` in the very run that
+  changes it, before the jobs that use it, and again every month without a
+  cache; untagged versions are pruned after each push. A digest written in
+  the workflows could only name the image of an earlier run, which the
+  prune would have deleted, and every rebuild would need a second commit to
+  follow it. Its inputs are pinned instead — its base image by digest, its
+  tools by release — and nothing published is built in it.
 
 ## 6. Release Automation
 

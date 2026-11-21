@@ -2,7 +2,8 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":semanticCommits"
+    ":semanticCommits",
+    "helpers:pinGitHubActionDigests"
   ],
   "enabledManagers": [
     "cargo",
@@ -106,18 +107,28 @@
       "separateMajorMinor": false
     },
     {
+      "description": "Pin the base images of the Dockerfiles by digest: a tag such as rust:1-slim-trixie moves, and an image is then built from whatever it names that day. The actions are pinned by commit the same way (helpers:pinGitHubActionDigests)",
+      "matchManagers": ["dockerfile"],
+      "pinDigests": true
+    },
+    {
+      "description": "Move the service images the weekly workflow tests against with the Compose stack's",
+      "matchManagers": ["docker-compose", "github-actions"],
+      "matchPackageNames": ["postgres", "redis"],
+      "groupName": "Service images"
+    },
+    {
       "description": "Test non-major GitHub Actions updates together",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
       "groupName": "GitHub Actions (non-major)"
     },
     {
-      "description": "Automerge stable non-major updates after CI succeeds",
+      "description": "Automerge stable non-major updates after CI succeeds. GitHub Actions are left out: nearly all of them run in the release workflow or in the gates it calls, with the repository's tokens, so their updates wait for a review",
       "matchManagers": [
         "cargo",
         "docker-compose",
         "dockerfile",
-        "github-actions",
         "helm-values",
         "helmv3"
       ],
@@ -134,6 +145,12 @@
       "additionalBranchPrefix": "automerge-",
       "automerge": true,
       "automergeType": "pr"
+    },
+    {
+      "description": "Never automerge what a release publishes with: the Dockerfiles of the published images, their base images' digests included. Listed after the automerge rules because the last matching rule wins",
+      "matchFileNames": ["docker/Dockerfile.server", "docker/Dockerfile.worker", "docker/Dockerfile.web"],
+      "additionalBranchPrefix": "",
+      "automerge": false
     },
     {
       "description": "Require dashboard approval for breaking updates",

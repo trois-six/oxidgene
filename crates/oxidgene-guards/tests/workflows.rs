@@ -7,8 +7,10 @@
 //! the reverse; a step calling a recipe that was renamed; an action that
 //! checks something in place of a recipe; a job added to the CI gate that
 //! `just check` does not run, or the reverse, so that a commit checked
-//! locally fails once pushed; and the two pins of `just` (the CI image's
-//! and the one installed elsewhere) drifting apart.
+//! locally fails once pushed; the two pins of `just` (the CI image's and
+//! the one installed elsewhere) drifting apart; and an action named by a
+//! tag, which its publisher — or whoever takes over its repository — can
+//! move to other code that then runs with the workflow's tokens.
 //!
 //! Fixing a failure: move the command into a recipe of the justfile and
 //! call `just <recipe>` from the step. What CI must do differently is a
@@ -19,7 +21,10 @@
 //! install action), restoring a cache, and packaging or publishing what was
 //! built are not checks and stay in the workflow. An action is added to
 //! `ACTIONS` with what it does — only when it installs, caches, builds an
-//! image or publishes.
+//! image or publishes. An action is written `owner/name@<commit> # v1.2.3`:
+//! the 40 hexadecimal digits of the commit its release tag names (`gh api
+//! repos/<owner>/<name>/commits/<tag> --jq .sha`), the release in the
+//! comment, which Renovate reads to propose the next one.
 
 use std::collections::BTreeSet;
 
@@ -459,6 +464,54 @@ fn the_ci_gate_runs_what_just_check_runs() {
         "the local gate and the CI gate differ (docs/development.md §2.9):\n{}",
         problems.join("\n")
     );
+}
+
+/// Whether an action reference is `owner/name@<40 hex digits> # v<release>`.
+fn is_pinned(reference: &str) -> bool {
+    let Some((_, pin)) = reference.split_once('@') else {
+        return false;
+    };
+    let (commit, comment) = pin.split_once(' ').unwrap_or((pin, ""));
+    commit.len() == 40
+        && commit.chars().all(|c| c.is_ascii_hexdigit())
+        && comment
+            .trim()
+            .strip_prefix("# v")
+            .is_some_and(|release| release.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+#[test]
+fn every_action_is_pinned_to_a_commit() {
+    let mut violations = Vec::new();
+    for source in sources() {
+        for (number, line) in source.text.lines().enumerate() {
+            if let Some((_, action)) = value_of(line, "uses")
+                && !action.starts_with("./")
+                && !is_pinned(action)
+            {
+                violations.push(format!("{}:{}: {action}", source.path, number + 1));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "actions not pinned as `owner/name@<commit> # v<release>`:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn a_pin_is_a_commit_with_its_release() {
+    let commit = "3d3c42e5aac5ba805825da76410c181273ba90b1";
+    assert!(is_pinned(&format!("actions/checkout@{commit} # v7.0.1")));
+    assert!(is_pinned(&format!("actions/cache/save@{commit} # v6")));
+    assert!(!is_pinned("actions/checkout@v7"));
+    assert!(!is_pinned(&format!("actions/checkout@{commit}")));
+    assert!(!is_pinned(&format!(
+        "actions/checkout@{} # v7.0.1",
+        &commit[..12]
+    )));
+    assert!(!is_pinned("actions/checkout@main # v7.0.1"));
 }
 
 /// The release of `just` named after `marker` in a file.

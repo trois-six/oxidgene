@@ -25,7 +25,7 @@ runs:
   steps:
     # Only `main` saves: a pull request reads the caches of `main`, and its
     # own would only crowd them out of the repository's cache budget.
-    - uses: Swatinem/rust-cache@v2
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         key: ${{ inputs.key }}
         save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -50,7 +50,7 @@ runs:
         } >> "$GITHUB_OUTPUT"
 
     - id: restore
-      uses: actions/cache/restore@v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.key.outputs.path }}
         key: ${{ steps.key.outputs.prefix }}${{ github.sha }}

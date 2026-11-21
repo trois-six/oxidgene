@@ -52,7 +52,7 @@ jobs:
       PROJECT: ${{ inputs.project }}
       E2E_BROWSERS: ${{ inputs.browsers }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # A project the configuration does not define yet is reported and
       # skipped, so that a caller can name it before it lands.
@@ -76,19 +76,19 @@ jobs:
 
       # One build for every project: the bundle and the server are the same.
       - if: steps.project.outputs.defined == 'true'
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: e2e
           save-if: ${{ github.ref == 'refs/heads/main' && inputs.project == 'chromium' }}
 
       # A prebuilt binary through cargo-binstall; the version of mise.toml.
       - if: steps.project.outputs.defined == 'true'
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2.90.7
         with:
           tool: dioxus-cli@0.7.10
 
       - if: steps.project.outputs.defined == 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
           cache: npm
@@ -104,7 +104,7 @@ jobs:
       # latency: a trend to follow, never a gate.
       - name: Upload the request report
         if: always() && steps.project.outputs.defined == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: request-report-${{ inputs.project }}
           path: e2e/test-results/request-report.json
@@ -113,7 +113,7 @@ jobs:
 
       - name: Upload the Playwright report
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-${{ inputs.project }}
           path: |

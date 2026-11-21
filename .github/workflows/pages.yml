@@ -35,7 +35,7 @@ jobs:
     name: Build the site
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: ./.github/actions/setup-just
 
@@ -54,11 +54,11 @@ jobs:
             libsoup-3.0-dev libssl-dev libwayland-dev libwebkit2gtk-4.1-dev \
             libxdo-dev mold pkg-config zstd
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: pages
 
-      - uses: astral-sh/setup-uv@v10.3.2
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
 
       # The version of mise.toml.
       - name: Install Zola
@@ -71,7 +71,7 @@ jobs:
       - name: Build the site
         run: just site
 
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site/public
 
@@ -87,4 +87,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

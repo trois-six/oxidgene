@@ -18,6 +18,6 @@ runs:
         fi
 
     - if: steps.probe.outputs.present != 'true'
-      uses: taiki-e/install-action@v2
+      uses: taiki-e/install-action@25f51f6b1bf4e18876107cece836f4f77ac17c8c # v2.90.7
       with:
         tool: just@1.59.0
