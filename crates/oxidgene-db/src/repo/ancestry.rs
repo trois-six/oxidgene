@@ -131,19 +131,59 @@ impl AncestryRepo {
             .await
             .map_err(db_err)?;
 
-        rows.iter()
-            .map(|row| {
-                let role = row
-                    .try_get::<Option<sea_enums::SpouseRole>>("", "role")
-                    .map_err(db_err)?;
-                Ok(FamilyLink {
-                    family_id: row.try_get("", "family_id").map_err(db_err)?,
-                    person_id: row.try_get("", "person_id").map_err(db_err)?,
-                    spouse_role: role.map(Into::into),
-                    sort_order: row.try_get("", "sort_order").map_err(db_err)?,
-                })
-            })
-            .collect()
+        rows.iter().map(family_link).collect()
+    }
+
+    /// The memberships of the families of tree `tree_id` that one of
+    /// `children` is a child of: those children's, and every spouse's —
+    /// their parents. The same families and persons as
+    /// [`Self::family_links`] reads, so a walk up through these links
+    /// reaches whom a walk through the whole tree's would.
+    ///
+    /// One step of an ancestry walked a generation at a time: what it reads
+    /// follows the generation, not the tree.
+    #[tracing::instrument(name = "pedigree.parent_links", skip_all, fields(count = children.len()))]
+    pub async fn parent_links(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        children: &[Uuid],
+    ) -> Result<Vec<FamilyLink>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        in_chunks(children, |chunk| async move {
+            let placeholder = |n: usize| match backend {
+                DbBackend::Sqlite => format!("?{n}"),
+                _ => format!("${n}"),
+            };
+            let tree = placeholder(1);
+            let ids = (2..chunk.len() + 2)
+                .map(placeholder)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!(
+                "SELECT fs.family_id, fs.person_id, fs.role, fs.sort_order \
+                 FROM family_spouse fs \
+                 JOIN family f ON f.id = fs.family_id \
+                 JOIN person p ON p.id = fs.person_id \
+                 WHERE f.tree_id = {tree} AND f.deleted_at IS NULL AND p.deleted_at IS NULL \
+                   AND fs.family_id IN \
+                       (SELECT family_id FROM family_child WHERE person_id IN ({ids})) \
+                 UNION ALL \
+                 SELECT fc.family_id, fc.person_id, NULL, fc.sort_order \
+                 FROM family_child fc \
+                 JOIN family f ON f.id = fc.family_id \
+                 JOIN person p ON p.id = fc.person_id \
+                 WHERE f.tree_id = {tree} AND f.deleted_at IS NULL AND p.deleted_at IS NULL \
+                   AND fc.person_id IN ({ids})"
+            );
+            let values =
+                std::iter::once(Value::from(tree_id)).chain(chunk.into_iter().map(Value::from));
+            let rows = db
+                .query_all_raw(Statement::from_sql_and_values(backend, &sql, values))
+                .await
+                .map_err(db_err)?;
+            rows.iter().map(family_link).collect()
+        })
+        .await
     }
 
     /// Every live family of tree `tree_id` with its privacy and its live
@@ -280,6 +320,20 @@ impl AncestryRepo {
             })
             .collect()
     }
+}
+
+/// The membership a row of [`AncestryRepo::family_links`] or
+/// [`AncestryRepo::parent_links`] holds.
+fn family_link(row: &sea_orm::QueryResult) -> Result<FamilyLink, OxidGeneError> {
+    let role = row
+        .try_get::<Option<sea_enums::SpouseRole>>("", "role")
+        .map_err(db_err)?;
+    Ok(FamilyLink {
+        family_id: row.try_get("", "family_id").map_err(db_err)?,
+        person_id: row.try_get("", "person_id").map_err(db_err)?,
+        spouse_role: role.map(Into::into),
+        sort_order: row.try_get("", "sort_order").map_err(db_err)?,
+    })
 }
 
 /// One step of a walk through the family links.

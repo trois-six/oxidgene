@@ -1,10 +1,12 @@
 //! How two persons of a tree are related, shared by REST and GraphQL.
 //!
-//! The tree's family links are read in one query and walked in memory: a
-//! relationship can run through any number of generations and branches, which
-//! a recursive SQL walk per candidate ancestor would pay for in round trips.
+//! The family links are read first, then walked in memory: a relationship
+//! can run through any number of generations and branches, which a
+//! recursive SQL walk per candidate ancestor would pay for in round trips.
 //!
-//! Blood relationships come first. Each one is a pair of lines descending
+//! Blood relationships come first, and need the two persons' ancestries
+//! alone: the links above them are read a generation at a time, a
+//! statement each, whatever the size of the tree around them. Each one is a pair of lines descending
 //! from a common ancestor — or from both spouses of a common ancestral couple
 //! — to the two persons, sharing nobody but that ancestor: were they to meet
 //! lower down, the person they met at would be a closer common ancestor, and
@@ -12,7 +14,8 @@
 //! is what makes several such pairs exist.
 //!
 //! Only when the two persons share no ancestor are paths through unions
-//! searched, and then only the shortest ones.
+//! searched, and then only the shortest ones: such a path can go anywhere,
+//! so it is searched in the whole tree's links, read then.
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -74,17 +77,53 @@ pub async fn find_kinship(
     crate::profile::require_shown(redaction, from)?;
     crate::profile::require_shown(redaction, to)?;
 
-    let mut links = AncestryRepo::family_links(db, tree_id).await?;
-    if !redaction.is_unrestricted() {
-        links.retain(|link| redaction.appears(link.person_id));
-    }
-    // Indexing every family link of the tree and walking it is the costly
-    // part, and pure computation: kept off the async workers.
-    let span = tracing::info_span!("kinship.walk", link.count = links.len());
-    let (paths, truncated) =
-        crate::service::blocking::run(span, move || FamilyGraph::new(&links).kinship(from, to))
+    let seen = |mut links: Vec<FamilyLink>| {
+        if !redaction.is_unrestricted() {
+            links.retain(|link| redaction.appears(link.person_id));
+        }
+        links
+    };
+    // The viewer's ancestries are within these: a person absent to them
+    // only cuts a line short.
+    let above = seen(links_above(db, tree_id, &[from, to]).await?);
+    let span = tracing::info_span!("kinship.blood", link.count = above.len());
+    let (mut paths, mut truncated) =
+        crate::service::blocking::run(span, move || FamilyGraph::new(&above).blood(from, to))
             .await?;
+    if paths.is_empty() {
+        let links = seen(AncestryRepo::family_links(db, tree_id).await?);
+        // Indexing every family link of the tree and walking it is the
+        // costly part, and pure computation: kept off the async workers.
+        let span = tracing::info_span!("kinship.unions", link.count = links.len());
+        (paths, truncated) = crate::service::blocking::run(span, move || {
+            FamilyGraph::new(&links).through_unions(from, to)
+        })
+        .await?;
+    }
 
+    let named = persons_on(&paths, from, to);
+    let mut persons = profiles
+        .search_entries_as(redaction, tree_id, &named)
+        .await?;
+    // The placeholders a path goes through, labelled for what they are.
+    persons.extend(
+        profiles
+            .placeholder_entries_as(redaction, tree_id, &named)
+            .await?,
+    );
+    name_publicly(redaction, &mut paths);
+
+    Ok(Kinship {
+        from_person_id: from,
+        to_person_id: to,
+        paths,
+        truncated,
+        persons,
+    })
+}
+
+/// `from`, `to` and every person on `paths`, each once, in the order met.
+fn persons_on(paths: &[KinshipPath], from: Uuid, to: Uuid) -> Vec<Uuid> {
     let mut named = vec![from, to];
     let mut seen: HashSet<Uuid> = named.iter().copied().collect();
     for segment in paths.iter().flat_map(|path| &path.segments) {
@@ -99,25 +138,47 @@ pub async fn find_kinship(
             }
         }
     }
-    let mut persons = profiles
-        .search_entries_as(redaction, tree_id, &named)
-        .await?;
-    // The placeholders a path goes through, labelled for what they are.
-    persons.extend(
-        profiles
-            .placeholder_entries_as(redaction, tree_id, &named)
-            .await?,
-    );
-    let mut paths = paths;
-    name_publicly(redaction, &mut paths);
+    named
+}
 
-    Ok(Kinship {
-        from_person_id: from,
-        to_person_id: to,
-        paths,
-        truncated,
-        persons,
-    })
+/// The family links above `persons` in `tree_id`: those of the families
+/// they and each of their ancestors are a child of, read a generation at a
+/// time up to [`MAX_GENERATIONS`], each family once.
+async fn links_above(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    persons: &[Uuid],
+) -> Result<Vec<FamilyLink>, OxidGeneError> {
+    let mut links = Vec::new();
+    let mut reached: HashSet<Uuid> = persons.iter().copied().collect();
+    let mut families = HashSet::new();
+    let mut generation = persons.to_vec();
+    for _ in 0..MAX_GENERATIONS {
+        if generation.is_empty() {
+            break;
+        }
+        let found = AncestryRepo::parent_links(db, tree_id, &generation).await?;
+        generation.clear();
+        // A family two siblings are children of comes back for each; its
+        // spouses are kept once, each child's own link as it comes.
+        let mut new_families = HashSet::new();
+        for link in found {
+            if link.spouse_role.is_none() {
+                links.push(link);
+                continue;
+            }
+            if families.contains(&link.family_id) {
+                continue;
+            }
+            new_families.insert(link.family_id);
+            if reached.insert(link.person_id) {
+                generation.push(link.person_id);
+            }
+            links.push(link);
+        }
+        families.extend(new_families);
+    }
+    Ok(links)
 }
 
 /// Name the persons on `paths` by the identifiers `redaction`'s viewer
@@ -228,6 +289,7 @@ impl FamilyGraph {
     }
 
     /// The paths from `from` to `to`, closest first, and whether more exist.
+    #[cfg(test)]
     fn kinship(&self, from: Uuid, to: Uuid) -> (Vec<KinshipPath>, bool) {
         let (blood, truncated) = self.blood(from, to);
         if blood.is_empty() {

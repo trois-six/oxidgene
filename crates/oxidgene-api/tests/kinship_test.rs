@@ -10,6 +10,7 @@ use crate::common;
 use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 
+use common::capture::global_capture;
 use common::{send, setup_app};
 
 async fn create_tree(app: &axum::Router) -> String {
@@ -304,4 +305,44 @@ async fn both_surfaces_refuse_the_same_person_and_other_trees() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     let graphql = graphql_kinship(&app, &tree.tree_id, &tree.cousin_a, &stranger).await;
     assert_eq!(graphql["errors"][0]["extensions"]["code"], "NOT_FOUND");
+}
+
+/// A blood relationship is searched in the two persons' ancestries, not in
+/// the tree: among forty unrelated families, a person and their father are
+/// related from the links of the three couples above them, and the tree's
+/// links are never read whole.
+#[tokio::test]
+async fn a_blood_kinship_reads_the_two_ancestries_not_the_tree() {
+    const BLOCKS: usize = 40;
+    let capture = global_capture();
+    let db = common::setup_db().await;
+    let app = common::app_on(db.clone());
+    let (tree, anchor) = common::family_blocks_tree(&app, &db, BLOCKS).await;
+    let profiles = common::all_profiles(&app, &tree).await;
+    let father = profiles
+        .iter()
+        .find(|profile| profile["person_id"] == anchor.as_str())
+        .expect("the root's profile")["family_as_child"]["father_id"]
+        .as_str()
+        .expect("the root has a father")
+        .to_owned();
+
+    capture.take();
+    let (status, kinship) = rest_kinship(&app, &tree, &anchor, &father).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(kinship["paths"].as_array().unwrap().len(), 1, "{kinship}");
+
+    // What each search was given, by the span it runs under.
+    let spans = capture.take();
+    let links = |span: &str| -> Vec<usize> {
+        spans
+            .iter()
+            .filter(|field| field.owner == span && field.field == "link.count")
+            .map(|field| field.value.parse().expect("a count"))
+            .collect()
+    };
+    // The root's parents and both pairs of grandparents, each couple with
+    // the child it is reached through: nine links, of the tree's 520.
+    assert_eq!(links("kinship.blood"), [9]);
+    assert_eq!(links("kinship.unions"), [] as [usize; 0]);
 }

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-21T14:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:00:00Z }
 ---
 
 
@@ -556,7 +556,10 @@ Blood relationships are listed when there is at least one, as a single
 segment each: pairs of lines from a common ancestor that share nobody but that
 ancestor, closest first, so pedigree implex yields one path per distinct pair.
 Only when the persons share no ancestor are the shortest paths through unions
-listed, fewest unions first. At most 32 paths are returned, with `truncated`
+listed, fewest unions first. The blood relationships are found from the two
+persons' ancestries alone, read a generation at a time; the tree's whole
+set of family links is read only for the paths through unions, which can
+go anywhere. At most 32 paths are returned, with `truncated`
 set when more exist. Deleted persons and families link nobody. Both persons
 must belong to the tree (`not_found`) and differ (`validation_error`).
 
