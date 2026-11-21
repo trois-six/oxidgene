@@ -3,14 +3,12 @@
 # Helm chart's ingress puts them, on a throwaway PostgreSQL database. The
 # server keeps its media on its own disk, so it runs the import jobs itself.
 #
-# Usage (the release workflow's `e2e` job does the same):
-#   OXIDGENE_SERVER_IMAGE=<image> OXIDGENE_WEB_IMAGE=<image> \
-#     docker compose -f docker/docker-compose.e2e.yml up -d --wait
-#   cd e2e && E2E_EXTERNAL=1 E2E_API_PORT=18081 E2E_WEB_PORT=18081 npx playwright test
-#   docker compose -f docker/docker-compose.e2e.yml down -v
+# Usage (the release workflow's `e2e` job runs the same recipe, which starts
+# this stack, runs the suite against it and removes it):
+#   OXIDGENE_SERVER_IMAGE=<image> OXIDGENE_WEB_IMAGE=<image> just e2e-images
 #
-# E2E_WEB_PORT moves the published port (default 18081); the suite's API
-# port must name the same one.
+# E2E_WEB_PORT moves the published port (default 18081); the recipe gives
+# the suite the same one for the API.
 
 name: oxidgene-e2e
 

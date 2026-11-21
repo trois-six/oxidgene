@@ -64,27 +64,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
+      # The tag is `v` and the version of the workspace and of the chart.
       - name: Validate tag against package versions
         id: version
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          cargo_version="$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "oxidgene-desktop") | .version')"
-          chart_version="$(sed -n 's/^appVersion: "\([^"]*\)"$/\1/p' charts/oxidgene/Chart.yaml)"
-
-          if [[ "$GITHUB_REF_NAME" == "$version" || -z "$version" ]]; then
-            echo "release tags must start with v" >&2
-            exit 1
-          fi
-          if [[ "$version" != "$cargo_version" ]]; then
-            echo "tag version $version does not match Cargo version $cargo_version" >&2
-            exit 1
-          fi
-          if [[ "$version" != "$chart_version" ]]; then
-            echo "tag version $version does not match chart appVersion $chart_version" >&2
-            exit 1
-          fi
-
+          version="$(just release-version "$GITHUB_REF_NAME")"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
   # The images go to the registry by digest only, untagged: `e2e` tests
@@ -166,13 +153,10 @@ jobs:
     permissions:
       contents: read
       packages: read
-    env:
-      E2E_EXTERNAL: "1"
-      # One origin: the ingress serves the bundle and the API.
-      E2E_API_PORT: "18081"
-      E2E_WEB_PORT: "18081"
     steps:
       - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-just
 
       - uses: actions/download-artifact@v8
         with:
@@ -196,33 +180,16 @@ jobs:
             echo "OXIDGENE_WEB_IMAGE=$image/oxidgene-web@$(cat digests/oxidgene-web)"
           } >> "$GITHUB_ENV"
 
-      - name: Start the images
-        run: |
-          docker compose -f docker/docker-compose.e2e.yml up -d --wait --wait-timeout 300
-          curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors \
-            --output /dev/null "http://127.0.0.1:${E2E_WEB_PORT}/"
-          curl --fail --silent --show-error --output /dev/null "http://127.0.0.1:${E2E_WEB_PORT}/healthz"
-
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: e2e/package-lock.json
 
-      - name: Install Playwright
-        working-directory: e2e
-        run: |
-          npm ci --no-audit --no-fund
-          npx playwright install --with-deps chromium
-
-      - name: Run the end-to-end tests
-        working-directory: e2e
-        run: npx playwright test
-
-      - name: Save the container logs
-        if: failure()
-        run: |
-          docker compose -f docker/docker-compose.e2e.yml logs --no-color --timestamps > e2e/test-results/containers.log 2>&1 || true
+      # Starts the images behind one origin, runs the suite against it, keeps
+      # the containers' logs and removes the stack.
+      - name: Run the end-to-end tests against the images
+        run: just e2e-images --project=chromium
 
       - name: Upload the Playwright report
         if: failure()
@@ -233,10 +200,6 @@ jobs:
             e2e/playwright-report/
             e2e/test-results/
           retention-days: 14
-
-      - name: Stop the images
-        if: always()
-        run: docker compose -f docker/docker-compose.e2e.yml down --volumes || true
 
   # The tested digests under the release's version and `latest`. A tag
   # copies the image index whole, its provenance and SBOM with it.
@@ -288,6 +251,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - name: Set up Helm
         uses: azure/setup-helm@v5
 
@@ -295,12 +260,9 @@ jobs:
         with:
           version: "0.13.7"
 
-      - name: Build chart dependencies
-        run: helm dependency build charts/oxidgene
-
-      # `just chart-test`: every authentication mode linted and rendered.
+      # Every authentication mode linted and rendered.
       - name: Lint and test the chart
-        run: uv run --quiet scripts/chart-tests.py
+        run: just chart-test
 
       - name: Package chart
         run: |
@@ -356,6 +318,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       # The toolchain of rust-toolchain.toml.
       - name: Install Rust
         run: rustup toolchain install
@@ -373,33 +337,23 @@ jobs:
         with:
           shared-key: release-desktop-${{ matrix.platform }}
 
+      # `sh`, which just runs its recipes with, is Git's on Windows.
       - name: Build desktop binary
         if: runner.os != 'macOS'
-        run: cargo build --locked --release --package oxidgene-desktop
+        shell: bash
+        run: just build-desktop-release
 
-      # One binary per architecture, joined into a universal one by the
-      # script (`just build-desktop-macos-app`).
-      - name: Build macOS binaries
+      # One binary per architecture, joined by scripts/macos-app.sh into a
+      # universal one, wrapped in OxidGene.app and put in the disk image.
+      - name: Build and package macOS application
         if: runner.os == 'macOS'
-        env:
-          MACOSX_DEPLOYMENT_TARGET: "11.0"
-        run: |
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
-          cargo build --locked --release --package oxidgene-desktop \
-            --target aarch64-apple-darwin --target x86_64-apple-darwin
+        run: just build-desktop-macos-app dist/oxidgene-desktop-macos-universal.dmg
 
       - name: Package Linux binary
         if: runner.os == 'Linux'
         run: |
           mkdir -p dist
           tar -C target/release -czf dist/oxidgene-desktop-linux-x86_64.tar.gz oxidgene-desktop
-
-      - name: Package macOS application
-        if: runner.os == 'macOS'
-        run: |
-          scripts/macos-app.sh dist/oxidgene-desktop-macos-universal.dmg \
-            target/aarch64-apple-darwin/release/oxidgene-desktop \
-            target/x86_64-apple-darwin/release/oxidgene-desktop
 
       # SignPath signs what this artifact holds, following the project's
       # artifact configuration and after a manual approval
@@ -450,7 +404,7 @@ jobs:
       # session over stdio answering `list_trees` (docs/development.md §6).
       - name: Smoke-test the desktop download
         shell: bash
-        run: ${{ runner.os == 'Windows' && 'python' || 'python3' }} scripts/desktop-smoke.py dist/oxidgene-desktop-*
+        run: just desktop-smoke dist/oxidgene-desktop-*
 
       - name: Upload desktop archive
         uses: actions/upload-artifact@v7

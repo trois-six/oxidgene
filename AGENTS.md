@@ -69,6 +69,12 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
 - `just check` is not required for changes limited to documentation, the
   `README`, Dockerfiles, Docker Compose files, or GitHub Actions workflows. Use
   focused validation appropriate to the changed files instead.
+- Every check a GitHub workflow runs is a recipe of the `justfile`, called
+  as `just <recipe>`: CI and a developer's machine run the same command. Add
+  a check as a recipe first, then call it from the workflow; never retype a
+  `cargo`, `npm`, `uv` or script command in a workflow. What CI needs
+  differently is a recipe argument or an environment variable the recipe
+  reads (`development.md` §2.9).
 - Create a commit after each substantial feature. Split work earlier when the
   uncommitted change becomes difficult to review or when the work changes
   focus.
@@ -262,7 +268,7 @@ validation described under Git and delivery.
 
 Guards enforce several rules of this file mechanically: the layering, the
 REST/GraphQL parity table, the migration and lint policies, the
-specification format, dead CSS and i18n keys, cross-tree access, pagination,
+specification format, the workflows calling the justfile, dead CSS and i18n keys, cross-tree access, pagination,
 purge completeness, log privacy, SQL plans, dependency and size budgets.
 They run in three tiers — every pull request, every code pull request, and
 nightly and before a release — listed with their commands in

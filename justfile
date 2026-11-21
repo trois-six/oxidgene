@@ -1,5 +1,15 @@
 # OxidGene - Justfile
 # Build orchestration for the OxidGene genealogy platform.
+#
+# Every check a GitHub workflow runs is a recipe of this file, called as
+# `just <recipe>`, so that CI and a developer's machine run the same command
+# (docs/development.md §2.9; the `workflows` guard fails on a workflow step
+# that calls cargo, npm, uv or a script of scripts/ itself). The checking
+# recipes pass `--locked`: a lockfile behind its manifests fails here as it
+# does in CI. What differs in CI is set by its environment, never by another
+# command: `CI`, which GitHub sets, makes Playwright install the system
+# libraries of its browsers, and `CARGO_PROFILE_DEV_DEBUG=0` drops the debug
+# information.
 
 # Default recipe: show available commands
 default:
@@ -26,6 +36,13 @@ build-release:
 e2e_api_port := env("E2E_API_PORT", "18080")
 e2e_web_port := env("E2E_WEB_PORT", "18081")
 
+# The browsers `just e2e` installs for Playwright: a run of another project
+# names its own (`E2E_BROWSERS=webkit just e2e --project=webkit`).
+e2e_browsers := env("E2E_BROWSERS", "chromium")
+
+# Python is `python` on Windows, where the release smoke-tests the desktop.
+python := if os_family() == "windows" { "python" } else { "python3" }
+
 # Performance and browser tests have their own recipes: `just scaling`,
 # `just e2e`, `just ui-js`. All Rust recipes need cargo-nextest (`just setup`).
 # Run the unit and functional tests (what `just check` runs)
@@ -35,14 +52,24 @@ test: test-unit test-functional
 # documentation examples, which nextest does not run.
 # Run the unit tests
 test-unit:
-    cargo nextest run --workspace --lib --bins
-    cargo test --workspace --doc
+    cargo nextest run --locked --workspace --lib --bins --no-fail-fast
+    cargo test --locked --workspace --doc
 
 # The integration test targets under `crates/*/tests` and `apps/*/tests`:
 # REST, GraphQL, repository, import and MCP scenarios.
 # Run the functional tests
 test-functional:
-    cargo nextest run --workspace --test '*'
+    cargo nextest run --locked --workspace --test '*' --no-fail-fast
+
+# The tests of `oxidgene-guards` alone (docs/development.md §2.8): they read
+# the sources, the specifications, the justfile and the workflows, and build
+# in seconds. `just test` runs them with the rest; CI gives them a job of
+# their own, which a documentation-only change runs too. With
+# OXIDGENE_SPEC_BASE naming a git revision, an edited specification must
+# carry a new `generated.at`.
+# Run the repository guards
+guards:
+    cargo nextest run --locked -p oxidgene-guards --no-fail-fast
 
 # Run the browser JavaScript unit tests (Node.js, no dependencies)
 ui-js:
@@ -51,13 +78,41 @@ ui-js:
 # Builds the web bundle for the e2e API port and the server, then runs the
 # Playwright suite in `e2e/` against both on a throwaway database (see
 # docs/development.md). Arguments go to Playwright: `just e2e --headed`,
-# `just e2e tests/home.spec.ts`.
+# `just e2e tests/home.spec.ts`, `just e2e --project=chromium`. On a CI
+# runner, which lacks them, Playwright installs the browser's system
+# libraries too.
 # Run the browser end-to-end tests
 e2e *args:
     OXIDGENE_API_URL="http://127.0.0.1:{{ e2e_api_port }}" scripts/dx.sh build --package oxidgene-web --platform web
     cargo build --locked --package oxidgene-server
-    cd e2e && npm ci --no-audit --no-fund && npx playwright install chromium
+    cd e2e && npm ci --no-audit --no-fund && npx playwright install ${CI:+--with-deps} {{ e2e_browsers }}
     cd e2e && E2E_API_PORT="{{ e2e_api_port }}" E2E_WEB_PORT="{{ e2e_web_port }}" npx playwright test {{ args }}
+
+# The suite against images already built, as a release runs it
+# (docs/development.md §6): OXIDGENE_SERVER_IMAGE and OXIDGENE_WEB_IMAGE name
+# them, docker/docker-compose.e2e.yml starts them behind one origin on a
+# throwaway PostgreSQL, and Playwright drives that origin (`E2E_EXTERNAL`).
+# The containers' logs land in e2e/test-results/containers.log and the
+# stack is removed, whatever the outcome. Arguments go to Playwright.
+# Run the end-to-end tests against the server and web images
+e2e-images *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    compose=(docker compose -f docker/docker-compose.e2e.yml)
+    export E2E_WEB_PORT="{{ e2e_web_port }}"
+    finish() {
+        mkdir -p e2e/test-results
+        "${compose[@]}" logs --no-color --timestamps > e2e/test-results/containers.log 2>&1 || true
+        "${compose[@]}" down --volumes || true
+    }
+    trap finish EXIT
+    "${compose[@]}" up -d --wait --wait-timeout 300
+    curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors \
+      --output /dev/null "http://127.0.0.1:${E2E_WEB_PORT}/"
+    curl --fail --silent --show-error --output /dev/null "http://127.0.0.1:${E2E_WEB_PORT}/healthz"
+    (cd e2e && npm ci --no-audit --no-fund && npx playwright install ${CI:+--with-deps} chromium)
+    # One origin: the ingress serves the bundle and the API.
+    (cd e2e && E2E_EXTERNAL=1 E2E_API_PORT="$E2E_WEB_PORT" npx playwright test {{ args }})
 
 # The sign-in journeys of e2e/auth/ (docs/authentication.md §12): builds and
 # starts the development Compose stack, Rauthy and its fictitious users
@@ -91,16 +146,28 @@ screenshots:
 test-verbose:
     cargo nextest run --workspace --no-capture
 
-# Run clippy linter. The second run covers the live checks of
-# `oxidgene-archives`, a feature no workspace member enables. The third
-# lints the API alone, as the desktop links it: the workspace run unifies
-# the server's `graphql` and `auth` features into it, so code only those
-# features use looks used there and dead here (the CI Clippy matrix's
-# "api without graphql").
-clippy:
-    cargo clippy --workspace --all-targets -- -D warnings
-    cargo clippy -p oxidgene-archives --features native,live --all-targets -- -D warnings
-    cargo clippy -p oxidgene-api --all-targets -- -D warnings
+# Each build variant has its recipe, which the CI Clippy matrix runs as a
+# job of its own; `just wasm` is the fifth.
+# Run Clippy on every native build variant
+clippy: clippy-workspace clippy-archives clippy-api clippy-desktop-minimal
+
+# Run Clippy on every native target with every default feature
+clippy-workspace:
+    cargo clippy --locked --workspace --all-targets -- -D warnings
+
+# Run Clippy on the archive crate's live checks, a feature no workspace member enables
+clippy-archives:
+    cargo clippy --locked -p oxidgene-archives --features native,live --all-targets -- -D warnings
+
+# The workspace run unifies the server's `graphql` and `auth` features into
+# the API, so code only those features use looks used there and dead here.
+# Run Clippy on the API alone, as the desktop links it
+clippy-api:
+    cargo clippy --locked -p oxidgene-api --all-targets -- -D warnings
+
+# Run Clippy on the desktop without telemetry, the build whose `cfg`s differ most
+clippy-desktop-minimal:
+    cargo clippy --locked -p oxidgene-desktop --no-default-features --all-targets -- -D warnings
 
 # Check that the shared UI still compiles to WASM.
 #
@@ -112,7 +179,7 @@ clippy:
 # after touching the UI or its dependencies. The CI Clippy matrix runs it on
 # every change; it is kept out of `check` for the time it takes.
 wasm:
-    cargo clippy -p oxidgene-web --target wasm32-unknown-unknown --all-targets -- -D warnings
+    cargo clippy --locked -p oxidgene-web --target wasm32-unknown-unknown --all-targets -- -D warnings
 
 # Format code
 fmt:
@@ -143,7 +210,7 @@ check: fmt-check clippy cyclomatic doc-check test
 # and a quiet machine. --no-capture runs the tests one at a time and shows
 # each growth.
 scaling:
-    cargo nextest run --release -p oxidgene-api --test integration --run-ignored only --no-capture -E 'test(/^algorithm_scaling_test::/)'
+    cargo nextest run --locked --release -p oxidgene-api --test integration --run-ignored only --no-capture -E 'test(/^algorithm_scaling_test::/)'
 
 # Time a pedigree view's portraits cut from generated camera-sized photographs
 # (cold) and read back from their stored crops (warm), in release mode, and
@@ -177,7 +244,7 @@ import-memory:
     work="$PWD/target/import-memory"
     trap 'rm -rf "$work"' EXIT
     mkdir -p "$work"
-    TMPDIR="$work" cargo nextest run --release -p oxidgene-api --test integration \
+    TMPDIR="$work" cargo nextest run --locked --release -p oxidgene-api --test integration \
       --run-ignored only --no-capture -E 'test(/^import_memory_test::/)'
 
 # Fail when the share of duplicated Rust code grows past its budget
@@ -195,10 +262,48 @@ deps:
     cargo audit
     python3 scripts/budgets.py dependencies
 
+# Build what ships — the desktop, the server, the worker and the web bundle —
+# in release mode, and compare each one's size and the crates it links with
+# scripts/budgets.json (docs/development.md §2.8). `just budgets --update`
+# records a growth that was intended. Python comes from uv, as for the
+# other scripts: the CI image has no other.
+# Check the size of the shipped binaries against their budgets
+budgets *args:
+    cargo build --locked --release -p oxidgene-desktop -p oxidgene-server -p oxidgene-worker
+    scripts/dx.sh build --package oxidgene-web --platform web --release
+    uv run --quiet --no-project scripts/budgets.py binaries {{ args }}
+
+# Dependencies declared and never used, which only a nightly compiler can
+# tell: needs `rustup toolchain install nightly --profile minimal` and
+# cargo-udeps (`just setup`).
+# Look for unused dependencies with cargo-udeps
+udeps:
+    cargo +nightly udeps --locked --workspace --all-targets
+
+# Run Clippy on a Rust release ahead of the pinned one (`beta`, `nightly`),
+# to see its new lints coming; the toolchain must be installed with clippy.
+next-toolchain toolchain:
+    cargo +{{ toolchain }} clippy --locked --workspace --all-targets -- -D warnings
+
+# Report what the next Rust release will refuse in the dependencies
+future-incompat toolchain="beta":
+    cargo +{{ toolchain }} check --locked --workspace --all-targets --future-incompat-report
+
+# Report the updates waiting in the lockfile and the major releases our requirements hold back
+report-updates:
+    cargo update --dry-run --verbose
+
+# Count the code with scc; arguments go to it (`--by-file --format csv`)
+report-size *args:
+    scc --exclude-dir target,node_modules {{ args }} crates apps e2e scripts
+
+# The test is selected in the workspace's test build, the one `just
+# test-functional` leaves, whose unified features include GraphQL and
+# authentication, so that it compiles nothing more.
 # Read the query plan of every statement the API runs over a populated tree
 # and fail on a full scan of a large table (docs/development.md, guards).
 sql-plans:
-    cargo nextest run -p oxidgene-api --features graphql,auth --test integration --run-ignored only -E 'test(no_statement_scans_a_large_table)'
+    cargo nextest run --locked --workspace --test integration --run-ignored only -E 'test(no_statement_scans_a_large_table)'
 
 # The live end-to-end checks of the archive portals (docs/archives.md §9.1):
 # every catalogued archive with an adapter and live checks, or those named
@@ -316,6 +421,10 @@ dev-stack:
 dev-stack-down:
     docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml down
 
+# Check that the Compose stack's configuration is valid
+compose-check:
+    docker compose -f docker/docker-compose.yml config --quiet
+
 # Start the PostgreSQL development database
 dev-db-up:
     docker compose -f docker/docker-compose.yml up -d --wait postgres
@@ -381,17 +490,49 @@ desktop-openobserve log_level="info":
 
 # Build an optimized desktop release with runtime-optional OTLP telemetry
 build-desktop-release:
-    cargo build --release --package oxidgene-desktop
+    cargo build --locked --release --package oxidgene-desktop
 
 # Build an optimized desktop release for Windows X64 with runtime-optional OTLP telemetry
 build-desktop-win64-release:
     cargo xwin build --target x86_64-pc-windows-msvc --release --package oxidgene-desktop
 
 # Build the universal macOS application and its disk image (on macOS), as the release does
-build-desktop-macos-app:
+build-desktop-macos-app dmg="target/oxidgene-desktop-macos-universal.dmg":
     rustup target add aarch64-apple-darwin x86_64-apple-darwin
     MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --locked --release --package oxidgene-desktop --target aarch64-apple-darwin --target x86_64-apple-darwin
-    scripts/macos-app.sh target/oxidgene-desktop-macos-universal.dmg target/aarch64-apple-darwin/release/oxidgene-desktop target/x86_64-apple-darwin/release/oxidgene-desktop
+    scripts/macos-app.sh "{{ dmg }}" target/aarch64-apple-darwin/release/oxidgene-desktop target/x86_64-apple-darwin/release/oxidgene-desktop
+
+# Each download as packaged — the Linux archive, the macOS disk image, the
+# Windows archive — without opening a window: its version, and an MCP
+# session over stdio answering `list_trees` (docs/development.md §6).
+# Smoke-test packaged desktop downloads
+desktop-smoke *downloads:
+    {{ python }} scripts/desktop-smoke.py {{ downloads }}
+
+# The release workflow's first step, and a check to run before pushing a
+# tag: TAG is `v` followed by the version of the workspace's packages and
+# of the chart's `appVersion`. Prints that version.
+# Check a release tag against the workspace and chart versions
+release-version tag:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tag="{{ tag }}"
+    version="${tag#v}"
+    cargo_version="$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "oxidgene-desktop") | .version')"
+    chart_version="$(sed -n 's/^appVersion: "\([^"]*\)"$/\1/p' charts/oxidgene/Chart.yaml)"
+    if [[ "$tag" == "$version" || -z "$version" ]]; then
+        echo "release tags must start with v" >&2
+        exit 1
+    fi
+    if [[ "$version" != "$cargo_version" ]]; then
+        echo "tag version $version does not match Cargo version $cargo_version" >&2
+        exit 1
+    fi
+    if [[ "$version" != "$chart_version" ]]; then
+        echo "tag version $version does not match chart appVersion $chart_version" >&2
+        exit 1
+    fi
+    echo "$version"
 
 # Generate documentation
 doc:

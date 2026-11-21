@@ -9,7 +9,7 @@ description: >-
 
 inputs:
   key:
-    description: The build variant, one per distinct cargo command
+    description: The build variant, one per recipe that compiles
     required: true
 
 outputs:
@@ -30,13 +30,14 @@ runs:
         key: ${{ inputs.key }}
         save-if: ${{ github.ref == 'refs/heads/main' }}
 
-    # Every manifest and the workflow are part of the key: within one key a
-    # command builds the same units on every run, so no artifact the job did
-    # not rebuild can outlive the sources it was compiled from.
+    # Every manifest, the justfile, whose recipes are the commands, and the
+    # workflow are part of the key: within one key a recipe builds the same
+    # units on every run, so no artifact the job did not rebuild can outlive
+    # the sources it was compiled from.
     - id: key
       shell: bash
       env:
-        HASH: ${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'apps/*/Cargo.toml', 'rust-toolchain.toml', '.github/workflows/ci.yml', '.github/actions/rust-build-cache/action.yml') }}
+        HASH: ${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'apps/*/Cargo.toml', 'rust-toolchain.toml', 'justfile', '.github/workflows/ci.yml', '.github/actions/rust-build-cache/action.yml') }}
         VARIANT: ${{ inputs.key }}
       run: |
         echo "prefix=workspace-${VARIANT// /-}-$HASH-" >> "$GITHUB_OUTPUT"

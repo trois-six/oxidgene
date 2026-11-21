@@ -15,7 +15,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # Must match the ports in e2e/playwright.config.ts and the justfile.
+  # The ports of e2e/playwright.config.ts and of the justfile, which reads
+  # them.
   E2E_API_PORT: "18080"
   E2E_WEB_PORT: "18081"
 
@@ -29,6 +30,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-just
 
       # The toolchain of rust-toolchain.toml, with its WebAssembly target.
       - name: Install Rust
@@ -49,21 +52,10 @@ jobs:
           cache: npm
           cache-dependency-path: e2e/package-lock.json
 
-      - name: Build the web bundle
-        run: OXIDGENE_API_URL="http://127.0.0.1:${E2E_API_PORT}" scripts/dx.sh build --package oxidgene-web --platform web
-
-      - name: Build the server
-        run: cargo build --locked --package oxidgene-server
-
-      - name: Install Playwright
-        working-directory: e2e
-        run: |
-          npm ci --no-audit --no-fund
-          npx playwright install --with-deps chromium
-
+      # The web bundle and the server built, Playwright and its Chromium
+      # installed, then the suite in the Chromium project.
       - name: Run the end-to-end tests
-        working-directory: e2e
-        run: npx playwright test
+        run: just e2e --project=chromium
 
       # The time each page took to show its content, under 50 ms of added
       # latency: a trend to follow, never a gate.

@@ -14,9 +14,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zstd \
     && rm -rf /var/lib/apt/lists/*
 
+# just, which every checking step of a workflow runs (docs/development.md
+# §2.9), checked against the digest its release publishes. A job also runs
+# .github/actions/setup-just, which installs the same version wherever this
+# image is not used or was built before this line; the `workflows` guard
+# keeps the two versions equal.
+ARG JUST_VERSION=1.59.0
+ARG JUST_SHA256=409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e
+RUN curl -LsSf -o /tmp/just.tar.gz \
+        "https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+    && echo "${JUST_SHA256}  /tmp/just.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/just.tar.gz -C /usr/local/bin just \
+    && rm /tmp/just.tar.gz
+
 # The toolchain of rust-toolchain.toml, with its components and targets, so a
 # job does not download it again; the image is rebuilt when the file changes.
+# cargo-nextest is the release mise.toml pins.
+ARG NEXTEST_VERSION=0.9.148
 COPY rust-toolchain.toml /opt/oxidgene/rust-toolchain.toml
 RUN cd /opt/oxidgene && rustup toolchain install \
     && rustup default "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" \
-    && curl -LsSf https://get.nexte.st/latest/linux | tar zxf - -C /usr/local/bin
+    && curl -LsSf "https://get.nexte.st/${NEXTEST_VERSION}/linux" | tar zxf - -C /usr/local/bin

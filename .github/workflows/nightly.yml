@@ -56,7 +56,7 @@ jobs:
     if: needs.changes.outputs.run == 'true'
     uses: ./.github/workflows/e2e.yml
 
-  # `just scaling`: the tree-wide computations timed on two tree sizes.
+  # The tree-wide computations timed on two tree sizes.
   scaling:
     name: Scaling
     needs: changes
@@ -70,15 +70,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Time the tree-wide computations
-        run: cargo nextest run --locked --release -p oxidgene-api --test integration --run-ignored only --no-capture -E 'test(/^algorithm_scaling_test::/)'
+        run: just scaling
 
-  # `just import-memory`: a Geneanet import of a generated tree against its
-  # peak and retained memory budgets.
+  # A Geneanet import of a generated tree against its peak and retained
+  # memory budgets.
   import-memory:
     name: Import memory
     needs: changes
@@ -92,14 +94,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Measure an import's memory
-        run: |
-          mkdir -p target/import-memory
-          TMPDIR="$PWD/target/import-memory" cargo nextest run --locked --release -p oxidgene-api --test integration --run-ignored only --no-capture -E 'test(/^import_memory_test::/)'
+        run: just import-memory
 
   # The size of every shipped binary and the crates it links, against
   # scripts/budgets.json.
@@ -117,6 +119,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -130,14 +134,10 @@ jobs:
         with:
           version: "0.13.7"
 
-      - name: Build the native binaries
-        run: cargo build --locked --release -p oxidgene-desktop -p oxidgene-server -p oxidgene-worker
-
-      - name: Build the web bundle
-        run: scripts/dx.sh build --package oxidgene-web --platform web --release
-
-      - name: Compare with the budgets
-        run: uv run --no-project scripts/budgets.py binaries | tee -a "$GITHUB_STEP_SUMMARY"
+      # The native binaries and the web bundle, built in release mode, then
+      # compared; the script adds its table to the run's summary.
+      - name: Build what ships and compare it with the budgets
+        run: just budgets
 
   # Dependencies declared and never used, which only a nightly compiler can
   # tell (cargo-udeps).
@@ -154,6 +154,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - name: Install the nightly toolchain
         run: rustup toolchain install nightly --profile minimal
 
@@ -162,7 +164,7 @@ jobs:
           tool: cargo-udeps@0.1.61
 
       - name: Look for unused dependencies
-        run: cargo +nightly udeps --locked --workspace --all-targets
+        run: just udeps
 
   # Reports, never failures: the updates waiting in the lockfile and the
   # major releases our requirements hold back, and the size of the code.
@@ -174,6 +176,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - uses: jdx/mise-action@v5
         with:
           install_args: aqua:boyter/scc
@@ -181,7 +185,7 @@ jobs:
       - name: Report the dependency updates
         run: |
           rustup toolchain install
-          cargo update --dry-run --verbose 2>&1 | tee cargo-update.txt
+          just report-updates 2>&1 | tee cargo-update.txt
           {
             echo '## Dependency updates'
             echo '```'
@@ -191,9 +195,9 @@ jobs:
 
       - name: Count the code
         run: |
-          scc --exclude-dir target,node_modules --format html-table --output scc.html crates apps e2e scripts
-          scc --exclude-dir target,node_modules --by-file --format csv --output scc.csv crates apps e2e scripts
-          { echo '## Code size'; echo '```'; scc --exclude-dir target,node_modules crates apps e2e scripts; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          just report-size --format html-table --output scc.html
+          just report-size --by-file --format csv --output scc.csv
+          { echo '## Code size'; echo '```'; just report-size; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -225,12 +229,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - name: Install the toolchain
         run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component clippy
 
       - name: Clippy
-        run: cargo +${{ matrix.toolchain }} clippy --locked --workspace --all-targets -- -D warnings
+        run: just next-toolchain ${{ matrix.toolchain }}
 
       - name: Future incompatibilities
         if: matrix.toolchain == 'beta'
-        run: cargo +beta check --locked --workspace --all-targets --future-incompat-report
+        run: just future-incompat beta

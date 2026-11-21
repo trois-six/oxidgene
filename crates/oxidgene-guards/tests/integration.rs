@@ -22,3 +22,4 @@ mod ui_tracing;
 mod vendored_pdfjs;
 mod versioned_assets;
 mod web_only;
+mod workflows;

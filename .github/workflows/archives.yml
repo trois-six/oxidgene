@@ -2,8 +2,8 @@ name: Archive portals
 
 # The live end-to-end checks of the archive portals (docs/archives.md §9.1,
 # §9.2): every week and on demand, each catalogued archive with an adapter
-# against its real portal, through scripts/archives-live.sh (`just
-# archives-live`). Not part of the nightly workflow, not a required status
+# against its real portal, with `just archives-live`
+# (scripts/archives-live.sh). Not part of the nightly workflow, not a required status
 # check, and no release waits for it: a portal changing is not a defect of a
 # commit.
 #
@@ -94,6 +94,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       # The toolchain of rust-toolchain.toml.
       - name: Install Rust
         run: rustup toolchain install
@@ -122,7 +124,7 @@ jobs:
           ARCHIVES: ${{ matrix.group.archives }}
         run: |
           read -ra archives <<<"$ARCHIVES"
-          scripts/archives-live.sh "${archives[@]}"
+          just archives-live "${archives[@]}"
 
       - name: Upload the report
         if: always()

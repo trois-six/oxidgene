@@ -397,7 +397,12 @@ fn check_link(from: &str, target: &str, docs: &HashMap<&str, &str>) -> Option<St
 
 #[test]
 fn an_edited_specification_carries_a_new_stamp() {
-    let Ok(base) = std::env::var("OXIDGENE_SPEC_BASE") else {
+    // Unset or empty: a workflow cannot leave a variable out, so the CI job
+    // sets it empty outside a pull request.
+    let Some(base) = std::env::var("OXIDGENE_SPEC_BASE")
+        .ok()
+        .filter(|base| !base.is_empty())
+    else {
         return;
     };
     let git = |args: &[&str]| {

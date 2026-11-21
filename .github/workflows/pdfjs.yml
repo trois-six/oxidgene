@@ -3,8 +3,8 @@ name: pdf.js update
 # Renovate proposes a pdf.js release by bumping assets/public/pdfjs/VERSION
 # alone (docs/development.md §2.6); the files it names are vendored, so this
 # workflow finishes the bump on Renovate's branch: it reads the release's
-# integrity from the npm registry, vendors the release with
-# scripts/pdfjs.sh, which checks the archive against it, and commits the
+# integrity from the npm registry, vendors the release with `just pdfjs`
+# (scripts/pdfjs.sh), which checks the archive against it, and commits the
 # files. A push made with the workflow's token starts no workflow, so CI is
 # then dispatched on the branch: its checks land on the new commit, which is
 # the one the pull request needs.
@@ -32,6 +32,8 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
 
+      - uses: ./.github/actions/setup-just
+
       - name: Vendor the release VERSION names
         id: vendor
         run: |
@@ -44,7 +46,7 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          scripts/pdfjs.sh "$version" "$integrity"
+          just pdfjs "$version" "$integrity"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 

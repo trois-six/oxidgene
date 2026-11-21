@@ -1,0 +1,23 @@
+name: Set up just
+description: >-
+  Makes `just` available: every checking step of a workflow runs a recipe of
+  the justfile (docs/development.md §2.9). The CI image carries it
+  (docker/Dockerfile.ci), so in a container job this step finds it and does
+  nothing; on a runner's own image, or in a CI image built before `just`
+  joined it, it installs the prebuilt release — the version the image pins,
+  which the `workflows` guard keeps equal.
+
+runs:
+  using: composite
+  steps:
+    - id: probe
+      shell: bash
+      run: |
+        if command -v just >/dev/null 2>&1; then
+          echo "present=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - if: steps.probe.outputs.present != 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: just@1.59.0

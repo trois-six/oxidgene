@@ -5,6 +5,10 @@ name: CI
 # end, budgets, timing, reports, next toolchains — runs in nightly.yml, every
 # night and on demand; release.yml runs both as gates.
 #
+# Every checking step runs a recipe of the justfile (`just <recipe>`), the
+# command a developer runs: nothing here retypes a cargo, npm or uv command
+# (docs/development.md §2.9, and the `workflows` guard).
+#
 # The jobs that compile restore their build through
 # .github/actions/rust-build-cache: the dependencies whole, then the
 # workspace crates of the last build of `main`, so that a push recompiles
@@ -98,8 +102,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: just fmt-check
 
   clippy:
     name: Clippy (${{ matrix.name }})
@@ -109,23 +115,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # One recipe per build variant; `just clippy` runs the native ones.
         include:
-          # `just clippy`: every native target with every default feature.
+          # Every native target with every default feature.
           - name: workspace
-            args: --workspace --all-targets
-          # `just wasm`: the browser binary, the only build of the shared UI
-          # for WebAssembly.
+            recipe: clippy-workspace
+          # The browser binary, the only build of the shared UI for
+          # WebAssembly.
           - name: wasm
-            args: -p oxidgene-web --target wasm32-unknown-unknown --all-targets
+            recipe: wasm
           # The desktop without telemetry, the build whose `cfg`s differ most.
           - name: desktop without default features
-            args: -p oxidgene-desktop --no-default-features --all-targets
+            recipe: clippy-desktop-minimal
           # The API alone, as the desktop links it: without GraphQL.
           - name: api without graphql
-            args: -p oxidgene-api --all-targets
+            recipe: clippy-api
           # The archive crate's live checks, which no member enables.
           - name: archives live checks
-            args: -p oxidgene-archives --features native,live --all-targets
+            recipe: clippy-archives
     container:
       image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
       credentials:
@@ -134,13 +141,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - id: cache
         uses: ./.github/actions/rust-build-cache
         with:
           key: clippy ${{ matrix.name }}
 
       - name: Clippy
-        run: cargo clippy --locked ${{ matrix.args }} -- -D warnings
+        run: just ${{ matrix.recipe }}
 
       - if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6
@@ -161,17 +170,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - id: cache
         uses: ./.github/actions/rust-build-cache
         with:
           key: unit
 
-      # `just test-unit`: the `#[cfg(test)]` modules, then the doc examples.
+      # The `#[cfg(test)]` modules, then the documentation examples.
       - name: Run the unit tests
-        run: cargo nextest run --locked --workspace --lib --bins --no-fail-fast
-
-      - name: Run the documentation examples
-        run: cargo test --locked --workspace --doc
+        run: just test-unit
 
       - if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6
@@ -198,29 +206,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - uses: ./.github/actions/setup-just
+
+      # Empty outside a pull request, which the guard reads as unset.
       - name: Run the source guards
         env:
           OXIDGENE_SPEC_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          if [ -z "$OXIDGENE_SPEC_BASE" ]; then unset OXIDGENE_SPEC_BASE; fi
-          cargo nextest run --locked -p oxidgene-guards --no-fail-fast
-
-  machete:
-    name: Unused dependencies
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      # A prebuilt binary; the version of mise.toml.
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-machete@0.9.2
-
-      - name: Look for unused dependencies
-        run: cargo machete
+          just guards
 
   cyclomatic:
     name: Cyclomatic complexity
@@ -230,13 +224,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - uses: astral-sh/setup-uv@v10.3.2
         with:
           version: "0.13.7"
 
-      # `just cyclomatic`: no function above a cyclomatic complexity of 15.
+      # No function above a cyclomatic complexity of 15.
       - name: Check the cyclomatic complexity
-        run: uv run --quiet scripts/cyclomatic.py -l rust -C 15 -w crates apps -x "*/target/*"
+        run: just cyclomatic
 
   # ── Tier 2 ────────────────────────────────────────────────────────────
 
@@ -257,20 +253,22 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       # The test executables are not kept: one per crate, they relink in seconds.
       - id: cache
         uses: ./.github/actions/rust-build-cache
         with:
           key: functional
 
-      # `just test-functional`: the integration test targets.
+      # The integration test targets.
       - name: Run the functional tests
-        run: cargo nextest run --locked --workspace --test '*' --no-fail-fast
+        run: just test-functional
 
-      # `just sql-plans`: no statement scans a large table without an index.
-      # The workspace build enables GraphQL, as `--features graphql` does.
+      # No statement scans a large table without an index: one more test of
+      # the build the step above left.
       - name: Read the query plans
-        run: cargo nextest run --locked --workspace --test integration --run-ignored only -E 'test(no_statement_scans_a_large_table)'
+        run: just sql-plans
 
       - if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6
@@ -286,21 +284,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Advisories, licences, bans and sources, as deny.toml sets them.
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
+      - uses: ./.github/actions/setup-just
 
+      # Prebuilt binaries; the versions of mise.toml.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-audit@0.22.2
+          tool: cargo-machete@0.9.2,cargo-deny@0.20.2,cargo-audit@0.22.2
 
-      - name: Audit the lockfile
-        run: cargo audit
-
-      # The duplicated crates of the graph against their budget.
-      - name: Check the duplicate budget
-        run: python3 scripts/budgets.py dependencies
+      # No unused dependency; no advisory, licence, ban or source deny.toml
+      # refuses; no known vulnerability; the duplicated crates of the graph
+      # within their budget.
+      - name: Check the dependency graph
+        run: just deps
 
   duplication:
     name: Code duplication
@@ -310,12 +305,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - uses: astral-sh/setup-uv@v10.3.2
         with:
           version: "0.13.7"
 
       - name: Check the duplicate rate
-        run: uv run --quiet scripts/duplication.py
+        run: just duplication
 
   ui-js:
     name: UI JavaScript tests
@@ -325,13 +322,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
 
-      # `just ui-js`: the browser glue, without dependencies.
+      # The browser glue, without dependencies.
       - name: Run the JavaScript unit tests
-        run: node --test crates/oxidgene-ui/tests/*.test.mjs apps/oxidgene-desktop/tests/*.test.mjs
+        run: just ui-js
 
   containers:
     name: Build ${{ matrix.name }} image
@@ -353,8 +352,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - name: Validate Compose configuration
-        run: docker compose -f docker/docker-compose.yml config --quiet
+        run: just compose-check
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -377,6 +378,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ./.github/actions/setup-just
+
       - name: Set up Helm
         uses: azure/setup-helm@v5
 
@@ -384,14 +387,11 @@ jobs:
         with:
           version: "0.13.7"
 
-      - name: Build chart dependencies
-        run: helm dependency build charts/oxidgene
-
-      # `just chart-test`: lint with every values file of charts/oxidgene/ci,
-      # and render each authentication mode, the values it requires and
-      # refuses, and the realm it ships (scripts/chart-tests.py).
+      # Lint with every values file of charts/oxidgene/ci, and render each
+      # authentication mode, the values it requires and refuses, and the
+      # realm it ships (scripts/chart-tests.py).
       - name: Lint and test the chart
-        run: uv run --quiet scripts/chart-tests.py
+        run: just chart-test
 
   # A single required status check.
   #
@@ -408,7 +408,6 @@ jobs:
       - clippy
       - unit
       - specs
-      - machete
       - cyclomatic
       - functional
       - dependencies

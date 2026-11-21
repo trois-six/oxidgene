@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-03T16:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T10:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -17,7 +17,8 @@ generated: { by: human:maintainer, at: 2026-11-03T16:30:00Z }
 
 - [Rust](https://rustup.rs/) through rustup, which installs the release
    `rust-toolchain.toml` pins on first use (§2.8).
-- [just](https://github.com/casey/just) task runner.
+- [just](https://github.com/casey/just) task runner, 1.59 or later: every
+   check, locally and in CI, is one of its recipes (§2.9).
 - [mise](https://mise.jdx.dev/) tool version manager.
 - PostgreSQL 16+ or Docker Compose for the web backend. The Compose stack also
    provides RustFS for S3-compatible media storage, Redis for user sessions,
@@ -59,18 +60,26 @@ the repository root.
 | `just test` | Run the unit and functional tests (§2.7). |
 | `just test-unit` | Run the unit tests and the documentation examples (§2.7). |
 | `just test-functional` | Run the functional tests (§2.7). |
+| `just guards` | Run the repository guards alone, the tests of `oxidgene-guards` (§2.8): seconds, and all a documentation or workflow change needs. `just test` runs them too. |
 | `just test-verbose` | Run the workspace tests while preserving test output. |
 | `just ui-js` | Run the browser JavaScript unit tests on Node.js (§2.7). |
 | `just e2e [args]` | Build the web bundle and server, then run the Playwright end-to-end suite (§2.7). |
+| `just e2e-images [args]` | Run the end-to-end suite against the server and web images `OXIDGENE_SERVER_IMAGE` and `OXIDGENE_WEB_IMAGE` name, as a release does (§2.7, §6). |
 | `just screenshots` | Build the web bundle and server, take the README, [Features](features.md) and documentation site screenshots of the fictitious screenshot tree in English and French, and encode them with the README carousel into `assets/screenshots/` (§2.7). |
 | `just site` | Build the documentation site into `site/public/`: rustdoc, the specifications, the REST and GraphQL references and the user guide (§7). |
 | `just site-serve` | Build the documentation site and preview it with live reload (§7). |
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
-| `just clippy` | Run Clippy for all workspace targets and deny warnings, then for `oxidgene-archives` with its `live` checks, a feature no workspace member enables, then for `oxidgene-api` alone, without the `graphql` and `auth` features the workspace run unifies into it, so code only those features use is not hidden from the dead-code lints. |
+| `just clippy` | Run Clippy on every native build variant, warnings denied, each a recipe and a job of the CI Clippy matrix: `just clippy-workspace` (all workspace targets), `just clippy-archives` (`oxidgene-archives` with its `live` checks, a feature no workspace member enables), `just clippy-api` (`oxidgene-api` alone, without the `graphql` and `auth` features the workspace run unifies into it, so code only those features use is not hidden from the dead-code lints) and `just clippy-desktop-minimal` (the desktop without its default features, the build without telemetry). |
 | `just wasm` | Run Clippy on the browser application for the `wasm32-unknown-unknown` target and deny warnings, the check that the shared UI still compiles to WebAssembly; run it after changing `oxidgene-ui` or its dependencies. The browser binary declares its dependencies for `wasm32` only, so the native `just clippy` does not see its code. Not part of `just check`; the CI Clippy matrix runs it. |
 | `just deps` | Check the dependency graph: no unused dependency (`cargo machete`), nothing `deny.toml` refuses (`cargo deny check`: advisories, licences, bans, sources), no known vulnerability (`cargo audit`), and no more duplicated crates than `scripts/budgets.json` allows (§2.8). |
-| `just sql-plans` | Read the query plan of every statement the API runs over a populated tree and fail on a full scan of a large table (§2.8). |
+| `just sql-plans` | Read the query plan of every statement the API runs over a populated tree and fail on a full scan of a large table (§2.8). It is one more test of the build `just test-functional` leaves. |
+| `just budgets [--update]` | Build the desktop, the server, the worker and the web bundle in release mode and compare each one's size and crate count with `scripts/budgets.json`; `--update` records an intended growth (§2.8). |
+| `just udeps` | Look for dependencies declared and never used with `cargo-udeps`, on the nightly toolchain (§2.8). |
+| `just next-toolchain TOOLCHAIN` | Run Clippy on `beta` or `nightly`, to see the next releases' lints coming (§2.8). |
+| `just future-incompat [TOOLCHAIN]` | Report what the next Rust release (`beta` by default) will refuse in the dependencies. |
+| `just report-updates` | List the updates waiting in the lockfile and the major releases the manifests hold back. |
+| `just report-size [args]` | Count the code with `scc`; arguments go to it. |
 | `just duplication [--report]` | Fail when the duplicated share of the Rust code grows past its budget; `--report` lists the duplicate blocks (§2.8). |
 | `just cyclomatic` | Fail on any function above a cyclomatic complexity of 15 (§2.1). |
 | `just doc-check` | Build the rustdoc the documentation site publishes with warnings denied, so a broken or private intra-doc link fails locally rather than in the Pages job. Part of `just check`. |
@@ -89,6 +98,7 @@ the repository root.
 | `just theme-preview` | Write an HTML preview of every theme's pedigree card to `OXIDGENE_PREVIEW_DIR`. |
 | `just graphql-schema` | Rewrite `docs/schema.graphql`, the committed SDL of the GraphQL schema, after an intended schema change ([API Contract](api.md#schema)). |
 | `just openapi` | Build `oxidgene-api`, whose build script regenerates from the REST router the OpenAPI document served at `/api/v1/openapi.json` ([API Contract](api.md)). |
+| `just release-version TAG` | Check that TAG is `v` followed by the workspace's version and the chart's `appVersion`, and print that version: the release workflow's first step (§6). |
 | `just clean` | Remove Cargo build artifacts. |
 | `just doc` | Generate and open workspace API documentation. |
 
@@ -157,6 +167,7 @@ Algorithmic complexity is tested at three levels.
 | `just dev-idp-up` | Start the development identity provider — Rauthy with its mail relay — alone, and complete its web client, for `OXIDGENE_AUTH_MODE=oidc just dev-web` ([Authentication §8.5](authentication.md#85-development-stack)). |
 | `just dev-idp-down` | Stop and remove it: the next start bootstraps it afresh. |
 | `just chart-test` | Lint the Helm chart with each values file of `charts/oxidgene/ci/` and run its rendering tests (`scripts/chart-tests.py`, Helm and uv). |
+| `just compose-check` | Check that the Compose stack's configuration is valid. |
 
 ### 2.3 Browser Application
 
@@ -202,7 +213,8 @@ client spans and trace headers disabled.
 | `just desktop-openobserve [log_level]` | Run the desktop with direct OTLP/gRPC export to a local OpenObserve instance. |
 | `just build-desktop-release` | Build an optimized desktop release retaining runtime-optional OTLP telemetry support. |
 | `just build-desktop-win64-release` | Cross-compile an optimized Windows X64 desktop release with the WebView2 loader linked into the executable. |
-| `just build-desktop-macos-app` | On macOS, build the universal `OxidGene.app` and its disk image as the release does (§6). |
+| `just build-desktop-macos-app [DMG]` | On macOS, build the universal `OxidGene.app` and its disk image as the release does (§6), at DMG (default `target/oxidgene-desktop-macos-universal.dmg`). |
+| `just desktop-smoke DOWNLOAD…` | Smoke-test packaged desktop downloads without opening a window (§6). |
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` when running the desktop binary to export native
 desktop logs, spans, and metrics over OTLP/gRPC. The export covers the embedded
@@ -482,11 +494,13 @@ release bundle calls the API on its own origin, so both ports name the
 ingress:
 
 ```bash
-OXIDGENE_SERVER_IMAGE=<image> OXIDGENE_WEB_IMAGE=<image> \
-  docker compose -f docker/docker-compose.e2e.yml up -d --wait
-cd e2e && E2E_EXTERNAL=1 E2E_API_PORT=18081 E2E_WEB_PORT=18081 npx playwright test
-docker compose -f docker/docker-compose.e2e.yml down -v
+OXIDGENE_SERVER_IMAGE=<image> OXIDGENE_WEB_IMAGE=<image> just e2e-images
 ```
+
+`just e2e-images` starts the stack and waits for it, runs the suite with
+`E2E_EXTERNAL` on the ingress's port (`E2E_WEB_PORT`, 18081 by default),
+writes the containers' logs to `e2e/test-results/containers.log` and removes
+the stack, whatever the outcome; its arguments go to Playwright.
 
 The request recorders of the budgets and of the trace continuity tell an
 API call by its path (`isApiCall` of `e2e/tests/fixtures.ts`), not by its
@@ -570,8 +584,8 @@ The E2E workflow (`.github/workflows/e2e.yml`) runs from the nightly
 workflow, before a release, and on demand; on a tag, the release workflow
 runs the suite once more against the images it built (§6). It installs the toolchain of
 `rust-toolchain.toml` with its WebAssembly target and the Dioxus CLI itself,
-uploads the request report of every run, and the Playwright report and
-traces when a test fails.
+runs `just e2e --project=chromium`, uploads the request report of every run,
+and the Playwright report and traces when a test fails.
 
 ### 2.8 Guards
 
@@ -597,8 +611,8 @@ its build through `.github/actions/rust-build-cache`: the dependencies
 whole, keyed on the lockfile, then the workspace crates as the last build of
 `main` left them, keyed on its commit. The sources that commit compiled
 unchanged are dated back, so Cargo rebuilds only the crates the change
-touched and those depending on them; a change to a manifest, the toolchain or
-the CI workflow starts the workspace crates afresh. Only `main` saves its
+touched and those depending on them; a change to a manifest, the toolchain,
+the justfile or the CI workflow starts the workspace crates afresh. Only `main` saves its
 build, which pull requests reuse. CI builds carry no debug information.
 
 `.github/workflows/release.yml` runs on a `v*` tag, and on a push to a
@@ -624,13 +638,13 @@ of both passed (the next-toolchain jobs report without failing).
 | Typed text | 1 | `just test` (`oxidgene-guards`) | Repository guards | No `input` or `textarea` of the markup is bound to its text by `value` while listening to `oninput`: typed fields are `TextInput` and `TextArea` ([Common UI §6.6](ui-common.md)) |
 | Conditional hooks | 1 | `just test` (`oxidgene-guards`) | Repository guards | No interface hook (`use_…`) is called on the right of `&&` or `\|\|`, where a render could skip it and shift the hooks after it |
 | Test targets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every crate builds at most one integration test binary, whose root declares every file of `tests/` (§2.7) |
+| Workflows | 1 | `just test` (`oxidgene-guards`) | Repository guards | No workflow step runs cargo, npm, uv, Helm's or Docker's checks or a script of `scripts/` itself: it calls `just <recipe>`, a recipe that exists; every action installs, caches, builds an image or publishes; the CI image and the runners install the same `just` (§2.9) |
 | i18n keys | 1 | `just test-unit` | Unit tests | The eight tables carry the same keys and placeholders; every literal key exists; every key is used |
 | Projection shape | 1 | `just test` | Functional tests | `PersonProfile`'s JSON shape changes only with `PROJECTION_SCHEMA_VERSION` |
 | REST/GraphQL parity | 1 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every route is mapped to its GraphQL twin in a declared table, every root field to a route |
 | api.md and schema | 1 | `just test` (`guards` of `oxidgene-api`), `just graphql-schema` | Functional tests | docs/api.md's tables list exactly the router's routes; `docs/schema.graphql` is the schema's SDL |
-| Clippy matrix | 1 | `just clippy` (with `-p oxidgene-api` and `-p oxidgene-archives --features native,live`), `just wasm`, Clippy of `-p oxidgene-desktop --no-default-features` | Clippy (5 variants) | Every build variant compiles without a warning: native, WebAssembly, desktop without telemetry, API without GraphQL, archive portals with the native transport and the live checks |
+| Clippy matrix | 1 | `just clippy` (`just clippy-workspace`, `just clippy-archives`, `just clippy-api`, `just clippy-desktop-minimal`), `just wasm` | Clippy (5 variants) | Every build variant compiles without a warning: native, WebAssembly, desktop without telemetry, API without GraphQL, archive portals with the native transport and the live checks |
 | Cyclomatic complexity | 1 | `just cyclomatic` | Cyclomatic complexity | No function above 15 paths |
-| Unused dependencies | 1 | `cargo machete` (in `just deps`) | Unused dependencies | No dependency declared and unused |
 | Stack depth | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every REST route, GraphQL root field and the background jobs they queue run on a 1 MiB stack in a debug build, half a tokio worker's |
 | Cross-tree access | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No REST route or GraphQL field reaches a record of another tree |
 | Pagination | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every collection clamps `first` to 1–100 and pages by cursor; every whole list is declared |
@@ -639,17 +653,17 @@ of both passed (the next-toolchain jobs report without failing).
 | Statement counts | 2 | `just test` (`query_scaling_test`) | Functional tests | No REST or GraphQL request issues statements per record; a batch of 64 ids costs what one of 4 does |
 | Privacy of logs | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No span or event field carries a name, place, note or SQL value |
 | SQL plans | 2 | `just sql-plans` | Functional tests | No statement scans a large table without an index |
-| Dependencies | 2 | `just deps` | Dependencies | No advisory, licence, wildcard or source `deny.toml` refuses; no known vulnerability; duplicated crates within `scripts/budgets.json` |
+| Dependencies | 2 | `just deps` | Dependencies | No dependency declared and unused (`cargo machete`); no advisory, licence, wildcard or source `deny.toml` refuses; no known vulnerability; duplicated crates within `scripts/budgets.json` |
 | Duplication | 2 | `just duplication` | Code duplication | The duplicated share of the Rust code stays within its budget |
 | Request budgets | 3 | `just e2e tests/request-budgets.spec.ts` | Nightly: E2E | Every page's API requests, waterfall depth, duplicates and bytes within `e2e/budgets/requests.json`; the pictures the browser fetches from their versioned addresses are counted by the picture cache check instead |
 | Trace continuity | 3 | `just e2e tests/trace-continuity.spec.ts` | Nightly: E2E | Every page display's API requests share one trace of their own |
 | Picture cache | 3 | `just e2e tests/asset-cache.spec.ts` | Nightly: E2E | A person page and a pedigree view visited again, after a reload, draw every picture from the browser's cache; `E2E_ASSET_REPORT=1` writes the requests, bytes and times of both visits to `e2e/test-results/asset-cache-report.json`, never a gate ([Architecture §4.3](architecture.md#43-versioned-assets)) |
-| Binary budgets | 3 | `python3 scripts/budgets.py binaries` after the release builds | Nightly: Binary budgets | The size of the desktop, server, worker and web bundle, and the crates each links, within `scripts/budgets.json` |
+| Binary budgets | 3 | `just budgets` | Nightly: Binary budgets | The size of the desktop, server, worker and web bundle, and the crates each links, within `scripts/budgets.json` |
 | Scaling | 3 | `just scaling` | Nightly: Scaling | No tree-wide computation grows faster than linear |
 | Import memory | 3 | `just import-memory` | Nightly: Import memory | A Geneanet import of a generated tree peaks, and keeps once done, within the budgets of `import_memory_test.rs` |
-| udeps | 3 | `cargo +nightly udeps --workspace --all-targets` | Nightly: Unused dependencies (udeps) | No dependency the compiler finds unused |
-| Reports | 3 | `cargo update --dry-run --verbose`, `scc` | Nightly: Reports | The pending and held-back updates, the size of the code (artifacts, never failing) |
-| Next toolchains | 3 | `cargo +beta clippy …`, `cargo +nightly clippy …`, `cargo +beta check --future-incompat-report` | Nightly: Next toolchain | Lints and warnings of the next Rust releases, seen before they break the pinned one (reported, never failing) |
+| udeps | 3 | `just udeps` | Nightly: Unused dependencies (udeps) | No dependency the compiler finds unused |
+| Reports | 3 | `just report-updates`, `just report-size` | Nightly: Reports | The pending and held-back updates, the size of the code (artifacts, never failing) |
+| Next toolchains | 3 | `just next-toolchain beta`, `just next-toolchain nightly`, `just future-incompat` | Nightly: Next toolchain | Lints and warnings of the next Rust releases, seen before they break the pinned one (reported, never failing) |
 
 **Updating a budget.** A budget moves only with an intended change, in the
 commit that makes it, whose message says why:
@@ -659,8 +673,8 @@ commit that makes it, whose message says why:
   compare exactly, bytes within a quarter; the time to content, measured
   under 50 ms of added latency, lands in `e2e/test-results/request-report.json`
   and the nightly artifact, a trend to read, never a gate;
-- binary budgets: after the release builds, `python3 scripts/budgets.py
-  binaries --update` (5 % on sizes and three crates of margin);
+- binary budgets: `just budgets --update`, which builds what ships first
+  (5 % on sizes and three crates of margin);
 - duplicated crates: `python3 scripts/budgets.py dependencies --update`,
   and a direct dependency that cannot be aligned is declared with its
   reason in `scripts/budgets.json`;
@@ -678,6 +692,54 @@ build uses, locally and in CI; the CI image installs it, and rebuilds when
 the file changes. Renovate proposes each new release. Take it once the
 nightly Next toolchain jobs are green on beta — they show the new lints and
 warnings weeks before — fix what they report, then merge the bump.
+
+### 2.9 Workflows and the justfile
+
+**Every check a workflow runs is a recipe of the justfile.** A step that
+checks something is `just <recipe>` and nothing else, so CI runs the command
+a developer runs, with the same flags; a workflow never retypes a `cargo`,
+`npm`, `npx`, `uv` or `helm` command, nor calls a script of `scripts/`
+itself. A new check is first a recipe, then a step that calls it.
+
+What a workflow does itself is what is not a check: installing a tool
+(`rustup toolchain install`, an install action), restoring and saving a
+build cache, keeping a run's files, and packaging or publishing what the
+recipes built and tested (the release's archives, images, chart and
+attestations).
+
+Where CI needs something else than a developer, the difference is a recipe,
+a recipe's argument or a variable a recipe reads, never another command:
+
+- **Parallel jobs.** The gate is split into recipes a job each runs:
+  `just clippy` is `clippy-workspace`, `clippy-archives`, `clippy-api` and
+  `clippy-desktop-minimal`, `just test` is `test-unit` and `test-functional`.
+- **Arguments.** The nightly suite is `just e2e --project=chromium`; a run
+  of another Playwright project names its browser with `E2E_BROWSERS`.
+- **Environment.** `CI`, which GitHub sets, makes the end-to-end recipes
+  install the system libraries of Playwright's browsers (`--with-deps`,
+  which needs root); `CARGO_PROFILE_DEV_DEBUG=0`, set by the CI workflow,
+  drops the debug information, so a test failure reports its panic message
+  and function names while the objects to compile, link and cache stay a
+  fraction of the size.
+
+The checking recipes pass `--locked`, so a lockfile behind its manifests
+fails locally as it does in CI, and the test recipes `--no-fail-fast`, so a
+run reports every failure.
+
+`just` itself comes with the CI image (`docker/Dockerfile.ci`, the release
+checked against its published digest) and, on the runners' own images —
+the release's macOS and Windows legs among them — from
+`.github/actions/setup-just`, which every job runs first and which installs
+the same release only where it finds none. A push to `main` that changes the
+image rebuilds it before the jobs that use it; a pull request runs in the
+image `main` built, where the action supplies what a newer `Dockerfile.ci`
+would add.
+
+The `workflows` guard (§2.8) enforces the rule: it reads every `run` script
+of `.github/workflows/` and `.github/actions/`, fails on a command that
+calls a wrapped tool directly or names a recipe the justfile lacks, and
+fails on an action it does not know — a check must be a recipe, so an action
+joins its list only when it installs, caches, builds an image or publishes.
 
 ## 3. Local Web Workflow
 
@@ -1128,7 +1190,10 @@ A successful run publishes:
    images carry their own provenance and SBOM in the registry.
 
 Before anything is built or published, the release gates run tiers 1 to 3
-of the guards (§2.8). The release is created only after every platform build
+of the guards (§2.8). Its own checks are recipes like the others (§2.9):
+`just release-version` on the tag, `just e2e-images` on the images,
+`just chart-test` on the chart, `just build-desktop-release` or
+`just build-desktop-macos-app`, then `just desktop-smoke`, on each platform. The release is created only after every platform build
 and publication job has succeeded. A push to a `release/**` branch builds,
 packages and smoke-tests the desktop as well, unsigned, and publishes
 nothing.

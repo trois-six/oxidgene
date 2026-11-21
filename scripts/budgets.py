@@ -11,14 +11,14 @@ and fails past the budget, or when one of the workspace's own direct
 dependencies is duplicated without a declared reason: those are the
 duplicates an alignment can remove.
 
-`binaries` reads the release binaries (`cargo build --release -p
-oxidgene-desktop -p oxidgene-server -p oxidgene-worker`) and the web bundle
-(`just web-build`), and counts the crates each one links; it fails when one
-grows past its budget plus the margin. `--update` writes the measured values
+`binaries` reads the release binaries and the web bundle, which `just
+budgets` builds before running it, and counts the crates each one links; it
+fails when one grows past its budget plus the margin. `--update` writes the measured values
 as the new budgets, after a growth that was intended — say why in the commit.
 """
 
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -102,11 +102,11 @@ def size(name):
         public = ROOT / "target" / "dx" / "oxidgene-web" / "release" / "web" / "public"
         files = [p for p in public.rglob("*") if p.is_file()]
         if not files:
-            raise SystemExit(f"no web bundle under {public}: run `just web-build`")
+            raise SystemExit(f"no web bundle under {public}: run `just budgets`, which builds it")
         return sum(p.stat().st_size for p in files)
     binary = ROOT / "target" / "release" / BINARIES[name][0]
     if not binary.exists():
-        raise SystemExit(f"{binary} is missing: build it with `cargo build --release`")
+        raise SystemExit(f"{binary} is missing: run `just budgets`, which builds it")
     return binary.stat().st_size
 
 
@@ -131,6 +131,11 @@ def check_binaries(budgets, update):
             f"{now['crates']}{' ⚠' if too_many else ''} | {budget['crates']} |"
         )
     print("\n".join(report))
+    # A workflow run shows the table on its summary page.
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as page:
+            page.write("\n".join(["## Binary budgets", "", *report, ""]) + "\n")
     if update:
         budgets["binaries"] = measured
         BUDGETS.write_text(json.dumps(budgets, indent=2) + "\n")
