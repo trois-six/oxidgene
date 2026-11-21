@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tools"
 description: "Tree tools page in tabs, one tool each: the anomalies of dates, filiations, unions, witnesses, records and places with their catalogue, the places the statistics cannot locate, the completeness of the ancestry from the SOSA root, the potential duplicates to merge or keep apart, a converter of dates between calendars, and dates written out in every language and in Latin and read back."
 tags: [oxidgene, specification, ui, tools]
-generated: { by: human:maintainer, at: 2026-11-02T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T10:30:00Z }
 ---
 
 # Visual & Functional Specifications — Tools
@@ -373,6 +373,16 @@ computed from the person projections on each request.
   enough; a second clue is. From 70 it reads as *very likely*, from 55
   *likely*, below *possible*. At most 500 pairs are listed, with how many
   there are.
+- The cost follows what the records share, not how common a name is.
+  Within the records of one name, sorted by birth year, a record is
+  compared with those born at most 5 years after it. A record without a
+  birth year earns nothing for its birth, so it can only be listed for
+  another clue: it is compared with the records sharing its birthplace,
+  its death year, its parents' family, a parent's name or a spouse's name,
+  and with no other — which loses no pair, since the name alone stays
+  under 40 points. Every pair found is counted, and only the 500 best are
+  kept while the tree is read. A name borne by 5,000 records, half of them
+  without a birth year, is 18,610 comparisons instead of 9.4 million.
 
 ### 6.2 Settling a pair
 

@@ -8,7 +8,7 @@
 //! can give about either, shared by REST and GraphQL, live here too.
 
 use oxidgene_core::access::ViewerContext;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use chrono::Datelike;
 use oxidgene_core::collections::sorted_unique;
@@ -451,6 +451,12 @@ const SAME_PARENT_NAME_POINTS: i64 = 10;
 /// A spouse of the same name.
 const SAME_SPOUSE_POINTS: i64 = 10;
 
+// A name alone lists no pair: two records need a second clue. The pairs
+// with a record that has no birth year are found through the clues they
+// share ([`Clue`]) instead of being compared one by one, which is only
+// right while that holds.
+const _: () = assert!(SAME_NAME_POINTS < MIN_DUPLICATE_SCORE);
+
 /// Two records of a tree that may be one person.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct DuplicatePair {
@@ -753,38 +759,143 @@ impl Clues {
     }
 }
 
-/// The pairs of a block worth comparing, each once. Births more than
-/// [`MAX_YEAR_GAP`] years apart rule a pair out, so with the block sorted by
-/// birth year, undated last, a dated record meets only the dated records
-/// that follow it within the gap, then every undated one; the undated meet
-/// each other. A common name then costs its neighbours in time, not the whole
-/// block — except for the records without a birth year, which nothing rules
-/// out in advance.
+/// What two records of a block can share besides their name and a birth
+/// year: each is a clue [`compare`] scores, and a pair with a record
+/// without a birth year is listed only if it shares one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Clue<'a> {
+    BirthPlace(&'a str),
+    DeathYear(i32),
+    /// The family both are a child of.
+    Parents(Uuid),
+    Father(&'a str),
+    Mother(&'a str),
+    Spouse(&'a str),
+}
+
+impl<'a> Record<'a> {
+    /// The clues this record could share with another.
+    fn clues<'r>(&'r self, names: &'r HashMap<Uuid, String>) -> Vec<Clue<'r>> {
+        let name = |id: Option<Uuid>| {
+            id.and_then(|id| names.get(&id))
+                .map(String::as_str)
+                .filter(|n| !n.is_empty())
+        };
+        let (father, mother) = self.parents();
+        let family = self.profile.family_as_child.as_ref().map(|l| l.family_id);
+        self.birth_place
+            .as_deref()
+            .map(Clue::BirthPlace)
+            .into_iter()
+            .chain(Self::year(self.death).map(Clue::DeathYear))
+            .chain(family.map(Clue::Parents))
+            .chain(name(father).map(Clue::Father))
+            .chain(name(mother).map(Clue::Mother))
+            .chain(self.spouses.iter().copied().map(Clue::Spouse))
+            .collect()
+    }
+}
+
+/// The pairs of a block worth comparing, each once.
+///
+/// Births more than [`MAX_YEAR_GAP`] years apart rule a pair out, so with
+/// the block sorted by birth year, undated last, a dated record meets only
+/// the dated records that follow it within the gap. A record without a
+/// birth year gets no point for its birth: with anyone, it is listed only
+/// for a second clue besides the name — a birthplace, a death year, the
+/// parents or a spouse — so it meets the records sharing one of its clues
+/// and no other. A common name then costs its neighbours in time and what
+/// its undated records share, never the whole block.
 fn candidate_pairs<'b, 'a>(
     records: &'b mut [Record<'a>],
+    names: &'a HashMap<Uuid, String>,
 ) -> impl Iterator<Item = (&'b Record<'a>, &'b Record<'a>)> {
     records.sort_by_key(|r| (Record::year(r.birth).is_none(), Record::year(r.birth)));
     let records: &'b [Record<'a>] = records;
-    let (dated, undated) =
-        records.split_at(records.partition_point(|r| Record::year(r.birth).is_some()));
+    let first_undated = records.partition_point(|r| Record::year(r.birth).is_some());
+    let dated = &records[..first_undated];
     let dated_pairs = dated.iter().enumerate().flat_map(move |(i, a)| {
         let last = Record::year(a.birth).map(|year| year + MAX_YEAR_GAP);
         dated[i + 1..]
             .iter()
             .take_while(move |b| Record::year(b.birth) <= last)
-            .chain(undated)
             .map(move |b| (a, b))
     });
-    let undated_pairs = undated
-        .iter()
-        .enumerate()
-        .flat_map(move |(i, a)| undated[i + 1..].iter().map(move |b| (a, b)));
+
+    // Who shares each clue, read only when the block has undated records.
+    let mut sharing: HashMap<Clue<'b>, Vec<usize>> = HashMap::new();
+    if first_undated < records.len() {
+        for (at, record) in records.iter().enumerate() {
+            for clue in record.clues(names) {
+                sharing.entry(clue).or_default().push(at);
+            }
+        }
+    }
+    let undated_pairs = (first_undated..records.len()).flat_map(move |at| {
+        let undated = &records[at];
+        // A dated record, or an undated one further on: each pair once.
+        let mut partners: Vec<usize> = undated
+            .clues(names)
+            .iter()
+            .filter_map(|clue| sharing.get(clue))
+            .flatten()
+            .copied()
+            .filter(|&other| other < first_undated || other > at)
+            .collect();
+        partners.sort_unstable();
+        partners.dedup();
+        partners
+            .into_iter()
+            .map(move |other| (&records[other], undated))
+    });
     dated_pairs.chain(undated_pairs)
+}
+
+/// A pair found, ordered best first: by score, then by the two persons.
+struct Found<'a> {
+    score: i64,
+    reasons: Vec<&'static str>,
+    first: &'a PersonProfile,
+    second: &'a PersonProfile,
+}
+
+impl Found<'_> {
+    fn rank(&self) -> (std::cmp::Reverse<i64>, Uuid, Uuid) {
+        (
+            std::cmp::Reverse(self.score),
+            self.first.person_id,
+            self.second.person_id,
+        )
+    }
+}
+
+impl PartialEq for Found<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.rank() == other.rank()
+    }
+}
+
+impl Eq for Found<'_> {}
+
+impl PartialOrd for Found<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Found<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.rank().cmp(&other.rank())
+    }
 }
 
 /// The pairs of records that may be one person, best first, leaving out the
 /// pairs already confirmed to be different people (`distinct`, lower id
 /// first).
+///
+/// Every pair found is counted; only the [`MAX_DUPLICATE_PAIRS`] best are
+/// kept while the tree is read, the worst of them leaving as a better one
+/// comes.
 pub fn potential_duplicates(
     profiles: &[PersonProfile],
     distinct: &HashSet<(Uuid, Uuid)>,
@@ -806,9 +917,11 @@ pub fn potential_duplicates(
             blocks.entry(record.key.clone()).or_default().push(record);
         }
     }
-    let mut found = Vec::new();
+    let mut count = 0;
+    // The worst pair kept is the heap's greatest: the first to leave.
+    let mut best: BinaryHeap<Found<'_>> = BinaryHeap::with_capacity(MAX_DUPLICATE_PAIRS + 1);
     for records in blocks.values_mut() {
-        for (a, b) in candidate_pairs(records) {
+        for (a, b) in candidate_pairs(records, &names) {
             let (a, b) = if a.profile.person_id < b.profile.person_id {
                 (a, b)
             } else {
@@ -820,26 +933,29 @@ pub fn potential_duplicates(
             if let Some((score, reasons)) = compare(a, b, &names)
                 && score >= MIN_DUPLICATE_SCORE
             {
-                found.push((score, reasons, a.profile, b.profile));
+                count += 1;
+                best.push(Found {
+                    score,
+                    reasons,
+                    first: a.profile,
+                    second: b.profile,
+                });
+                if best.len() > MAX_DUPLICATE_PAIRS {
+                    best.pop();
+                }
             }
         }
     }
-    found.sort_by(|x, y| {
-        y.0.cmp(&x.0)
-            .then_with(|| x.2.person_id.cmp(&y.2.person_id))
-            .then_with(|| x.3.person_id.cmp(&y.3.person_id))
-    });
-    let count = found.len() as i64;
-    let pairs = found
+    let pairs = best
+        .into_sorted_vec()
         .into_iter()
-        .take(MAX_DUPLICATE_PAIRS)
-        .map(|(score, reasons, a, b)| DuplicatePair {
-            score,
-            reasons: reasons.into_iter().map(str::to_string).collect(),
-            first: build_search_entry(a),
-            second: build_search_entry(b),
-            first_dates: LifeDates::of(a),
-            second_dates: LifeDates::of(b),
+        .map(|found| DuplicatePair {
+            score: found.score,
+            reasons: found.reasons.into_iter().map(str::to_string).collect(),
+            first: build_search_entry(found.first),
+            second: build_search_entry(found.second),
+            first_dates: LifeDates::of(found.first),
+            second_dates: LifeDates::of(found.second),
         })
         .collect();
     PotentialDuplicates { count, pairs }
