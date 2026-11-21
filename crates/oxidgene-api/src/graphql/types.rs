@@ -2774,7 +2774,7 @@ pub struct GqlGeneanetDepositSize {
 }
 
 /// What a saved session holds, read without keeping its media, as
-/// `POST /geneanet/session/read` answers it.
+/// `POST /trees/{treeId}/geneanet/session/read` answers it.
 #[derive(Debug, Clone, SimpleObject)]
 pub struct GqlGeneanetSessionContents {
     pub collection: String,

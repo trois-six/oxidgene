@@ -3311,10 +3311,12 @@ async fn a_renditions_geneanet_import_stages_no_archive() {
 #[tokio::test]
 async fn geneanet_local_paths_are_refused_by_default() {
     let app = setup_app().await;
+    // On a tree that exists: the `404` below is the route's, not the tree's.
+    let tree_id = create_tree_via_api(&app).await;
     let (status, body) = send(
         &app,
         Method::POST,
-        "/api/v1/geneanet/archives",
+        &format!("/api/v1/trees/{tree_id}/geneanet/archives"),
         Some(serde_json::json!({ "paths": ["/does/not/exist"] })),
     )
     .await;
@@ -3324,7 +3326,7 @@ async fn geneanet_local_paths_are_refused_by_default() {
     let (status, body) = send(
         &app,
         Method::POST,
-        "/api/v1/geneanet/preview",
+        &format!("/api/v1/trees/{tree_id}/geneanet/preview"),
         Some(serde_json::json!({
             "gw_base64": "",
             "file_name": "family.gw",

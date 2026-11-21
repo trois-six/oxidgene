@@ -982,6 +982,131 @@ async fn an_owner_cannot_erase_their_account_and_an_administrator_assigns_ownerl
     assert_eq!(status, StatusCode::OK);
 }
 
+// ── The import wizard ───────────────────────────────────────────────────
+
+/// A two-person GeneWeb file of fictitious people.
+const WIZARD_GENEWEB: &str = "encoding: utf-8\n\nfam FICTIF Ada.0 + EXEMPLE Basile.0\n";
+
+/// [`WIZARD_GENEWEB`] as the JSON bodies and GraphQL carry it.
+fn wizard_geneweb_base64() -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(WIZARD_GENEWEB)
+}
+
+impl Fixture {
+    /// Inspect [`WIZARD_GENEWEB`] for `tree`, the wizard's first step, over
+    /// REST: the status and the answer.
+    async fn inspect_rest(&self, who: Who, tree: Uuid) -> (StatusCode, Value) {
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(format!(
+                "/api/v1/trees/{tree}/geneweb/inspect?filename=family.gw"
+            ))
+            .header(header::CONTENT_TYPE, "application/octet-stream");
+        self.send(who, request, Body::from(WIZARD_GENEWEB)).await
+    }
+
+    /// The same step over GraphQL: the whole answer.
+    async fn inspect_graphql(&self, who: Who, tree: Uuid) -> Value {
+        let gw = wizard_geneweb_base64();
+        self.gql(
+            who,
+            &format!(
+                r#"{{ inspectGeneweb(treeId: "{tree}", gwBase64: "{gw}", fileName: "family.gw") {{ personCount }} }}"#
+            ),
+        )
+        .await
+    }
+}
+
+/// The import wizard's preparatory steps take `import` on the tree the
+/// modal was opened from, not the instance's tree creation right
+/// (docs/authorization.md §3.2): an owner an administrator assigned a tree
+/// to, who may not create one, runs them on it, on both surfaces. A member
+/// without `import` is refused, before a byte of an upload is read, and a
+/// user who cannot see the tree is told it does not exist.
+#[tokio::test]
+async fn an_owner_who_may_not_create_trees_runs_the_wizard_on_their_tree() {
+    let (fixture, _provider) = fixture().await;
+    let assigned = Uuid::now_v7();
+    oxidgene_db::repo::TreeRepo::create(&fixture.db, assigned, "Assigned".into(), None)
+        .await
+        .unwrap();
+    let (status, owner) = fixture
+        .rest(
+            Who::Admin,
+            Method::PUT,
+            &format!("/api/v1/admin/trees/{assigned}/owner"),
+            Some(json!({ "user_id": fixture.users[&Who::Outsider] })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{owner}");
+    let (status, _) = fixture
+        .rest(
+            Who::Outsider,
+            Method::POST,
+            "/api/v1/trees",
+            Some(json!({ "name": "Refused" })),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "the assigned owner creates no tree"
+    );
+
+    // The assigned owner runs the wizard's steps on their tree.
+    let (status, inspection) = fixture.inspect_rest(Who::Outsider, assigned).await;
+    assert_eq!(status, StatusCode::OK, "{inspection}");
+    assert_eq!(inspection["person_count"], 2, "{inspection}");
+    let answer = fixture.inspect_graphql(Who::Outsider, assigned).await;
+    assert_eq!(
+        answer["data"]["inspectGeneweb"]["personCount"], 2,
+        "{answer}"
+    );
+    let join = json!({
+        "gw_base64": wizard_geneweb_base64(),
+        "file_name": "family.gw",
+        "collection": json!({"deposits": [], "references": [], "view_references": {}}).to_string(),
+    });
+    for step in ["preview", "plan"] {
+        let (status, answer) = fixture
+            .rest(
+                Who::Outsider,
+                Method::POST,
+                &format!("/api/v1/trees/{assigned}/geneanet/{step}"),
+                Some(join.clone()),
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{step}: {answer}");
+    }
+
+    // An Editor holds no `import` on the tree they edit, and sees nothing
+    // of the assigned one.
+    for (tree, refusal, code) in [
+        (fixture.tree_id, StatusCode::FORBIDDEN, "FORBIDDEN"),
+        (assigned, StatusCode::NOT_FOUND, "NOT_FOUND"),
+    ] {
+        let (status, answer) = fixture.inspect_rest(Who::Editor, tree).await;
+        assert_eq!(status, refusal, "{answer}");
+        let answer = fixture.inspect_graphql(Who::Editor, tree).await;
+        assert_eq!(answer["errors"][0]["extensions"]["code"], code, "{answer}");
+        assert!(answer["data"].is_null(), "{answer}");
+        // A saved session is refused unread: nothing of it is spooled.
+        let unread = Body::from_stream(futures_util::stream::poll_fn(
+            |_| -> std::task::Poll<Option<Result<Vec<u8>, std::io::Error>>> {
+                panic!("a refused upload must not be read");
+            },
+        ));
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri(format!("/api/v1/trees/{tree}/geneanet/session/read"))
+            .header(header::CONTENT_TYPE, "application/zip");
+        let (status, answer) = fixture.send(Who::Editor, request, unread).await;
+        assert_eq!(status, refusal, "{answer}");
+    }
+}
+
 // ── Audit authors and the access log ────────────────────────────────────
 
 #[tokio::test]

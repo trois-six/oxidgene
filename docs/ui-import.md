@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-21T12:40:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:30:00Z }
 ---
 
 
@@ -22,7 +22,12 @@ generated: { by: human:maintainer, at: 2026-11-21T12:40:00Z }
 Everything that brings data *into* a tree arrives through one modal, opened
 from a tree card's `⋮` → **Import** on the [Homepage](ui-home.md), and from
 nowhere else. It never creates a tree: it is opened from a tree's own menu, so
-the destination is already chosen.
+the destination is already chosen. Every request the modal sends names that
+tree, from the first step of the Geneanet tab to the import itself, and
+takes its `import` permission
+([Authorization §3.2](authorization.md#32-permission-matrix)): whoever is
+offered **Import** on a tree completes it, whether or not they may create
+trees.
 
 Two tabs, because there are two genuinely different jobs:
 
@@ -446,9 +451,9 @@ points to the **A file** tab, which imports the same `.gw` genealogy without
 the media.
 
 The web build exchanges no path with the server. Loading a file posts it to
-`POST /geneanet/session/read`, which checks it and answers its collection and
-the addresses of its media, keeping nothing; the browser holds on to the
-file. Starting the import posts the `.gw` and that file to
+`POST /trees/{tree_id}/geneanet/session/read`, which checks it and answers
+its collection and the addresses of its media, keeping nothing; the browser
+holds on to the file. Starting the import posts the `.gw` and that file to
 `POST /trees/{tree_id}/geneanet/session-import`, whose upload shows as a
 progress bar. A change of the media answer keeps the loaded file: its import
 takes from it what the answer needs.
@@ -562,9 +567,10 @@ are empty. Once gathering reaches 100%, the login window is hidden while its
 in-memory session retains the staged files. The session is destroyed after the
 backend has copied those files into durable job storage, or if the modal closes.
 The photos a loaded session file brings are staged by the backend instead; the
-wizard releases them (`POST /geneanet/session/release`) when the modal closes,
-when another session file replaces them, and when changing the media answer
-discards them, and the backend deletes any never released a day later.
+wizard releases them (`POST /trees/{tree_id}/geneanet/session/release`) when
+the modal closes, when another session file replaces them, and when changing
+the media answer discards them, and the backend deletes any never released a
+day later.
 Optional enrichment payloads with unsupported shapes do not invalidate
 otherwise usable media links. If the essential collection shape is unreadable,
 the step stops with a localized collection error instead of advancing to a

@@ -271,42 +271,6 @@ const PARITY: &[(&str, &str, Twin)] = &[
         "/api/v1/gedcom/export-destinations",
         Gql(&["Query.exportDestinations"]),
     ),
-    ("POST", "/api/v1/geneanet/archives", LocalFiles(LOCAL_FILES)),
-    (
-        "POST",
-        "/api/v1/geneanet/plan",
-        Gql(&["Query.geneanetPlan"]),
-    ),
-    (
-        "POST",
-        "/api/v1/geneanet/preview",
-        Gql(&["Query.geneanetPreview"]),
-    ),
-    (
-        "POST",
-        "/api/v1/geneanet/session/decode",
-        LocalFiles(LOCAL_FILES),
-    ),
-    (
-        "POST",
-        "/api/v1/geneanet/session/encode",
-        LocalFiles(LOCAL_FILES),
-    ),
-    (
-        "POST",
-        "/api/v1/geneanet/session/read",
-        Gql(&["Query.readGeneanetSession"]),
-    ),
-    (
-        "POST",
-        "/api/v1/geneanet/session/release",
-        LocalFiles(LOCAL_FILES),
-    ),
-    (
-        "POST",
-        "/api/v1/geneweb/inspect",
-        Gql(&["Query.inspectGeneweb"]),
-    ),
     (
         "GET",
         "/api/v1/openapi.json",
@@ -613,13 +577,53 @@ const PARITY: &[(&str, &str, Twin)] = &[
     ),
     (
         "POST",
+        "/api/v1/trees/{tree_id}/geneanet/archives",
+        LocalFiles(LOCAL_FILES),
+    ),
+    (
+        "POST",
         "/api/v1/trees/{tree_id}/geneanet/import",
         LocalFiles(LOCAL_FILES),
     ),
     (
         "POST",
+        "/api/v1/trees/{tree_id}/geneanet/plan",
+        Gql(&["Query.geneanetPlan"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/geneanet/preview",
+        Gql(&["Query.geneanetPreview"]),
+    ),
+    (
+        "POST",
         "/api/v1/trees/{tree_id}/geneanet/session-import",
         Gql(&["Mutation.importGeneanetSession"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/geneanet/session/decode",
+        LocalFiles(LOCAL_FILES),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/geneanet/session/encode",
+        LocalFiles(LOCAL_FILES),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/geneanet/session/read",
+        Gql(&["Query.readGeneanetSession"]),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/geneanet/session/release",
+        LocalFiles(LOCAL_FILES),
+    ),
+    (
+        "POST",
+        "/api/v1/trees/{tree_id}/geneweb/inspect",
+        Gql(&["Query.inspectGeneweb"]),
     ),
     (
         "GET",

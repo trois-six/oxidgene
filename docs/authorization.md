@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-21T14:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:30:00Z }
 ---
 
 # Authorization and Sharing
@@ -134,9 +134,11 @@ Operations that need no tree data — the date converter, the reference
 bundles, the export destinations, the API description — need no permission,
 and are open to an anonymous request. The tree list needs a signed-in
 user. Creating a tree needs the instance's `can_create_trees`; its creator
-becomes its owner. So do the Geneanet wizard's first steps, which parse,
-spool and inflate what the user sends before a tree is chosen: they are
-the work of starting a tree, and take the right to.
+becomes its owner. Importing does not: the import modal is opened from a
+tree and never creates one ([Import §1](ui-import.md#1-overview)), so an
+owner who may not create trees — one an administrator assigned a tree to —
+imports into theirs like any owner, the Geneanet wizard's preparatory
+steps included.
 
 Every route and GraphQL root field declares its requirement — open, signed
 in, tree creation, administrator, or a permission on the tree it names — in
@@ -151,6 +153,7 @@ permission open, the declaration settles it:
 | The bulk target's preview (`tags/target`, `tagTarget`), which only bulk tagging uses | `merge` |
 | Marking persons distinct, putting a tag on a record and taking it off | `edit` |
 | Dropping and rebuilding the projections (`profiles`, `profiles/rebuild`) | `settings_manage` |
+| The import wizard's preparatory steps, which write nothing to the tree — inspecting the `.gw`, indexing the archives, reading, decoding, saving and releasing a saved session, the preview and the plan ([API, Geneanet import](api.md#geneanet-import)) | `import` on the tree the modal was opened from, as the import they prepare: they parse, spool and inflate what the user sends for it, and the tree is checked before a byte of it is read |
 | An import or export job's status, cancellation and download | The job's `import` or `export`; an export's, and the latest downloadable one, its author's alone (`404` to anyone else): its archive holds what its author sees ([Privacy §8](privacy.md#8-exports)) |
 | A tree's members, a member's update and removal | `read`, which the service narrows (§10) |
 

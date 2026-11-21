@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: human:maintainer, at: 2026-11-21T11:58:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:30:00Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -752,9 +752,12 @@ discard all files staged by that attempt.
 **The web build imports a saved session too**, the one way it has to bring
 Geneanet media: it cannot open the login window, and the server it talks to
 may be shared, so it exchanges no path with it. Loading the file posts it to
-`POST /geneanet/session/read`, which checks it as the desktop's reader does
-and answers its collection and the addresses of its media, keeping nothing;
-the browser holds on to the file. The import posts the `.gw` and the same file
+`POST /trees/{tree_id}/geneanet/session/read`, which checks it as the
+desktop's reader does and answers its collection and the addresses of its
+media, keeping nothing; the browser holds on to the file. Like every step of
+the wizard it names the tree the import goes into and takes the `import`
+permission on it, so a shared server reads a session only for someone who
+may import it. The import posts the `.gw` and the same file
 in one multipart request, `POST /trees/{tree_id}/geneanet/session-import`,
 whose handler extracts the media to private files, copies them into job
 storage with the `.gw`, and queues the job before answering, so the worker —

@@ -1,9 +1,16 @@
 //! REST handlers for the Geneanet import wizard.
 //!
-//! Four calls, one per step that needs the server. The login step — signing in and
+//! One call per step that needs the server. The login step — signing in and
 //! collecting the person↔photo mapping — has no endpoint at all: it happens
 //! inside the WebView the user authenticated in, because that is the only
 //! place a Geneanet session exists. What arrives here is its output.
+//!
+//! Every call names the tree the import modal was opened from and takes the
+//! `import` permission on it, the preparatory steps included: they write
+//! nothing to the tree, but they parse, spool and inflate what the user
+//! sends for it. The authorization middleware checks the tree before any
+//! handler reads a byte of the body (`rest::authorize`), which is why the
+//! handlers of those steps do not read the tree from the path.
 //!
 //! Operations that exchange **filesystem paths** are guarded by a runtime
 //! capability enabled only by the desktop application, where the server runs
@@ -36,7 +43,7 @@ use crate::service::geneanet;
 /// Default `origin_file` when the client sends no `?filename=`.
 const DEFAULT_ORIGIN_FILE: &str = "import.gw";
 
-/// POST /api/v1/geneweb/inspect
+/// POST /api/v1/trees/:tree_id/geneweb/inspect
 ///
 /// Parse a `.gw` file and report what it holds, writing nothing.
 ///
@@ -44,8 +51,8 @@ const DEFAULT_ORIGIN_FILE: &str = "import.gw";
 /// ISO-8859-1 unless it opts into UTF-8, so decoding it upstream would mangle
 /// the accented names the join key is built from.
 ///
-/// Not scoped to a tree: this runs before the user has chosen one, and it is
-/// what tells them whether they picked the right export.
+/// The wizard's first step: it is what tells the user whether they picked
+/// the right export.
 pub async fn inspect_geneweb_handler(
     Query(query): Query<ImportGenewebQuery>,
     body: Bytes,
@@ -63,7 +70,7 @@ pub async fn inspect_geneweb_handler(
     }))
 }
 
-/// POST /api/v1/geneanet/archives
+/// POST /api/v1/trees/:tree_id/geneanet/archives
 ///
 /// Index the central directory of each named data archive, extracting nothing.
 ///
@@ -92,7 +99,7 @@ pub async fn index_archives_handler(
     }))
 }
 
-/// POST /api/v1/geneanet/preview
+/// POST /api/v1/trees/:tree_id/geneanet/preview
 ///
 /// Join the collected mapping onto the `.gw` and report what an import would
 /// do. No network access and no writes — this is the moment the user finds out
@@ -126,7 +133,7 @@ pub async fn preview_handler(
     }))
 }
 
-/// POST /api/v1/geneanet/session/encode
+/// POST /api/v1/trees/:tree_id/geneanet/session/encode
 ///
 /// Turn what the login window collected into the file the wizard offers to
 /// save. The login step is the only part of the import that talks to Geneanet, and the
@@ -166,7 +173,7 @@ pub async fn encode_session_handler(
         .into_response())
 }
 
-/// POST /api/v1/geneanet/session/decode
+/// POST /api/v1/trees/:tree_id/geneanet/session/decode
 ///
 /// Read a saved session back, refusing anything that is not one. The body is
 /// the file itself.
@@ -202,7 +209,7 @@ pub async fn decode_session_handler(
     }))
 }
 
-/// POST /api/v1/geneanet/session/release
+/// POST /api/v1/trees/:tree_id/geneanet/session/release
 ///
 /// Delete the staged media of a decoded session the wizard closed or reset
 /// without importing. Queuing the import releases them too, and those never
@@ -216,7 +223,7 @@ pub async fn release_session_media_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// POST /api/v1/geneanet/plan
+/// POST /api/v1/trees/:tree_id/geneanet/plan
 ///
 /// Say which media the server cannot produce on its own, so the login window
 /// can fetch them. Takes the same inputs as the preview.
@@ -279,7 +286,7 @@ pub async fn import_handler(
     ))
 }
 
-/// POST /api/v1/geneanet/session/read
+/// POST /api/v1/trees/:tree_id/geneanet/session/read
 ///
 /// What a saved session holds, its media checked but kept nowhere: the web
 /// wizard's login step, which sends the same file again with its import. The

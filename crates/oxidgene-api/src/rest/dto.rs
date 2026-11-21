@@ -1053,8 +1053,8 @@ pub struct EncodeSessionRequest {
 /// The staged media of a decoded session the wizard no longer needs.
 #[derive(Debug, Deserialize)]
 pub struct ReleaseSessionMediaRequest {
-    /// Local paths, as `/geneanet/session/decode` returned them. A path the
-    /// backend did not stage is ignored.
+    /// Local paths, as `/trees/{tree_id}/geneanet/session/decode` returned
+    /// them. A path the backend did not stage is ignored.
     pub paths: Vec<String>,
 }
 

@@ -1909,7 +1909,7 @@ type GqlGeneanetPreview {
 
 """
 What a saved session holds, read without keeping its media, as
-`POST /geneanet/session/read` answers it.
+`POST /trees/{treeId}/geneanet/session/read` answers it.
 """
 type GqlGeneanetSessionContents {
 	collection: String!
@@ -5454,22 +5454,27 @@ type QueryRoot {
 	"""
 	importJobStatus(treeId: ID!, jobId: ID!, since: String, wait: Int): GqlImportJobStatus!
 	"""
-	Inspect a GeneWeb export before selecting its destination tree.
+	Inspect a GeneWeb export, the first step of the import wizard of
+	tree `treeId`: what it holds, writing nothing. Like every step of
+	the wizard, it takes the `import` permission on that tree.
 	"""
-	inspectGeneweb(gwBase64: String!, fileName: String!): GqlGeneanetInspection!
+	inspectGeneweb(treeId: ID!, gwBase64: String!, fileName: String!): GqlGeneanetInspection!
 	"""
 	What a saved Geneanet session holds, its media checked but kept
-	nowhere, as `POST /geneanet/session/read` answers it.
+	nowhere, as `POST /trees/{treeId}/geneanet/session/read` answers
+	it.
 	"""
-	readGeneanetSession(archiveBase64: String!): GqlGeneanetSessionContents!
+	readGeneanetSession(treeId: ID!, archiveBase64: String!): GqlGeneanetSessionContents!
 	"""
-	Preview a Geneanet import without writing a tree or fetching media.
+	Preview a Geneanet import into tree `treeId` without writing to it
+	or fetching media.
 	"""
-	geneanetPreview(input: GeneanetPreviewInput!): GqlGeneanetPreview!
+	geneanetPreview(treeId: ID!, input: GeneanetPreviewInput!): GqlGeneanetPreview!
 	"""
-	List the media that the signed-in Geneanet window still has to fetch.
+	List the media that the signed-in Geneanet window still has to
+	fetch for an import into tree `treeId`.
 	"""
-	geneanetPlan(input: GeneanetPreviewInput!): [GqlGeneanetNeededMedia!]!
+	geneanetPlan(treeId: ID!, input: GeneanetPreviewInput!): [GqlGeneanetNeededMedia!]!
 	"""
 	Get a single profile (denormalised) person profile.
 	

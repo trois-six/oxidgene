@@ -590,14 +590,23 @@ pub fn build_router(state: AppState) -> Router {
             post(geneanet::session_import_handler).layer(DefaultBodyLimit::disable()),
         );
 
-    // The wizard's first steps run before a tree has been chosen — indeed
-    // before the user has decided whether to create one — so they cannot sit
-    // under the tree-scoped nest.
+    // The wizard's preparatory steps — inspecting the `.gw`, reading a
+    // saved session, previewing and planning — sit under the tree the
+    // import modal was opened from, as the import they prepare does: they
+    // parse, spool and inflate what the user sends, which takes the right
+    // to import into that tree (docs/authorization.md §3.2).
     let geneanet_routes = Router::new()
-        .route("/preview", post(geneanet::preview_handler))
-        .route("/plan", post(geneanet::plan_handler))
         .route(
-            "/session/read",
+            "/{tree_id}/geneweb/inspect",
+            post(geneanet::inspect_geneweb_handler),
+        )
+        .route(
+            "/{tree_id}/geneanet/preview",
+            post(geneanet::preview_handler),
+        )
+        .route("/{tree_id}/geneanet/plan", post(geneanet::plan_handler))
+        .route(
+            "/{tree_id}/geneanet/session/read",
             // Saved sessions contain media bytes, not only metadata.
             post(geneanet::read_session_handler).layer(DefaultBodyLimit::disable()),
         )
@@ -611,40 +620,38 @@ pub fn build_router(state: AppState) -> Router {
     // refusing them once their body, up to a gibibyte of it, is read — and
     // the build script describes them in the desktop's OpenAPI document
     // alone.
-    let local_file_routes = Router::new()
-        .nest(
-            "/api/v1/geneanet",
-            Router::new()
-                .route("/archives", post(geneanet::index_archives_handler))
-                .route("/session/encode", post(geneanet::encode_session_handler))
-                .route(
-                    "/session/release",
-                    post(geneanet::release_session_media_handler),
-                )
-                .route(
-                    "/session/decode",
-                    post(geneanet::decode_session_handler)
-                        // Saved sessions contain media bytes, not only
-                        // metadata paths.
-                        .layer(DefaultBodyLimit::disable()),
-                )
-                .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT)),
-        )
-        .nest(
-            "/api/v1/trees",
+    let local_file_routes = Router::new().nest(
+        "/api/v1/trees",
+        Router::new()
+            .route(
+                "/{tree_id}/geneanet/archives",
+                post(geneanet::index_archives_handler),
+            )
+            .route(
+                "/{tree_id}/geneanet/session/encode",
+                post(geneanet::encode_session_handler),
+            )
+            .route(
+                "/{tree_id}/geneanet/session/release",
+                post(geneanet::release_session_media_handler),
+            )
+            .route(
+                "/{tree_id}/geneanet/session/decode",
+                post(geneanet::decode_session_handler)
+                    // Saved sessions contain media bytes, not only
+                    // metadata paths.
+                    .layer(DefaultBodyLimit::disable()),
+            )
+            .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT))
             // The wizard's import body is its preview body plus the
             // fetched-media map, which is what a large account fills: see
             // `GENEANET_IMPORT_BODY_LIMIT`.
-            Router::new().route(
+            .route(
                 "/{tree_id}/geneanet/import",
                 post(geneanet::import_handler)
                     .layer(DefaultBodyLimit::max(GENEANET_IMPORT_BODY_LIMIT)),
             ),
-        );
-
-    let geneweb_routes = Router::new()
-        .route("/inspect", post(geneanet::inspect_geneweb_handler))
-        .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
+    );
 
     // Static reference content (occupation sheets, given-name meanings, the
     // place dictionary) — not tied to a tree, so kept out of the `/trees` nest.
@@ -798,10 +805,9 @@ pub fn build_router(state: AppState) -> Router {
                 .merge(dictionary_routes)
                 .merge(profile_routes)
                 .merge(history_routes)
-                .merge(import_export_routes),
+                .merge(import_export_routes)
+                .merge(geneanet_routes),
         )
-        .nest("/api/v1/geneanet", geneanet_routes)
-        .nest("/api/v1/geneweb", geneweb_routes)
         .nest("/api/v1/reference", reference_routes)
         // The programs a GEDCOM export can be written for: not tied to a
         // tree, so kept out of the `/trees` nest.

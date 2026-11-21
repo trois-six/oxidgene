@@ -2022,13 +2022,18 @@ impl TreeQuery {
 
     // ── Geneanet import wizard ───────────────────────────────────────
 
-    /// Inspect a GeneWeb export before selecting its destination tree.
+    /// Inspect a GeneWeb export, the first step of the import wizard of
+    /// tree `treeId`: what it holds, writing nothing. Like every step of
+    /// the wizard, it takes the `import` permission on that tree.
     async fn inspect_geneweb(
         &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
         gw_base64: String,
         file_name: String,
     ) -> Result<GqlGeneanetInspection> {
         boxed(async move {
+            live_tree(ctx, &tree_id).await?;
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(gw_base64)
                 .map_err(|error| {
@@ -2046,13 +2051,16 @@ impl TreeQuery {
     }
 
     /// What a saved Geneanet session holds, its media checked but kept
-    /// nowhere, as `POST /geneanet/session/read` answers it.
+    /// nowhere, as `POST /trees/{treeId}/geneanet/session/read` answers
+    /// it.
     async fn read_geneanet_session(
         &self,
         ctx: &Context<'_>,
+        tree_id: ID,
         archive_base64: String,
     ) -> Result<GqlGeneanetSessionContents> {
         boxed(async move {
+            live_tree(ctx, &tree_id).await?;
             let permit = crate::service::intake::slot(viewer_from_ctx(ctx)).await?;
             let work_dir = super::types::work_dir_from_ctx(ctx).clone();
             let session = crate::service::blocking::spawn(move || {
@@ -2092,13 +2100,16 @@ impl TreeQuery {
         .await
     }
 
-    /// Preview a Geneanet import without writing a tree or fetching media.
+    /// Preview a Geneanet import into tree `treeId` without writing to it
+    /// or fetching media.
     async fn geneanet_preview(
         &self,
-        _ctx: &Context<'_>,
+        ctx: &Context<'_>,
+        tree_id: ID,
         input: GeneanetPreviewInput,
     ) -> Result<GqlGeneanetPreview> {
         boxed(async move {
+            live_tree(ctx, &tree_id).await?;
             Ok(
                 crate::service::geneanet::preview_off_thread(join_inputs(input)?)
                     .await?
@@ -2108,13 +2119,16 @@ impl TreeQuery {
         .await
     }
 
-    /// List the media that the signed-in Geneanet window still has to fetch.
+    /// List the media that the signed-in Geneanet window still has to
+    /// fetch for an import into tree `treeId`.
     async fn geneanet_plan(
         &self,
-        _ctx: &Context<'_>,
+        ctx: &Context<'_>,
+        tree_id: ID,
         input: GeneanetPreviewInput,
     ) -> Result<Vec<GqlGeneanetNeededMedia>> {
         boxed(async move {
+            live_tree(ctx, &tree_id).await?;
             Ok(
                 crate::service::geneanet::plan_off_thread(join_inputs(input)?)
                     .await?

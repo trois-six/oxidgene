@@ -796,12 +796,13 @@ fn GeneanetTab(
         let api = api.clone();
         use_drop(move || {
             bridge.iter().for_each(GeneanetBridge::close);
-            release_gathered_media(&api, fetched);
+            release_gathered_media(&api, tree_id, fetched);
             forget_loaded_file();
         });
     }
 
     use_file_coverage(
+        tree_id,
         gw,
         Gathered {
             session_file,
@@ -847,6 +848,7 @@ fn GeneanetTab(
         override_mismatch.set(false);
         forget_for_answer(
             &api_fidelity,
+            tree_id,
             next,
             Gathered {
                 session_file,
@@ -930,7 +932,7 @@ fn GeneanetTab(
             let planned = trace
                 .step(
                     UiActionStep::GeneanetPreview,
-                    preview_and_plan(&api, &body, preview),
+                    preview_and_plan(&api, tree_id, &body, preview),
                 )
                 .await;
             let Some(needed) = planned
@@ -1078,6 +1080,7 @@ fn GeneanetTab(
                 )),
                 on_open: move |_| open.set(Step::Gw),
                 GwStep {
+                    tree_id,
                     gw,
                     gw_error,
                     fidelity: fidelity(),
@@ -1095,6 +1098,7 @@ fn GeneanetTab(
                 summary: saved_summary(&i18n, session_file().as_ref(), saved_skipped()),
                 on_open: move |_| open.set(Step::Saved),
                 SavedStep {
+                    tree_id,
                     session_file,
                     collected,
                     fetched,
@@ -1122,6 +1126,7 @@ fn GeneanetTab(
                 summary: archives_summary(&i18n, &archives.read(), archives_skipped(), covered()),
                 on_open: move |_| open.set(Step::Archives),
                 ArchiveStep {
+                    tree_id,
                     archives,
                     archives_skipped,
                     archive_error,
@@ -1144,6 +1149,7 @@ fn GeneanetTab(
                 summary: collected().map(|c| collected_summary(&i18n, &c)),
                 on_open: move |_| open.set(Step::Connect),
                 ConnectStep {
+                    tree_id,
                     connecting: connecting(),
                     collected,
                     fetched,
@@ -1163,6 +1169,7 @@ fn GeneanetTab(
                 summary: None,
                 on_open: move |_| open.set(Step::Preview),
                 PreviewStep {
+                    tree_id,
                     preview: preview(),
                     error: preview_error(),
                     fidelity: fidelity(),
@@ -1210,6 +1217,7 @@ fn GeneanetTab(
 /// request, so an answer changed meanwhile leaves the stale result
 /// unwritten.
 fn use_file_coverage(
+    tree_id: Uuid,
     gw: Signal<Option<GwFile>>,
     held: Gathered,
     fidelity: Signal<MediaFidelity>,
@@ -1232,7 +1240,14 @@ fn use_file_coverage(
             let worked_out = trace
                 .step(
                     UiActionStep::GeneanetPreview,
-                    file_coverage(&api, &file, &collected, &held.fetched.peek(), answer),
+                    file_coverage(
+                        &api,
+                        tree_id,
+                        &file,
+                        &collected,
+                        &held.fetched.peek(),
+                        answer,
+                    ),
                 )
                 .await;
             if *fidelity.peek() != answer {
@@ -1262,6 +1277,7 @@ struct Gathered {
 /// archives.
 fn forget_for_answer(
     api: &ApiClient,
+    tree_id: Uuid,
     next: MediaFidelity,
     held: Gathered,
     mut archives: Signal<Vec<IndexedArchive>>,
@@ -1269,7 +1285,7 @@ fn forget_for_answer(
 ) {
     let from_file = held.session_file.peek().is_some();
     if !from_file {
-        forget_gathered_media(api, held.fetched);
+        forget_gathered_media(api, tree_id, held.fetched);
     }
     if !next.uses_archives() {
         archives.write().clear();
@@ -1278,7 +1294,7 @@ fn forget_for_answer(
     }
     forget_unmeasured(held.collected);
     if from_file && held.collected.peek().is_none() {
-        drop_session_file(api, held.session_file, held.fetched);
+        drop_session_file(api, tree_id, held.session_file, held.fetched);
     }
 }
 
@@ -1414,11 +1430,14 @@ async fn follow_login(
 /// case nothing here touches the network at all.
 async fn preview_and_plan(
     api: &ApiClient,
+    tree_id: Uuid,
     body: &GeneanetPreviewBody,
     mut preview: Signal<Option<GeneanetPreview>>,
 ) -> Result<Vec<crate::api::NeededMedia>, crate::api::ApiError> {
-    preview.set(Some(api.preview_geneanet_import(body).await?));
-    api.plan_geneanet_import(body).await.map(|plan| plan.needed)
+    preview.set(Some(api.preview_geneanet_import(tree_id, body).await?));
+    api.plan_geneanet_import(tree_id, body)
+        .await
+        .map(|plan| plan.needed)
 }
 
 /// Hand back to the backend the staged media among `media`, which the wizard
@@ -1426,7 +1445,7 @@ async fn preview_and_plan(
 /// left in temporary files. Media the login window fetched are its own and
 /// are ignored by the backend. Best effort — what is not released expires.
 /// The web build stages nothing: a session's media stay in its file.
-fn release_staged_media(api: &ApiClient, media: &HashMap<String, String>) {
+fn release_staged_media(api: &ApiClient, tree_id: Uuid, media: &HashMap<String, String>) {
     if !NATIVE || media.is_empty() {
         return;
     }
@@ -1434,7 +1453,7 @@ fn release_staged_media(api: &ApiClient, media: &HashMap<String, String>) {
     let paths: Vec<String> = media.values().cloned().collect();
     // Not tied to this component: it runs as the wizard goes away.
     dioxus::core::spawn_forever(async move {
-        let _ = api.release_geneanet_session_media(paths).await;
+        let _ = api.release_geneanet_session_media(tree_id, paths).await;
     });
 }
 
@@ -1442,9 +1461,13 @@ fn release_staged_media(api: &ApiClient, media: &HashMap<String, String>) {
 /// desktop's staged and fetched files are for the other answer. On the web
 /// they are the loaded file's, which stay in it: its import takes from it
 /// what the new answer needs.
-fn forget_gathered_media(api: &ApiClient, mut fetched: Signal<HashMap<String, String>>) {
+fn forget_gathered_media(
+    api: &ApiClient,
+    tree_id: Uuid,
+    mut fetched: Signal<HashMap<String, String>>,
+) {
     if NATIVE {
-        release_staged_media(api, &fetched.peek());
+        release_staged_media(api, tree_id, &fetched.peek());
         fetched.write().clear();
     }
 }
@@ -1460,10 +1483,11 @@ fn forget_loaded_file() {
 /// desktop, and the browser's hold on it.
 fn drop_session_file(
     api: &ApiClient,
+    tree_id: Uuid,
     mut session_file: Signal<Option<SessionFile>>,
     mut fetched: Signal<HashMap<String, String>>,
 ) {
-    release_staged_media(api, &fetched.peek());
+    release_staged_media(api, tree_id, &fetched.peek());
     fetched.write().clear();
     session_file.set(None);
     forget_loaded_file();
@@ -1476,6 +1500,7 @@ fn drop_session_file(
 /// deposits' sizes, which that answer would drop.
 async fn file_coverage(
     api: &ApiClient,
+    tree_id: Uuid,
     file: &GwFile,
     collected: &Collected,
     held: &HashMap<String, String>,
@@ -1491,7 +1516,7 @@ async fn file_coverage(
             media_fidelity: fidelity,
         };
         async move {
-            let plan = api.plan_geneanet_import(&body).await?;
+            let plan = api.plan_geneanet_import(tree_id, &body).await?;
             Ok::<_, ApiError>(urls_to_fetch(&plan.needed, held).len())
         }
     };
@@ -1518,9 +1543,13 @@ fn unfetchable(bridge: Option<&GeneanetBridge>, urls: &[String]) -> usize {
 
 /// [`release_staged_media`] on what `fetched` still holds, as the wizard
 /// goes away; a signal already dropped holds nothing to release.
-fn release_gathered_media(api: &ApiClient, fetched: Signal<HashMap<String, String>>) {
+fn release_gathered_media(
+    api: &ApiClient,
+    tree_id: Uuid,
+    fetched: Signal<HashMap<String, String>>,
+) {
     if let Ok(media) = fetched.try_peek() {
-        release_staged_media(api, &media);
+        release_staged_media(api, tree_id, &media);
     }
 }
 
@@ -1877,6 +1906,7 @@ fn StepShell(
 
 #[component]
 fn GwStep(
+    tree_id: Uuid,
     gw: Signal<Option<GwFile>>,
     gw_error: Signal<Option<String>>,
     /// Which bytes to keep per medium — the answer that decides whether there
@@ -1916,7 +1946,7 @@ fn GwStep(
             let inspected = trace
                 .step(
                     UiActionStep::GeneanetInspect,
-                    api.inspect_geneweb(bytes.clone(), &name),
+                    api.inspect_geneweb(tree_id, bytes.clone(), &name),
                 )
                 .await;
             busy.set(false);
@@ -2037,6 +2067,7 @@ fn MediaChoice(fidelity: MediaFidelity, on_choose: EventHandler<MediaFidelity>) 
 
 #[component]
 fn ArchiveStep(
+    tree_id: Uuid,
     archives: Signal<Vec<IndexedArchive>>,
     archives_skipped: Signal<bool>,
     archive_error: Signal<Option<String>>,
@@ -2076,7 +2107,7 @@ fn ArchiveStep(
             let indexed = trace
                 .step(
                     UiActionStep::GeneanetIndex,
-                    api.index_geneanet_archives(paths),
+                    api.index_geneanet_archives(tree_id, paths),
                 )
                 .await;
             busy.set(false);
@@ -2202,6 +2233,7 @@ fn selected_file_path(file: &rfd::FileHandle) -> String {
 /// read archives, has no other way to the media.
 #[component]
 fn SavedStep(
+    tree_id: Uuid,
     session_file: Signal<Option<SessionFile>>,
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
@@ -2227,12 +2259,12 @@ fn SavedStep(
         let trace = trace.clone();
         spawn(async move {
             error.set(None);
-            let loaded = load_session(&api, &trace, i18n, busy).await;
+            let loaded = load_session(&api, tree_id, &trace, i18n, busy).await;
             busy.set(false);
             match loaded {
                 Ok(Some(session)) => {
                     // What an earlier file staged is not needed any more.
-                    release_staged_media(&api, &fetched.peek());
+                    release_staged_media(&api, tree_id, &fetched.peek());
                     session_file.set(Some(SessionFile {
                         name: session.name,
                         media: session.media.len(),
@@ -2250,7 +2282,7 @@ fn SavedStep(
         if collected.peek().as_ref().is_some_and(|c| c.from_file) {
             collected.set(None);
         }
-        drop_session_file(&api, session_file, fetched);
+        drop_session_file(&api, tree_id, session_file, fetched);
     };
 
     let lead = if NATIVE {
@@ -2356,6 +2388,7 @@ fn coverage_findings(
 
 #[component]
 fn ConnectStep(
+    tree_id: Uuid,
     connecting: Option<Connecting>,
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
@@ -2394,7 +2427,7 @@ fn ConnectStep(
                         {i18n.t("geneanet.step3_open")}
                     }
                 }
-                SessionControls { collected, fetched, archive_paths, error }
+                SessionControls { tree_id, collected, fetched, archive_paths, error }
             },
         }
     }
@@ -2439,6 +2472,7 @@ impl LoadedSession {
 #[cfg(not(target_arch = "wasm32"))]
 async fn load_session(
     api: &ApiClient,
+    tree_id: Uuid,
     trace: &UiActionTrace,
     i18n: I18n,
     mut busy: Signal<bool>,
@@ -2465,7 +2499,7 @@ async fn load_session(
     let session = trace
         .step(
             UiActionStep::GeneanetSessionDecode,
-            api.decode_geneanet_session(body),
+            api.decode_geneanet_session(tree_id, body),
         )
         .await
         .map_err(|e| e.message(&i18n))?;
@@ -2506,11 +2540,12 @@ enum SessionReadEvent {
 #[cfg(target_arch = "wasm32")]
 async fn load_session(
     api: &ApiClient,
+    tree_id: Uuid,
     trace: &UiActionTrace,
     i18n: I18n,
     mut busy: Signal<bool>,
 ) -> Result<Option<LoadedSession>, String> {
-    let endpoint = serde_json::to_string(&api.geneanet_session_read_url())
+    let endpoint = serde_json::to_string(&api.geneanet_session_read_url(tree_id))
         .expect("an endpoint URL is JSON serializable");
     // The browser sends the file itself, so the session's CSRF token is set
     // here rather than by the API client (docs/authentication.md §4.4).
@@ -2601,6 +2636,7 @@ async fn load_session(
 /// Only the desktop saves: the file is rebuilt from the media it staged.
 #[component]
 fn SessionControls(
+    tree_id: Uuid,
     collected: Signal<Option<Collected>>,
     fetched: Signal<HashMap<String, String>>,
     /// The data archives: the saved file carries the originals they hold,
@@ -2629,7 +2665,7 @@ fn SessionControls(
             let archive: Vec<u8> = match trace
                 .step(
                     UiActionStep::GeneanetSessionEncode,
-                    api.encode_geneanet_session(&body),
+                    api.encode_geneanet_session(tree_id, &body),
                 )
                 .await
             {
@@ -2839,6 +2875,7 @@ fn named_finding(
 
 #[component]
 fn PreviewStep(
+    tree_id: Uuid,
     preview: Option<GeneanetPreview>,
     error: Option<String>,
     /// Which bytes this run keeps, so the findings describe the work it will
@@ -2888,7 +2925,7 @@ fn PreviewStep(
         // connection at all. The login step also collapses once settled, so a control
         // only there disappears exactly when it becomes worth using.
         if !gathering {
-            SessionControls { collected, fetched, archive_paths, error: session_error }
+            SessionControls { tree_id, collected, fetched, archive_paths, error: session_error }
         }
 
         if gathering {

@@ -58,11 +58,27 @@ pub fn graphql_fields() -> impl Iterator<Item = (&'static str, Requirement)> {
 /// (docs/api.md, Surfaces and parity): mounted only by a backend with
 /// local file access, the desktop's, and without a GraphQL twin.
 const LOCAL_FILE_REST: &[(&str, &str, Requirement)] = &[
-    ("POST", "/geneanet/archives", TreeCreation),
-    ("POST", "/geneanet/session/decode", TreeCreation),
-    ("POST", "/geneanet/session/encode", TreeCreation),
-    ("POST", "/geneanet/session/release", TreeCreation),
+    (
+        "POST",
+        "/trees/{tree_id}/geneanet/archives",
+        Tree(P::Import),
+    ),
     ("POST", "/trees/{tree_id}/geneanet/import", Tree(P::Import)),
+    (
+        "POST",
+        "/trees/{tree_id}/geneanet/session/decode",
+        Tree(P::Import),
+    ),
+    (
+        "POST",
+        "/trees/{tree_id}/geneanet/session/encode",
+        Tree(P::Import),
+    ),
+    (
+        "POST",
+        "/trees/{tree_id}/geneanet/session/release",
+        Tree(P::Import),
+    ),
 ];
 
 /// The tree operations, served by every build.
@@ -75,13 +91,6 @@ const REST: &[(&str, &str, Requirement)] = &[
     ("GET", "/reference/{lang}/occupations", Open),
     ("POST", "/reference/{lang}/occupations/bundle", Open),
     ("GET", "/reference/{lang}/places", Open),
-    // The Geneanet wizard's first steps read what the user sends — parsed,
-    // spooled, inflated — before a tree is chosen: they take the right the
-    // tree they prepare will need.
-    ("POST", "/geneanet/plan", TreeCreation),
-    ("POST", "/geneanet/preview", TreeCreation),
-    ("POST", "/geneanet/session/read", TreeCreation),
-    ("POST", "/geneweb/inspect", TreeCreation),
     // The tree list is the viewer's memberships.
     ("GET", "/trees", SignedIn),
     ("POST", "/trees", TreeCreation),
@@ -259,6 +268,17 @@ const REST: &[(&str, &str, Requirement)] = &[
     (
         "POST",
         "/trees/{tree_id}/geneanet/session-import",
+        Tree(P::Import),
+    ),
+    // The import wizard's preparatory steps parse, spool and inflate what
+    // the user sends for the tree the modal was opened from: they take the
+    // right to import into it, as the import they prepare does.
+    ("POST", "/trees/{tree_id}/geneweb/inspect", Tree(P::Import)),
+    ("POST", "/trees/{tree_id}/geneanet/plan", Tree(P::Import)),
+    ("POST", "/trees/{tree_id}/geneanet/preview", Tree(P::Import)),
+    (
+        "POST",
+        "/trees/{tree_id}/geneanet/session/read",
         Tree(P::Import),
     ),
     // Families and their members.
@@ -796,10 +816,6 @@ const GRAPHQL: &[(&str, Requirement)] = &[
     ("occupationReference", Open),
     ("occupationReferences", Open),
     ("placeSuggestions", Open),
-    ("geneanetPlan", TreeCreation),
-    ("geneanetPreview", TreeCreation),
-    ("readGeneanetSession", TreeCreation),
-    ("inspectGeneweb", TreeCreation),
     ("trees", SignedIn),
     ("createTree", TreeCreation),
     ("recentPersonsOfTrees", Trees(P::Read)),
@@ -849,6 +865,10 @@ const GRAPHQL: &[(&str, Requirement)] = &[
     ("importJobStatus", Tree(P::Import)),
     ("cancelImportJob", Tree(P::Import)),
     ("importGeneanetSession", Tree(P::Import)),
+    ("inspectGeneweb", Tree(P::Import)),
+    ("geneanetPlan", Tree(P::Import)),
+    ("geneanetPreview", Tree(P::Import)),
+    ("readGeneanetSession", Tree(P::Import)),
     ("families", Tree(P::Read)),
     ("family", Tree(P::Read)),
     ("createFamily", Tree(P::Create)),

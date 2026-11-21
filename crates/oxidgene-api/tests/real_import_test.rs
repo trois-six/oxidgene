@@ -807,12 +807,17 @@ fn media_fidelity(archives: &[PathBuf]) -> &'static str {
 }
 
 /// The archives step of the wizard: index the archives in place.
-async fn index_archives(app: &Router, archive_paths: &[String], failures: &mut Failures) {
+async fn index_archives(
+    app: &Router,
+    tree_id: Uuid,
+    archive_paths: &[String],
+    failures: &mut Failures,
+) {
     let index = phase(
         "geneanet.archives",
         post_json(
             app,
-            "/api/v1/geneanet/archives",
+            &format!("/api/v1/trees/{tree_id}/geneanet/archives"),
             &json!({ "paths": archive_paths }),
         ),
     )
@@ -830,13 +835,13 @@ async fn index_archives(app: &Router, archive_paths: &[String], failures: &mut F
 }
 
 /// The login step, from a saved file: decode the session.
-async fn decode_session(app: &Router, session_path: &Path) -> Value {
+async fn decode_session(app: &Router, tree_id: Uuid, session_path: &Path) -> Value {
     let session = phase(
         "geneanet.session_decode",
         expect_ok(
             app,
             Method::POST,
-            "/api/v1/geneanet/session/decode",
+            &format!("/api/v1/trees/{tree_id}/geneanet/session/decode"),
             "application/octet-stream",
             file_body(session_path),
         ),
@@ -860,13 +865,18 @@ async fn decode_session(app: &Router, session_path: &Path) -> Value {
 /// have to fetch.
 async fn preview_and_plan(
     app: &Router,
+    tree_id: Uuid,
     body: &Value,
     session: &Value,
     failures: &mut Failures,
 ) -> Value {
     let preview = phase(
         "geneanet.preview",
-        post_json(app, "/api/v1/geneanet/preview", body),
+        post_json(
+            app,
+            &format!("/api/v1/trees/{tree_id}/geneanet/preview"),
+            body,
+        ),
     )
     .await;
     report("geneanet.preview", &numbers(&preview));
@@ -877,7 +887,7 @@ async fn preview_and_plan(
 
     let plan = phase(
         "geneanet.plan",
-        post_json(app, "/api/v1/geneanet/plan", body),
+        post_json(app, &format!("/api/v1/trees/{tree_id}/geneanet/plan"), body),
     )
     .await;
     let needed: HashSet<&str> = plan["needed"]
@@ -932,12 +942,15 @@ async fn geneanet_wizard_import_survives_a_gedzip_round_trip() {
         ),
     );
 
+    // The wizard is opened from the tree it imports into, and every step
+    // names it.
+    let tree_id = new_tree(app, "Real import geneanet").await;
     let inspection = phase(
         "geneanet.inspect",
         expect_ok(
             app,
             Method::POST,
-            "/api/v1/geneweb/inspect?filename=export.gw",
+            &format!("/api/v1/trees/{tree_id}/geneweb/inspect?filename=export.gw"),
             "application/octet-stream",
             Body::from(gw.clone()),
         ),
@@ -949,9 +962,9 @@ async fn geneanet_wizard_import_survives_a_gedzip_round_trip() {
         .map(|path| path.display().to_string())
         .collect();
     if fidelity == "originals" {
-        index_archives(app, &archive_paths, &mut failures).await;
+        index_archives(app, tree_id, &archive_paths, &mut failures).await;
     }
-    let session = decode_session(app, &session_path).await;
+    let session = decode_session(app, tree_id, &session_path).await;
     let mut body = json!({
         "gw_base64": base64::engine::general_purpose::STANDARD.encode(&gw),
         "file_name": "export.gw",
@@ -960,12 +973,11 @@ async fn geneanet_wizard_import_survives_a_gedzip_round_trip() {
         "archive_paths": archive_paths,
         "media_fidelity": fidelity,
     });
-    let preview = preview_and_plan(app, &body, &session, &mut failures).await;
+    let preview = preview_and_plan(app, tree_id, &body, &session, &mut failures).await;
 
     // The import step: the wizard hands back every medium the session staged.
     body["fetched"] = session["media"].clone();
     drop(session);
-    let tree_id = new_tree(app, "Real import geneanet").await;
     let started = phase(
         "geneanet.import_request",
         post_json(

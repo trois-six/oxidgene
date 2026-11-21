@@ -3335,13 +3335,24 @@ async fn test_geneanet_wizard_operations_over_graphql() {
         )),
     );
     let app = build_router(state);
+    let tree_id = data(
+        &graphql(
+            app.clone(),
+            r#"mutation { createTree(input: { name: "Wizard" }) { id } }"#,
+            None,
+        )
+        .await,
+    )["createTree"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let gw_base64 = base64::engine::general_purpose::STANDARD.encode(minimal_geneweb());
     let collection = r#"{"deposits":[],"references":[],"view_references":{}}"#;
     let collection_graphql = collection.replace('"', "\\\"");
     let inspection = graphql(
         app.clone(),
         &format!(
-            r#"{{ inspectGeneweb(gwBase64: "{gw_base64}", fileName: "family.gw") {{ personCount familyCount skippedBlocks }} }}"#
+            r#"{{ inspectGeneweb(treeId: "{tree_id}", gwBase64: "{gw_base64}", fileName: "family.gw") {{ personCount familyCount skippedBlocks }} }}"#
         ),
         None,
     )
@@ -3352,7 +3363,7 @@ async fn test_geneanet_wizard_operations_over_graphql() {
     let rejected = graphql(
         app,
         &format!(
-            r#"{{ geneanetPreview(input: {{ gwBase64: "{gw_base64}", fileName: "family.gw", collection: "{collection_graphql}", depositSizes: [{{ depositId: 1, size: -1 }}] }}) {{ personCount }} }}"#
+            r#"{{ geneanetPreview(treeId: "{tree_id}", input: {{ gwBase64: "{gw_base64}", fileName: "family.gw", collection: "{collection_graphql}", depositSizes: [{{ depositId: 1, size: -1 }}] }}) {{ personCount }} }}"#
         ),
         None,
     )
@@ -5076,8 +5087,9 @@ async fn resolver_refusals_report_the_domain_error_code() {
         .unwrap()
         .to_string();
     for query in [
-        r#"{ inspectGeneweb(gwBase64: "not base64!", fileName: "family.gw") { personCount } }"#
-            .to_string(),
+        format!(
+            r#"{{ inspectGeneweb(treeId: "{tree_id}", gwBase64: "not base64!", fileName: "family.gw") {{ personCount }} }}"#
+        ),
         format!(
             r#"{{ entityMedia(treeId: "{tree_id}", entityType: "nothing", entityId: "{tree_id}") {{ linkId }} }}"#
         ),

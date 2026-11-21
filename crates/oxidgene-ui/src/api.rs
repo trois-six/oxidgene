@@ -2214,7 +2214,8 @@ pub struct GeneanetSession {
 }
 
 /// What a saved session holds, read in the web build without keeping its
-/// media: the import sends the file again (`POST /geneanet/session/read`).
+/// media: the import sends the file again
+/// (`POST /trees/{tree_id}/geneanet/session/read`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct GeneanetSessionContents {
     pub collection: String,
@@ -3678,7 +3679,8 @@ impl ApiClient {
         Self::handle_response("POST", resp).await
     }
 
-    /// Helper: send a POST request with a raw binary body.
+    /// Helper: send a POST request with a raw binary body, which only
+    /// reads: like [`Self::post_read`], it leaves the cache alone.
     ///
     /// Used for uploads whose payload is a file whose encoding is the file's
     /// own business (see `inspect_geneweb`) — wrapping those bytes in JSON
@@ -3692,9 +3694,8 @@ impl ApiClient {
         let url = self.url(path);
         let bytes = body.len();
         let resp = self
-            .send_write(
+            .send_request(
                 "POST",
-                path,
                 self.client
                     .post(&url)
                     .query(query)
@@ -5804,6 +5805,9 @@ impl ApiClient {
     }
 
     // ── Geneanet import wizard ──────────────────────────────────────
+    //
+    // Every step names `tree_id`, the tree the import modal was opened
+    // from: the backend asks the right to import into it from the first.
 
     /// Parse a `.gw` and report what it holds, writing nothing. The `.gw` step.
     ///
@@ -5812,12 +5816,17 @@ impl ApiClient {
     /// fails here rather than four steps later.
     pub async fn inspect_geneweb(
         &self,
+        tree_id: Uuid,
         content: Vec<u8>,
         file_name: &str,
     ) -> Result<GwInspection, ApiError> {
         let query = [("filename", file_name.to_string())];
-        self.post_bytes("/api/v1/geneweb/inspect", content, &query)
-            .await
+        self.post_bytes(
+            &format!("/api/v1/trees/{tree_id}/geneweb/inspect"),
+            content,
+            &query,
+        )
+        .await
     }
 
     /// Index the named data archives in place, extracting nothing. The archives step.
@@ -5826,19 +5835,25 @@ impl ApiClient {
     /// server runs in-process on the same filesystem the user picked from.
     pub async fn index_geneanet_archives(
         &self,
+        tree_id: Uuid,
         paths: Vec<String>,
     ) -> Result<ArchiveIndex, ApiError> {
-        self.post_read("/api/v1/geneanet/archives", &IndexArchivesBody { paths })
-            .await
+        self.post_read(
+            &format!("/api/v1/trees/{tree_id}/geneanet/archives"),
+            &IndexArchivesBody { paths },
+        )
+        .await
     }
 
     /// Join the collected mapping onto the `.gw` and report what an import
     /// would do, without doing it. The preview step.
     pub async fn preview_geneanet_import(
         &self,
+        tree_id: Uuid,
         body: &GeneanetPreviewBody,
     ) -> Result<GeneanetPreview, ApiError> {
-        self.post_read("/api/v1/geneanet/preview", body).await
+        self.post_read(&format!("/api/v1/trees/{tree_id}/geneanet/preview"), body)
+            .await
     }
 
     /// Encode a collected session as the JSON the wizard writes to disk.
@@ -5848,13 +5863,14 @@ impl ApiClient {
     /// hand in the UI.
     pub async fn encode_geneanet_session(
         &self,
+        tree_id: Uuid,
         body: &GeneanetSessionBody,
     ) -> Result<Vec<u8>, ApiError> {
         // The archive itself, not JSON around it: the wizard writes these
         // bytes straight to the file the user chose, and wrapping a ZIP in
         // JSON would only base64 it again — the very thing the container
         // exists to stop.
-        let url = self.url("/api/v1/geneanet/session/encode");
+        let url = self.url(&format!("/api/v1/trees/{tree_id}/geneanet/session/encode"));
         let resp = self
             .send_request("POST", self.client.post(&url).json(body))
             .await?;
@@ -5865,8 +5881,8 @@ impl ApiClient {
     /// Where the web build reads a saved session, which the browser sends
     /// from the file the user picked.
     #[cfg(target_arch = "wasm32")]
-    pub fn geneanet_session_read_url(&self) -> String {
-        self.url("/api/v1/geneanet/session/read")
+    pub fn geneanet_session_read_url(&self, tree_id: Uuid) -> String {
+        self.url(&format!("/api/v1/trees/{tree_id}/geneanet/session/read"))
     }
 
     /// Where the web build imports a `.gw` with a saved session, both sent
@@ -5879,13 +5895,15 @@ impl ApiClient {
     /// Read a saved session back, checking it really is one.
     pub async fn decode_geneanet_session(
         &self,
+        tree_id: Uuid,
         body: reqwest::Body,
     ) -> Result<GeneanetSession, ApiError> {
+        let url = self.url(&format!("/api/v1/trees/{tree_id}/geneanet/session/decode"));
         let response = self
             .send_request(
                 "POST",
                 self.client
-                    .post(self.url("/api/v1/geneanet/session/decode"))
+                    .post(url)
                     .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
                     .body(body),
             )
@@ -5895,12 +5913,19 @@ impl ApiClient {
 
     /// Let the backend delete the photos a decoded session staged, once the
     /// wizard no longer needs them. Paths it did not stage are ignored.
-    pub async fn release_geneanet_session_media(&self, paths: Vec<String>) -> Result<(), ApiError> {
-        self.post_no_content(
-            "/api/v1/geneanet/session/release",
-            &serde_json::json!({ "paths": paths }),
-        )
-        .await
+    /// Nothing of the tree changes: its cached reads stay.
+    pub async fn release_geneanet_session_media(
+        &self,
+        tree_id: Uuid,
+        paths: Vec<String>,
+    ) -> Result<(), ApiError> {
+        let url = self.url(&format!("/api/v1/trees/{tree_id}/geneanet/session/release"));
+        let body = serde_json::json!({ "paths": paths });
+        let response = self
+            .send_request("POST", self.client.post(&url).json(&body))
+            .await?;
+        Self::require_success(response).await?;
+        Ok(())
     }
 
     /// Ask what the login window has to fetch before an import can run.
@@ -5910,9 +5935,11 @@ impl ApiClient {
     /// has to come through the window the user signed in to.
     pub async fn plan_geneanet_import(
         &self,
+        tree_id: Uuid,
         body: &GeneanetPreviewBody,
     ) -> Result<GeneanetPlan, ApiError> {
-        self.post_read("/api/v1/geneanet/plan", body).await
+        self.post_read(&format!("/api/v1/trees/{tree_id}/geneanet/plan"), body)
+            .await
     }
 
     /// Stage every local input and queue the Geneanet import. The import step.
@@ -6862,7 +6889,7 @@ mod tests {
             ),
             ("/api/v1/trees".to_string(), None),
             ("/api/v1/trees/not-an-id/persons".to_string(), None),
-            ("/api/v1/geneanet/plan".to_string(), None),
+            ("/api/v1/reference/basemap".to_string(), None),
         ];
         for (path, expected) in cases {
             assert_eq!(tree_of_path(&path), expected, "{path}");

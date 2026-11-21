@@ -3,7 +3,8 @@
 //! Decoding, encoding and releasing a session exchange paths of the
 //! server's own disk: the desktop's backend serves them, over REST alone.
 //! Reading a session and importing one sent with its `.gw` exchange none,
-//! and are served everywhere, on both surfaces.
+//! and are served everywhere, on both surfaces. Every one of them names the
+//! tree the wizard was opened from.
 
 use crate::common;
 
@@ -11,7 +12,6 @@ use axum::{body::Body, http::Request};
 use base64::Engine as _;
 use http_body_util::BodyExt;
 use oxidgene_api::{AppState, build_router};
-use oxidgene_db::repo::connect;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -22,6 +22,7 @@ async fn rest_session_contract() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
+    let tree_id = create_tree(&app).await;
     let collection = json!({"deposits": [], "references": [], "view_references": {}});
     let archive = oxidgene_geneanet::session::encode(&oxidgene_geneanet::session::Session {
         collection: collection.to_string(),
@@ -40,7 +41,7 @@ async fn rest_session_contract() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/v1/geneanet/session/decode")
+                    .uri(wizard(&tree_id, "geneanet/session/decode"))
                     .header("content-type", "application/octet-stream")
                     .body(Body::from(bytes))
                     .unwrap(),
@@ -67,6 +68,7 @@ async fn a_session_deposit_size_past_the_signed_range_is_refused() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
+    let tree_id = create_tree(&app).await;
     let archive = oxidgene_geneanet::session::encode(&oxidgene_geneanet::session::Session {
         collection: json!({"deposits": [], "references": [], "view_references": {}}).to_string(),
         deposit_sizes: std::collections::HashMap::from([(1, u64::MAX)]),
@@ -79,7 +81,7 @@ async fn a_session_deposit_size_past_the_signed_range_is_refused() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/geneanet/session/decode")
+                .uri(wizard(&tree_id, "geneanet/session/decode"))
                 .header("content-type", "application/octet-stream")
                 .body(Body::from(archive.clone()))
                 .unwrap(),
@@ -96,8 +98,11 @@ async fn a_session_deposit_size_past_the_signed_range_is_refused() {
     {
         let response = common::gql(
             &app,
-            "query($archive: String!) { readGeneanetSession(archiveBase64: $archive) { depositSizes { size } } }",
-            json!({ "archive": base64::engine::general_purpose::STANDARD.encode(archive) }),
+            "query($tree: ID!, $archive: String!) { readGeneanetSession(treeId: $tree, archiveBase64: $archive) { depositSizes { size } } }",
+            json!({
+                "tree": tree_id,
+                "archive": base64::engine::general_purpose::STANDARD.encode(archive),
+            }),
         )
         .await;
         assert_eq!(
@@ -150,11 +155,12 @@ async fn check_archive(body: Body, expected_media_size: Option<usize>) {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
+    let tree_id = create_tree(&app).await;
     let response = app
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/geneanet/session/decode")
+                .uri(wizard(&tree_id, "geneanet/session/decode"))
                 .header("content-type", "application/zip")
                 .body(body)
                 .unwrap(),
@@ -194,9 +200,11 @@ async fn supplied_session_archive_loads_without_logging_its_contents() {
 
 #[tokio::test]
 async fn standalone_server_has_no_session_decoding_and_reads_none_of_its_body() {
-    let db = connect("sqlite::memory:").await.unwrap();
+    let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()));
+    // On a tree that exists: the `404` is the route's, not the tree's.
+    let tree_id = create_tree(&app).await;
     let body = Body::from_stream(futures_util::stream::poll_fn(
         |_| -> std::task::Poll<Option<Result<Vec<u8>, std::io::Error>>> {
             panic!("a route that does not exist must not consume the body");
@@ -206,13 +214,18 @@ async fn standalone_server_has_no_session_decoding_and_reads_none_of_its_body() 
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/geneanet/session/decode")
+                .uri(wizard(&tree_id, "geneanet/session/decode"))
                 .body(body)
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+}
+
+/// The address of the wizard's `step` for tree `tree_id`.
+fn wizard(tree_id: &str, step: &str) -> String {
+    format!("/api/v1/trees/{tree_id}/{step}")
 }
 
 /// POST `body` as JSON to `uri` and return the status with the JSON answer.
@@ -244,6 +257,7 @@ async fn rest_releases_staged_session_media() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
+    let tree_id = create_tree(&app).await;
     let archive = oxidgene_geneanet::session::encode(&oxidgene_geneanet::session::Session {
         collection: json!({"deposits": [], "references": [], "view_references": {}}).to_string(),
         media: std::collections::HashMap::from([(
@@ -258,7 +272,7 @@ async fn rest_releases_staged_session_media() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/geneanet/session/decode")
+                .uri(wizard(&tree_id, "geneanet/session/decode"))
                 .header("content-type", "application/octet-stream")
                 .body(Body::from(archive))
                 .unwrap(),
@@ -278,7 +292,7 @@ async fn rest_releases_staged_session_media() {
 
     let (status, _) = post_json(
         &app,
-        "/api/v1/geneanet/session/release",
+        &wizard(&tree_id, "geneanet/session/release"),
         json!({ "paths": paths }),
     )
     .await;
@@ -294,9 +308,11 @@ async fn standalone_server_has_no_session_media_to_release() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()));
+    // On a tree that exists: the `404` is the route's, not the tree's.
+    let tree_id = create_tree(&app).await;
     let (status, _) = post_json(
         &app,
-        "/api/v1/geneanet/session/release",
+        &wizard(&tree_id, "geneanet/session/release"),
         json!({ "paths": ["/tmp/oxidgene-geneanet-fixture"] }),
     )
     .await;
@@ -321,6 +337,7 @@ async fn rest_encoded_session_carries_every_medium() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
+    let tree_id = create_tree(&app).await;
     let collection = json!({"deposits": [], "references": [], "view_references": {}}).to_string();
     let medium = root.path().join("medium.jpg");
     std::fs::write(&medium, b"picture").unwrap();
@@ -334,7 +351,7 @@ async fn rest_encoded_session_carries_every_medium() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/v1/geneanet/session/encode")
+                    .uri(wizard(&tree_id, "geneanet/session/encode"))
                     .header("content-type", "application/json")
                     .body(Body::from(
                         json!({"collection": collection, "media": {url: path}}).to_string(),
@@ -403,6 +420,7 @@ async fn a_session_is_read_without_local_files(graphql: bool) {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()));
+    let tree_id = create_tree(&app).await;
     for (bytes, accepted) in [
         (session_with_one_photo(), true),
         (b"not a session".to_vec(), false),
@@ -410,8 +428,11 @@ async fn a_session_is_read_without_local_files(graphql: bool) {
         let result = if graphql {
             let response = common::gql(
                 &app,
-                "query($archive: String!) { readGeneanetSession(archiveBase64: $archive) { collection photoCount mediaUrls } }",
-                json!({ "archive": base64::engine::general_purpose::STANDARD.encode(&bytes) }),
+                "query($tree: ID!, $archive: String!) { readGeneanetSession(treeId: $tree, archiveBase64: $archive) { collection photoCount mediaUrls } }",
+                json!({
+                    "tree": tree_id,
+                    "archive": base64::engine::general_purpose::STANDARD.encode(&bytes),
+                }),
             )
             .await;
             assert_eq!(response.get("errors").is_none(), accepted, "{response}");
@@ -422,7 +443,7 @@ async fn a_session_is_read_without_local_files(graphql: bool) {
                 .oneshot(
                     Request::builder()
                         .method("POST")
-                        .uri("/api/v1/geneanet/session/read")
+                        .uri(wizard(&tree_id, "geneanet/session/read"))
                         .header("content-type", "application/octet-stream")
                         .body(Body::from(bytes))
                         .unwrap(),
@@ -666,12 +687,13 @@ async fn save_session_with_archive(
 ) -> Vec<u8> {
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(setup_db().await, root.path()).with_local_file_access());
+    let tree_id = create_tree(&app).await;
     let archive = archive.to_string_lossy().into_owned();
     let response = app
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/api/v1/geneanet/session/encode")
+                .uri(wizard(&tree_id, "geneanet/session/encode"))
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({
@@ -786,6 +808,7 @@ async fn a_preview_names_a_path_only_with_an_archive() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()));
+    let tree_id = create_tree(&app).await;
     for (archive_paths, accepted) in [(json!([]), true), (json!(["/does/not/exist.zip"]), false)] {
         let body = json!({
             "gw_base64": base64::engine::general_purpose::STANDARD.encode(GENEWEB),
@@ -793,16 +816,16 @@ async fn a_preview_names_a_path_only_with_an_archive() {
             "collection": json!({"deposits": [], "references": [], "view_references": {}}).to_string(),
             "archive_paths": archive_paths,
         });
-        for uri in ["/api/v1/geneanet/preview", "/api/v1/geneanet/plan"] {
-            let (status, value) = post_json(&app, uri, body.clone()).await;
-            assert_eq!(status.is_success(), accepted, "{uri}: {value}");
+        for step in ["geneanet/preview", "geneanet/plan"] {
+            let (status, value) = post_json(&app, &wizard(&tree_id, step), body.clone()).await;
+            assert_eq!(status.is_success(), accepted, "{step}: {value}");
         }
         #[cfg(feature = "graphql")]
         {
             let response = common::gql(
                 &app,
-                "query($input: GeneanetPreviewInput!) { geneanetPreview(input: $input) { personCount } geneanetPlan(input: $input) { url } }",
-                json!({ "input": {
+                "query($tree: ID!, $input: GeneanetPreviewInput!) { geneanetPreview(treeId: $tree, input: $input) { personCount } geneanetPlan(treeId: $tree, input: $input) { url } }",
+                json!({ "tree": tree_id, "input": {
                     "gwBase64": base64::engine::general_purpose::STANDARD.encode(GENEWEB),
                     "fileName": "family.gw",
                     "collection": json!({"deposits": [], "references": [], "view_references": {}}).to_string(),
@@ -812,8 +835,8 @@ async fn a_preview_names_a_path_only_with_an_archive() {
             assert!(response.get("errors").is_none(), "{response}");
             let named = common::gql(
                 &app,
-                "query($input: GeneanetPreviewInput!) { geneanetPreview(input: $input) { personCount } }",
-                json!({ "input": {
+                "query($tree: ID!, $input: GeneanetPreviewInput!) { geneanetPreview(treeId: $tree, input: $input) { personCount } }",
+                json!({ "tree": tree_id, "input": {
                     "gwBase64": base64::engine::general_purpose::STANDARD.encode(GENEWEB),
                     "fileName": "family.gw",
                     "collection": "{}",
