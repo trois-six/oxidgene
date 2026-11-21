@@ -22,10 +22,12 @@ use std::path::Path;
 
 use oxidgene_guards::{files, read, relative, root, without_test_modules};
 
-/// Each image: its Dockerfile and the workspace package it builds.
+/// Each image: its Dockerfile and the workspace package it builds. The
+/// server and the worker are two targets of one Dockerfile, whose builder
+/// stage compiles both.
 const IMAGES: &[(&str, &str)] = &[
-    ("docker/Dockerfile.server", "oxidgene-server"),
-    ("docker/Dockerfile.worker", "oxidgene-worker"),
+    ("docker/Dockerfile.backend", "oxidgene-server"),
+    ("docker/Dockerfile.backend", "oxidgene-worker"),
     ("docker/Dockerfile.web", "oxidgene-web"),
 ];
 
@@ -190,6 +192,31 @@ fn the_server_and_the_worker_ship_with_the_unwinding_profile() {
         }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn the_backend_dockerfile_has_a_target_for_each_image() {
+    let dockerfile = read("docker/Dockerfile.backend");
+    for target in ["server", "worker"] {
+        assert!(
+            dockerfile.contains(&format!("FROM runtime AS {target}\n")),
+            "docker/Dockerfile.backend lost its `{target}` target, which Compose, the \
+             chart's images and the release workflow build"
+        );
+        assert!(
+            dockerfile.contains(&format!("ENTRYPOINT [\"oxidgene-{target}\"]")),
+            "the `{target}` target of docker/Dockerfile.backend does not start oxidgene-{target}"
+        );
+    }
+    for consumer in ["docker/docker-compose.yml", ".github/workflows/release.yml"] {
+        let text = read(consumer);
+        for target in ["server", "worker"] {
+            assert!(
+                text.contains(&format!("target: {target}\n")),
+                "{consumer} no longer builds the `{target}` target of docker/Dockerfile.backend"
+            );
+        }
+    }
 }
 
 #[test]

@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T16:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -676,7 +676,7 @@ failing).
 | Select styling | 1 | `just test` (`oxidgene-guards`) | Repository guards | One global rule draws every select without its native appearance; no rule restyling a select erases its arrow (`background` shorthand) or takes back the arrow's room (`padding`) |
 | Raw HTML | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every `dangerous_inner_html` is declared with its sanitizer |
 | UI tracing coverage | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every route opens its page's load trace; no plain `use_resource` |
-| Docker image assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file under `assets/` that a crate of the server's, the worker's or the web frontend's image embeds or reads at build time is copied into that image's builder stage; the server's and the worker's images are built with the `server` Cargo profile, which unwinds on a panic |
+| Docker image assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file under `assets/` that a crate of the server's, the worker's or the web frontend's image embeds or reads at build time is copied into that image's builder stage; the server's and the worker's images are the `server` and `worker` targets of `docker/Dockerfile.backend`, which Compose and the release build, and are built with the `server` Cargo profile, which unwinds on a panic |
 | Vendored pdf.js | 1 | `just test` (`oxidgene-guards`) | Repository guards | `assets/public/pdfjs/` holds one release of pdf.js's legacy build, in the directory named after the release its `VERSION` names, holding every file the PDF viewer loads and its licences (§2.6) |
 | Versioned assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file the web bundle serves under a stable name is the page or the deployment's configuration: the rest are `dx`'s hashed files and the files of `assets/public/` under a release directory; nginx answers those immutable and the page `no-cache`; every picture the UI addresses carries its version ([Architecture §4.3](architecture.md#43-versioned-assets)) |
 | Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |
@@ -1315,8 +1315,8 @@ not match both the Cargo workspace version and the Helm chart `appVersion`.
 
 A successful run publishes:
 
-- `oxidgene-server` and `oxidgene-web` multi-architecture images to GitHub
-   Container Registry with immutable version tags and a moving `latest` tag,
+- `oxidgene-server`, `oxidgene-worker` and `oxidgene-web` multi-architecture
+   images to GitHub Container Registry with immutable version tags and a moving `latest` tag,
    once the end-to-end suite passed against them (below);
 - the OxidGene chart as an OCI artifact under `ghcr.io/trois-six/charts`;
 - the desktop for Linux, macOS, and Windows; and
@@ -1339,8 +1339,10 @@ nothing.
 The deliverables are tested as they ship, before anything carries the
 release's version:
 
-- **Images.** The `images` job builds each image for both architectures and
-  pushes it to the registry by digest only, untagged. The `e2e` job starts
+- **Images.** The `images` job builds each image for both architectures —
+  the server and the worker from the `server` and `worker` targets of
+  `docker/Dockerfile.backend`, the web image from `docker/Dockerfile.web` —
+  and pushes it to the registry by digest only, untagged. The `e2e` job starts
   those very digests with `docker/docker-compose.e2e.yml` — PostgreSQL, the
   server, the web image and an ingress serving both from one origin, as the
   chart's does — and runs the whole Playwright suite of `e2e/` against them

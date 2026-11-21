@@ -1,0 +1,81 @@
+# The server's and the worker's images, two targets of one build:
+#
+#   docker build -f docker/Dockerfile.backend --target server .
+#   docker build -f docker/Dockerfile.backend --target worker .
+#
+# Both share the builder stage, which compiles the two binaries in one Cargo
+# invocation, so building one image after the other compiles once.
+
+# ── Builder stage ──────────────────────────────────────────────────────
+FROM rust:1-slim-trixie AS builder
+
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential ca-certificates cmake pkg-config && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+COPY apps/ apps/
+# Embedded into the API at build time (see docs/place-dictionary.md).
+COPY assets/places/ assets/places/
+COPY assets/basemap/ assets/basemap/
+COPY assets/reference/ assets/reference/
+# The archive catalogue and citation vocabularies oxidgene-archives' build
+# script embeds.
+COPY assets/archives/ assets/archives/
+COPY assets/citations/ assets/citations/
+# The mail templates the API embeds (docs/messaging.md §3).
+COPY assets/mail/ assets/mail/
+
+# The `server` profile: release, but a panic unwinds (the root manifest
+# says why).
+RUN cargo build --locked --profile server --package oxidgene-server --package oxidgene-worker
+
+# ── Runtime base ───────────────────────────────────────────────────────
+FROM debian:trixie-slim AS runtime
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    groupadd --gid 1000 oxidgene && \
+    useradd --uid 1000 --gid oxidgene --create-home oxidgene && \
+    install -d -o oxidgene -g oxidgene /var/cache/oxidgene
+
+WORKDIR /home/oxidgene
+
+ENV OXIDGENE_LOG_LEVEL=info
+ENV OXIDGENE_LOG_FORMAT=json
+# Job scratch and staged uploads, on disk: an import stages files as large
+# as the archives it reads. Mount a volume here to keep them off the
+# container's writable layer.
+ENV OXIDGENE_WORK_DIR=/var/cache/oxidgene
+
+# ── Server ─────────────────────────────────────────────────────────────
+FROM runtime AS server
+
+# curl, for the Compose stack's health check.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/target/server/oxidgene-server /usr/local/bin/oxidgene-server
+
+USER oxidgene
+
+EXPOSE 8080
+
+ENV OXIDGENE_HOST=127.0.0.1
+ENV OXIDGENE_PORT=8080
+
+ENTRYPOINT ["oxidgene-server"]
+
+# ── Worker ─────────────────────────────────────────────────────────────
+FROM runtime AS worker
+
+COPY --from=builder /app/target/server/oxidgene-worker /usr/local/bin/oxidgene-worker
+
+USER oxidgene
+
+ENTRYPOINT ["oxidgene-worker"]

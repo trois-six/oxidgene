@@ -369,9 +369,12 @@ jobs:
   containers:
     name: Build ${{ matrix.name }} image
     needs: changes
-    # These builds gate Renovate automerge. Tagged releases rebuild and publish
-    # the production images in release.yml.
-    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'renovate[bot]' && startsWith(github.head_ref, 'renovate/automerge-') && needs.changes.outputs.containers == 'true'
+    # These builds check Renovate's pull requests that touch docker/: the
+    # ones it merges by itself and the ones that wait for a review, as every
+    # update of the published images' Dockerfiles does (renovate.json).
+    # Tagged releases rebuild and publish the production images in
+    # release.yml.
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'renovate[bot]' && needs.changes.outputs.containers == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -379,10 +382,18 @@ jobs:
         include:
           - name: CI
             dockerfile: docker/Dockerfile.ci
-          - name: server
-            dockerfile: docker/Dockerfile.server
+            target: ""
+            then: ""
+          # Two targets of one Dockerfile, built one after the other: the
+          # second reuses the builder stage of the first.
+          - name: backend
+            dockerfile: docker/Dockerfile.backend
+            target: server
+            then: worker
           - name: web
             dockerfile: docker/Dockerfile.web
+            target: ""
+            then: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -399,9 +410,20 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           push: false
           cache-from: type=gha,scope=validate-${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=validate-${{ matrix.name }}
+
+      - name: Build the second target
+        if: matrix.then != ''
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.then }}
+          push: false
+          cache-from: type=gha,scope=validate-${{ matrix.name }}
 
   helm:
     name: Validate Helm chart

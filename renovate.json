@@ -148,7 +148,7 @@
     },
     {
       "description": "Never automerge what a release publishes with: the Dockerfiles of the published images, their base images' digests included. Listed after the automerge rules because the last matching rule wins",
-      "matchFileNames": ["docker/Dockerfile.server", "docker/Dockerfile.worker", "docker/Dockerfile.web"],
+      "matchFileNames": ["docker/Dockerfile.backend", "docker/Dockerfile.web"],
       "additionalBranchPrefix": "",
       "automerge": false
     },

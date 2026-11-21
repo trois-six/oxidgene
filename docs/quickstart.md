@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-10-31T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:00:00Z }
 ---
 
 # OxidGene Quickstart
@@ -338,19 +338,26 @@ across failure domains in production.
 ### Obtain the OCI images
 
 Each version tag publishes `linux/amd64` and `linux/arm64` images to
-`ghcr.io/trois-six/oxidgene-server` and
+`ghcr.io/trois-six/oxidgene-server`, `ghcr.io/trois-six/oxidgene-worker` and
 `ghcr.io/trois-six/oxidgene-web`. Until the first tagged release, or when using
-a development revision, build and push both images to a registry the cluster
-can pull from:
+a development revision, build and push the three images to a registry the
+cluster can pull from. The server and the worker are two targets of one
+Dockerfile, which compiles both once:
 
 ```bash
-docker build -f docker/Dockerfile.server \
+docker build -f docker/Dockerfile.backend --target server \
   -t registry.example.invalid/oxidgene-server:0.1.0 .
+docker build -f docker/Dockerfile.backend --target worker \
+  -t registry.example.invalid/oxidgene-worker:0.1.0 .
 docker build -f docker/Dockerfile.web \
   -t registry.example.invalid/oxidgene-web:0.1.0 .
 docker push registry.example.invalid/oxidgene-server:0.1.0
+docker push registry.example.invalid/oxidgene-worker:0.1.0
 docker push registry.example.invalid/oxidgene-web:0.1.0
 ```
+
+Name the three in the values file (`backend.image`, `worker.image`,
+`frontend.image`): the worker runs whenever PostgreSQL and S3 are enabled.
 
 The OxidGene runtime images use Debian Trixie. RustFS 1.0.1 has no
 official Trixie variant, so the chart uses its official Alpine image.

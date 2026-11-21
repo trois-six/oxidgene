@@ -192,7 +192,8 @@ services:
   server:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.server
+      dockerfile: docker/Dockerfile.backend
+      target: server
     restart: unless-stopped
     environment:
       OXIDGENE_HOST: "0.0.0.0"
@@ -244,10 +245,13 @@ services:
       start_period: 10s
 
   # ── OxidGene import/export worker ───────────────────────────────────
+  # The same Dockerfile as the server: the two builds share its builder
+  # stage, which compiles both binaries once.
   worker:
     build:
       context: ..
-      dockerfile: docker/Dockerfile.worker
+      dockerfile: docker/Dockerfile.backend
+      target: worker
     restart: unless-stopped
     environment:
       OXIDGENE_DATABASE_URL: "postgres://oxidgene:oxidgene@postgres/oxidgene"

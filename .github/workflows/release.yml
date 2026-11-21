@@ -102,11 +102,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # The server and the worker are two targets of one Dockerfile; the
+        # web image is its Dockerfile's last stage.
         include:
           - image: oxidgene-server
-            dockerfile: docker/Dockerfile.server
+            dockerfile: docker/Dockerfile.backend
+            target: server
+          - image: oxidgene-worker
+            dockerfile: docker/Dockerfile.backend
+            target: worker
           - image: oxidgene-web
             dockerfile: docker/Dockerfile.web
+            target: ""
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -129,6 +136,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           provenance: mode=max
           sbom: true
@@ -159,7 +167,9 @@ jobs:
 
   # The Playwright suite of e2e/ against the images just built, started with
   # docker/docker-compose.e2e.yml: PostgreSQL, the server, the web bundle and
-  # an ingress serving both from one origin (docs/development.md §2.7).
+  # an ingress serving both from one origin (docs/development.md §2.7). The
+  # server keeps its media on its own disk there and runs the jobs itself, so
+  # the worker's image, built from the same stage, is not started.
   e2e:
     name: End-to-end tests of the images
     needs: images
@@ -246,7 +256,7 @@ jobs:
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
         run: |
-          for image in oxidgene-server oxidgene-web; do
+          for image in oxidgene-server oxidgene-worker oxidgene-web; do
             name="${REGISTRY}/${{ github.repository_owner }}/$image"
             docker buildx imagetools create \
               --tag "$name:$VERSION" \
