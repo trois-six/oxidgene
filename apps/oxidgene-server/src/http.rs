@@ -269,7 +269,11 @@ mod tests {
             .await
             .expect("no store to reach");
         assert_eq!(auth.mode_name(), "none");
-        let db = oxidgene_api::startup::connect_and_migrate("sqlite::memory:").await;
+        let db = oxidgene_api::startup::connect_and_migrate(
+            "sqlite::memory:",
+            &oxidgene_api::startup::DatabaseSettings::server(),
+        )
+        .await;
         let media = std::env::temp_dir().join("oxidgene-server-none-mode-test");
         let state = AppState::new(db, media).with_auth(std::sync::Arc::new(auth));
         let app = app(

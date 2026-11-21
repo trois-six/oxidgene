@@ -4,7 +4,7 @@ use oxidgene_core::error::OxidGeneError;
 use sea_orm::sqlx::sqlite::{SqliteAutoVacuum, SqliteJournalMode, SqliteSynchronous};
 use sea_orm::{
     ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection,
-    DatabaseTransaction, DbErr, Statement,
+    DatabaseTransaction, DbErr, Statement, TransactionTrait,
 };
 use sea_orm_migration::MigratorTrait;
 use std::time::Duration;
@@ -20,12 +20,88 @@ use crate::Migrator;
 /// ours to change and to document.
 pub const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// How long a request waits for a connection of the pool before it fails:
-/// under SQLite, for the single writer another write holds — an import, for
-/// its whole transaction. SQLx's own default, set explicitly. A request
-/// that waited in vain is answered as busy, to be sent again
+/// How long a request waits for a connection of the pool before it fails,
+/// unless [`DatabaseSettings::acquire_timeout`] says otherwise: under
+/// SQLite, for the single writer another write holds — an import, for its
+/// whole transaction. SQLx's own default, set explicitly. A request that
+/// waited in vain is answered as busy, to be sent again
 /// (docs/cross-cutting.md §4.2).
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The pool and session limits a process connects with
+/// (docs/quickstart.md, Server configuration: `OXIDGENE_DB_*`).
+///
+/// The pool's size and the three session timeouts apply to PostgreSQL: a
+/// SQLite database has one writer whatever the size asked, and waits for a
+/// lock as [`SQLITE_BUSY_TIMEOUT`] says. A timeout of `None` sets no limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DatabaseSettings {
+    /// The most connections the PostgreSQL pool opens.
+    pub max_connections: u32,
+    /// How long a request waits for a connection of the pool.
+    pub acquire_timeout: Duration,
+    /// PostgreSQL's `statement_timeout`: a statement running longer is
+    /// cancelled.
+    pub statement_timeout: Option<Duration>,
+    /// PostgreSQL's `lock_timeout`: a statement waiting longer for a lock —
+    /// a tree's, another writer holding it — fails as busy.
+    pub lock_timeout: Option<Duration>,
+    /// PostgreSQL's `idle_in_transaction_session_timeout`: a session left
+    /// idle inside a transaction longer is ended, and its locks released.
+    pub idle_in_transaction_timeout: Option<Duration>,
+}
+
+impl DatabaseSettings {
+    /// What a process answering requests connects with: a request's
+    /// statement is short, and one that waits half a minute for a tree
+    /// another writer holds is better answered as busy.
+    pub const fn server() -> Self {
+        Self {
+            max_connections: 10,
+            acquire_timeout: ACQUIRE_TIMEOUT,
+            statement_timeout: Some(Duration::from_secs(120)),
+            lock_timeout: Some(Duration::from_secs(30)),
+            idle_in_transaction_timeout: Some(Duration::from_secs(300)),
+        }
+    }
+
+    /// What a process running jobs connects with: an import's transaction
+    /// lasts as long as the import, computes between its statements, and
+    /// may wait for a writer of its tree.
+    pub const fn worker() -> Self {
+        Self {
+            max_connections: 10,
+            acquire_timeout: ACQUIRE_TIMEOUT,
+            statement_timeout: None,
+            lock_timeout: Some(Duration::from_secs(300)),
+            idle_in_transaction_timeout: None,
+        }
+    }
+
+    /// The session parameters PostgreSQL is given at connection, in
+    /// milliseconds; `0` sets no limit.
+    #[cfg(feature = "postgres")]
+    fn session_parameters(&self) -> [(&'static str, String); 3] {
+        let millis = |timeout: Option<Duration>| {
+            timeout.map_or(0, |timeout| timeout.as_millis()).to_string()
+        };
+        [
+            ("statement_timeout", millis(self.statement_timeout)),
+            ("lock_timeout", millis(self.lock_timeout)),
+            (
+                "idle_in_transaction_session_timeout",
+                millis(self.idle_in_transaction_timeout),
+            ),
+        ]
+    }
+}
+
+impl Default for DatabaseSettings {
+    /// [`Self::server`].
+    fn default() -> Self {
+        Self::server()
+    }
+}
 
 /// Connect to a database using the provided URL.
 ///
@@ -59,11 +135,23 @@ pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
 /// changes nothing until a `VACUUM` (see [`run_migrations`]'s reclaiming
 /// pass).
 pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
+    connect_with(database_url, &DatabaseSettings::default()).await
+}
+
+/// [`connect`], with the pool and session limits `settings` gives.
+pub async fn connect_with(
+    database_url: &str,
+    settings: &DatabaseSettings,
+) -> Result<DatabaseConnection, DbErr> {
     let mut opts = ConnectOptions::new(database_url);
     opts.sqlx_logging(false);
     // SeaORM records the parameterized statement; bound values remain separate.
     opts.record_stmt_in_spans(true);
-    opts.acquire_timeout(ACQUIRE_TIMEOUT);
+    opts.acquire_timeout(settings.acquire_timeout);
+    // SQLite keeps SeaORM's single writer: a second one would only wait.
+    if !database_url.starts_with("sqlite:") {
+        opts.max_connections(settings.max_connections);
+    }
     opts.map_sqlx_sqlite_opts(|sqlite| {
         sqlite
             .auto_vacuum(SqliteAutoVacuum::Incremental)
@@ -78,7 +166,11 @@ pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
     // No console filter short of `trace` shows these events.
     opts.map_sqlx_sqlite_pool_opts(|pool| pool.acquire_time_level(log::LevelFilter::Trace));
     #[cfg(feature = "postgres")]
-    opts.map_sqlx_postgres_pool_opts(|pool| pool.acquire_time_level(log::LevelFilter::Trace));
+    {
+        opts.map_sqlx_postgres_pool_opts(|pool| pool.acquire_time_level(log::LevelFilter::Trace));
+        let session = settings.session_parameters();
+        opts.map_sqlx_postgres_opts(move |postgres| postgres.options(session.clone()));
+    }
     let db = Database::connect(opts).await?;
     info!("Connected to database");
     Ok(db)
@@ -181,11 +273,45 @@ fn is_file_backed_sqlite(database_url: &str) -> bool {
 /// span of its own each of its statements would be a trace by itself.
 #[tracing::instrument(name = "startup.migrate", skip_all)]
 pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
-    Migrator::up(db, None).await?;
+    migrate(db).await?;
     info!("Migrations applied successfully");
     reclaim_free_pages(db).await;
     optimize_statistics(db).await;
     Ok(())
+}
+
+/// The class of the PostgreSQL advisory lock a process holds while it
+/// migrates a schema: an arbitrary constant, "Oxid" in ASCII, that no other
+/// use of advisory locks in the database shares. The lock's second key is
+/// the schema's name, hashed: two schemas of one database migrate side by
+/// side.
+const MIGRATION_LOCK: i32 = 0x4f78_6964;
+
+/// Apply the pending migrations, one process at a time.
+///
+/// The server and the worker each migrate at start, and a deployment starts
+/// several replicas of both at once: two of them creating the same table
+/// would fail one. Under PostgreSQL the migrations run in one transaction
+/// that first takes an advisory lock, so the second process waits for the
+/// first to commit and then finds nothing left to apply. That transaction
+/// lifts the session's timeouts: a migration may run, and wait, longer than
+/// a request. SQLite has one writer, and a file one process to migrate it.
+async fn migrate(db: &DatabaseConnection) -> Result<(), DbErr> {
+    if db.get_database_backend() != DatabaseBackend::Postgres {
+        return Migrator::up(db, None).await;
+    }
+    let txn = db.begin().await?;
+    txn.execute_unprepared(
+        "SET LOCAL statement_timeout = 0; SET LOCAL lock_timeout = 0; \
+         SET LOCAL idle_in_transaction_session_timeout = 0",
+    )
+    .await?;
+    txn.execute_unprepared(&format!(
+        "SELECT pg_advisory_xact_lock({MIGRATION_LOCK}, hashtext(current_schema()))"
+    ))
+    .await?;
+    Migrator::up(&txn, None).await?;
+    txn.commit().await
 }
 
 /// Refresh SQLite's query-planner statistics after a bulk load.
@@ -451,7 +577,6 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use sea_orm::TransactionTrait;
 
     /// The `acquired_after_secs` of every pool timing event.
     #[derive(Clone, Default)]

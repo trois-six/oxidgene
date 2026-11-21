@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T15:24:32Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:24:42Z }
 ---
 
 
@@ -194,6 +194,35 @@ pool is kept for anything else than a request: under PostgreSQL, a process
 listens to the notifications of the others on one connection of its own,
 opened beside the pool, for every channel
 ([§6.5](#65-waking-the-worker)).
+
+**PostgreSQL pool and session limits.** Each process connects with a pool
+and three session timeouts of its own (`DatabaseSettings`), which the
+`OXIDGENE_DB_*` variables replace
+([Quickstart](quickstart.md#server-configuration)): at most ten
+connections, a request waiting thirty seconds for one; the connection that
+listens to the other processes' notifications is opened beside the pool
+and is not counted in it, so a deployment's PostgreSQL must accept one more
+connection per process than its pool size. A process answering
+requests cancels a statement after 120 seconds (`statement_timeout`), waits
+30 seconds for a lock — the tree another writer holds — before answering
+`503 busy` (`lock_timeout`), and ends a session left idle in a transaction
+for 300 seconds, releasing its locks
+(`idle_in_transaction_session_timeout`). A process running jobs sets no
+statement nor idle limit — an import holds one transaction for as long as
+it lasts and computes between its statements — and waits 300 seconds for a
+tree. A server that runs the jobs itself, on SQLite or with a filesystem
+media store, takes the worker's limits. The limits are session parameters
+given at connection, so they hold for every connection of the pool; SQLite
+has none of them, its one writer waiting as the busy timeout says.
+
+**Migrations at start.** The server and the worker each bring the schema
+up to date when they start, and a deployment starts several replicas of
+both at once. Under PostgreSQL the pending migrations run in one
+transaction that first takes an advisory lock keyed by the schema
+(`pg_advisory_xact_lock`), with the session's timeouts lifted for its
+duration: the second process waits for the first to commit, then finds
+nothing left to apply. A SQLite file has one writer, and one process to
+migrate it.
 
 ### 4.1 Tree cache
 

@@ -7,6 +7,7 @@
 //! only once declared below; the `test_targets` guard keeps it so.
 
 mod common;
+mod connection_test;
 mod error_test;
 mod gedcom_kept_test;
 mod integrity_test;

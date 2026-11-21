@@ -72,7 +72,7 @@ use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
 use oxidgene_api::access::{AllowedHosts, LocalToken, allowed_hosts, require_local_token};
 use oxidgene_api::app_dirs::AppDirs;
 use oxidgene_api::startup::{
-    ReferenceWarmup, open_database, spawn_background_worker, with_health_check,
+    DatabaseSettings, ReferenceWarmup, open_database, spawn_background_worker, with_health_check,
 };
 use oxidgene_api::tree_cache::{CacheSettings, DEFAULT_IDLE};
 use oxidgene_api::workdir::WorkDir;
@@ -356,7 +356,7 @@ fn main() {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
             let reference_warmup = ReferenceWarmup::start();
-            let db = open_database(&database_url).await;
+            let db = open_database(&database_url, &DatabaseSettings::default()).await;
 
             // Same platform data directory the web server defaults to, so a
             // desktop tree exported and re-imported on the server finds its

@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-11-21T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:24:42Z }
 ---
 
 # OxidGene Quickstart
@@ -239,6 +239,11 @@ the Helm chart set these for you; a server run by hand reads:
 | `OXIDGENE_HOST` | `127.0.0.1` | Bind address. Keep loopback unless a trusted same-origin gateway is the only way in. |
 | `OXIDGENE_PORT` | `8080` | Bind port. |
 | `OXIDGENE_DATABASE_URL` | `postgres://oxidgene:oxidgene@localhost/oxidgene` | `postgres://…` or `sqlite://…`. Its password never reaches a log. |
+| `OXIDGENE_DB_MAX_CONNECTIONS` | `10` | The most connections the process's PostgreSQL pool opens. Every server and worker replica has a pool of its own: their sum must stay under the PostgreSQL server's `max_connections`. A SQLite database keeps its single writer whatever this says. |
+| `OXIDGENE_DB_ACQUIRE_TIMEOUT_SECS` | `30` | Seconds a request waits for a connection of the pool before it answers `503 busy`. |
+| `OXIDGENE_DB_STATEMENT_TIMEOUT_SECS` | `120` on the server, none on the worker | PostgreSQL's `statement_timeout`: a statement running longer is cancelled. `0` for none. |
+| `OXIDGENE_DB_LOCK_TIMEOUT_SECS` | `30` on the server, `300` on the worker | PostgreSQL's `lock_timeout`: a write that waits longer for the tree another writer holds — an import, for as long as it lasts — answers `503 busy`. `0` for none. |
+| `OXIDGENE_DB_IDLE_IN_TRANSACTION_TIMEOUT_SECS` | `300` on the server, none on the worker | PostgreSQL's `idle_in_transaction_session_timeout`: a session left idle in a transaction longer is ended, and its locks released. `0` for none. A server that runs the jobs itself — on SQLite, or with the filesystem media store — takes the worker's three timeouts ([Architecture §4](architecture.md#4-backend-architecture)). |
 | `OXIDGENE_LOG_LEVEL` | `info` | Tracing filter. |
 | `OXIDGENE_LOG_FORMAT` | `text` | Console format, `text` or `json`. |
 | `OXIDGENE_CORS_ORIGIN` | `http://127.0.0.1:8081` | The one browser origin that may call the API; `*` is refused. Writes from any other origin answer `403 forbidden`. |
@@ -796,6 +801,8 @@ repeat the warning.
 | `backend.allowedHosts` | `[]` | Further host names the API answers under (`OXIDGENE_ALLOWED_HOSTS`), for a client calling the backend Service directly. Any other `Host` is refused. |
 | `backend.logLevel` | `info` | `OXIDGENE_LOG_LEVEL` value. |
 | `backend.logFormat` | `json` | `OXIDGENE_LOG_FORMAT` value, `text` or `json`. With OTLP export enabled, a collector that also scrapes these lines receives every event twice. |
+| `backend.database.maxConnections`, `backend.database.acquireTimeoutSeconds` | `10`, `30` | The backend's PostgreSQL pool (`OXIDGENE_DB_MAX_CONNECTIONS`, `OXIDGENE_DB_ACQUIRE_TIMEOUT_SECS`). Every replica opens up to `maxConnections`: size them, with the worker's, against the PostgreSQL server's `max_connections`. |
+| `backend.database.statementTimeoutSeconds`, `backend.database.lockTimeoutSeconds`, `backend.database.idleInTransactionTimeoutSeconds` | `null` | The backend's PostgreSQL session timeouts (`OXIDGENE_DB_STATEMENT_TIMEOUT_SECS`, `OXIDGENE_DB_LOCK_TIMEOUT_SECS`, `OXIDGENE_DB_IDLE_IN_TRANSACTION_TIMEOUT_SECS`); `null` leaves the process its default, `0` sets none. |
 | `backend.otlpEndpoint` | `""` | Backend `OTEL_EXPORTER_OTLP_ENDPOINT`; empty disables its telemetry export and span creation. |
 | `backend.extraEnv` | `[]` | Additional container environment entries. |
 | `backend.resources` | See `values.yaml` | CPU and memory requests and limits. |
@@ -818,6 +825,7 @@ repeat the warning.
 | `worker.image.pullPolicy` | `IfNotPresent` | Kubernetes image pull policy. |
 | `worker.logLevel` | `info` | Worker `OXIDGENE_LOG_LEVEL` value. |
 | `worker.logFormat` | `json` | Worker `OXIDGENE_LOG_FORMAT` value, `text` or `json`. |
+| `worker.database.*` | As `backend.database.*` | The worker's own pool and session timeouts, the same five values; unset, it sets no statement nor idle limit and waits 300 seconds for a lock. |
 | `worker.otlpEndpoint` | `""` | Worker `OTEL_EXPORTER_OTLP_ENDPOINT`; empty disables its telemetry export and span creation. |
 | `worker.extraEnv` | `[]` | Additional worker container environment entries. |
 | `worker.resources` | See `values.yaml` | CPU and memory requests and limits. |

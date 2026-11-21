@@ -115,3 +115,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "oxidgene.s3SecretKeyKey" -}}
 {{- if eq .Values.s3.mode "rustfs" -}}secretkey{{- else -}}{{ .Values.s3.existing.secretKeyKey }}{{- end -}}
 {{- end }}
+
+{{/*
+The OXIDGENE_DB_* variables of a process, from its `database` values: a
+value left null is not set, and the process keeps its default.
+*/}}
+{{- define "oxidgene.databaseEnv" -}}
+{{- $names := dict "maxConnections" "OXIDGENE_DB_MAX_CONNECTIONS" "acquireTimeoutSeconds" "OXIDGENE_DB_ACQUIRE_TIMEOUT_SECS" "statementTimeoutSeconds" "OXIDGENE_DB_STATEMENT_TIMEOUT_SECS" "lockTimeoutSeconds" "OXIDGENE_DB_LOCK_TIMEOUT_SECS" "idleInTransactionTimeoutSeconds" "OXIDGENE_DB_IDLE_IN_TRANSACTION_TIMEOUT_SECS" -}}
+{{- range $key := list "maxConnections" "acquireTimeoutSeconds" "statementTimeoutSeconds" "lockTimeoutSeconds" "idleInTransactionTimeoutSeconds" }}
+{{- $value := get $ $key }}
+{{- if and (hasKey $ $key) (not (kindIs "invalid" $value)) }}
+- name: {{ get $names $key }}
+  value: {{ $value | int64 | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

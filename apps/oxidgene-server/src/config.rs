@@ -84,6 +84,7 @@ use oxidgene_api::auth::client::{InvalidTrustedProxies, TrustedProxies};
 use oxidgene_api::limits::{IntakeLimits, parse_size};
 use oxidgene_api::mail::MailSettings;
 use oxidgene_api::media::{FsStore, MediaStore, S3Store, S3StoreConfig};
+use oxidgene_api::startup::DatabaseSettings;
 use oxidgene_api::tree_cache::CacheSettings;
 use oxidgene_api::workdir::WorkDir;
 use oxidgene_observability::{InvalidLogFormat, LogFormat};
@@ -220,6 +221,28 @@ pub struct ServerConfig {
     /// before it interrupts it and gives it back to the queue.
     #[serde(default = "default_worker_shutdown_grace_secs")]
     pub worker_shutdown_grace_secs: u64,
+
+    /// The most connections of the PostgreSQL pool; the process's default
+    /// when unset.
+    #[serde(default)]
+    pub db_max_connections: Option<u32>,
+
+    /// How many seconds a request waits for a connection of the pool.
+    #[serde(default)]
+    pub db_acquire_timeout_secs: Option<u64>,
+
+    /// PostgreSQL's `statement_timeout`, in seconds; `0` for none.
+    #[serde(default)]
+    pub db_statement_timeout_secs: Option<u64>,
+
+    /// PostgreSQL's `lock_timeout`, in seconds; `0` for none.
+    #[serde(default)]
+    pub db_lock_timeout_secs: Option<u64>,
+
+    /// PostgreSQL's `idle_in_transaction_session_timeout`, in seconds; `0`
+    /// for none.
+    #[serde(default)]
+    pub db_idle_in_transaction_timeout_secs: Option<u64>,
 }
 
 impl std::fmt::Debug for ServerConfig {
@@ -254,6 +277,14 @@ impl std::fmt::Debug for ServerConfig {
             .field(
                 "worker_shutdown_grace_secs",
                 &self.worker_shutdown_grace_secs,
+            )
+            .field("db_max_connections", &self.db_max_connections)
+            .field("db_acquire_timeout_secs", &self.db_acquire_timeout_secs)
+            .field("db_statement_timeout_secs", &self.db_statement_timeout_secs)
+            .field("db_lock_timeout_secs", &self.db_lock_timeout_secs)
+            .field(
+                "db_idle_in_transaction_timeout_secs",
+                &self.db_idle_in_transaction_timeout_secs,
             )
             .finish()
     }
@@ -425,6 +456,34 @@ impl ServerConfig {
         self.log_format.parse()
     }
 
+    /// The pool and session limits the `OXIDGENE_DB_*` variables set, over
+    /// the `defaults` of the process: the server's or the worker's. A
+    /// session timeout of `0` is none; a pool takes one connection at
+    /// least, and waits a second at least.
+    pub fn database_settings(&self, defaults: DatabaseSettings) -> DatabaseSettings {
+        let limit = |seconds: Option<u64>, default: Option<Duration>| match seconds {
+            Some(0) => None,
+            Some(seconds) => Some(Duration::from_secs(seconds)),
+            None => default,
+        };
+        DatabaseSettings {
+            max_connections: self
+                .db_max_connections
+                .map_or(defaults.max_connections, |connections| connections.max(1)),
+            acquire_timeout: self
+                .db_acquire_timeout_secs
+                .map_or(defaults.acquire_timeout, |seconds| {
+                    Duration::from_secs(seconds.max(1))
+                }),
+            statement_timeout: limit(self.db_statement_timeout_secs, defaults.statement_timeout),
+            lock_timeout: limit(self.db_lock_timeout_secs, defaults.lock_timeout),
+            idle_in_transaction_timeout: limit(
+                self.db_idle_in_transaction_timeout_secs,
+                defaults.idle_in_transaction_timeout,
+            ),
+        }
+    }
+
     /// The tree cache `OXIDGENE_CACHE_MIB` and `OXIDGENE_CACHE_IDLE_SECS`
     /// describe: trees within the budget, each dropped once idle.
     pub fn cache(&self) -> CacheSettings {
@@ -527,6 +586,55 @@ mod tests {
     fn network_defaults_do_not_expose_the_unauthenticated_backend() {
         assert_eq!(default_host(), "127.0.0.1");
         assert_eq!(default_cors_origin(), "http://127.0.0.1:8081");
+    }
+
+    /// Unset, the `OXIDGENE_DB_*` variables leave each process its own
+    /// limits; set, they replace them, `0` lifting a session timeout.
+    #[test]
+    fn the_database_settings_follow_the_variables_over_the_process_defaults() {
+        let with = |settings: &[(&str, &str)]| {
+            let mut builder = Config::builder();
+            for (key, value) in settings {
+                builder = builder.set_override(*key, *value).expect("a setting");
+            }
+            builder
+                .build()
+                .and_then(Config::try_deserialize::<ServerConfig>)
+                .expect("a configuration")
+        };
+        assert_eq!(
+            with(&[]).database_settings(DatabaseSettings::server()),
+            DatabaseSettings::server()
+        );
+        assert_eq!(
+            with(&[]).database_settings(DatabaseSettings::worker()),
+            DatabaseSettings::worker()
+        );
+        assert_eq!(
+            with(&[
+                ("db_max_connections", "25"),
+                ("db_acquire_timeout_secs", "5"),
+                ("db_statement_timeout_secs", "0"),
+                ("db_lock_timeout_secs", "12"),
+                ("db_idle_in_transaction_timeout_secs", "60"),
+            ])
+            .database_settings(DatabaseSettings::server()),
+            DatabaseSettings {
+                max_connections: 25,
+                acquire_timeout: Duration::from_secs(5),
+                statement_timeout: None,
+                lock_timeout: Some(Duration::from_secs(12)),
+                idle_in_transaction_timeout: Some(Duration::from_secs(60)),
+            }
+        );
+        // No pool is empty, and none refuses at once.
+        let floor = with(&[
+            ("db_max_connections", "0"),
+            ("db_acquire_timeout_secs", "0"),
+        ])
+        .database_settings(DatabaseSettings::worker());
+        assert_eq!(floor.max_connections, 1);
+        assert_eq!(floor.acquire_timeout, Duration::from_secs(1));
     }
 
     /// The server's bounds are Geneanet's sizes unless the operator says

@@ -17,7 +17,7 @@ use axum::http::HeaderValue;
 use oxidgene_api::auth::Auth;
 use oxidgene_api::mail::MailOutbox;
 use oxidgene_api::startup::{
-    MailSetup, ReferenceWarmup, open_database, or_exit, spawn_background_worker,
+    DatabaseSettings, MailSetup, ReferenceWarmup, open_database, or_exit, spawn_background_worker,
 };
 use oxidgene_api::{AppState, build_router};
 use oxidgene_observability::init;
@@ -70,7 +70,16 @@ async fn main() {
 
     // ── Database and migrations ──────────────────────────────────────
     let reference_warmup = ReferenceWarmup::start();
-    let db = open_database(&cfg.database_url).await;
+    let uses_sqlite = cfg.database_url.starts_with("sqlite:");
+    let embedded_worker = uses_sqlite || cfg.media_backend == MediaBackend::Filesystem;
+    // A server that runs the jobs itself connects as a worker does: an
+    // import's transaction outlasts the limits of a request's.
+    let database_defaults = if embedded_worker {
+        DatabaseSettings::worker()
+    } else {
+        DatabaseSettings::server()
+    };
+    let db = open_database(&cfg.database_url, &cfg.database_settings(database_defaults)).await;
 
     // ── Build application router ─────────────────────────────────────
     // The reason names the missing setting, never its value.
@@ -82,8 +91,6 @@ async fn main() {
         );
         std::process::exit(1)
     });
-    let uses_sqlite = cfg.database_url.starts_with("sqlite:");
-    let embedded_worker = uses_sqlite || cfg.media_backend == MediaBackend::Filesystem;
     let work_dir = cfg.work_dir();
     // The setting is named, never its value.
     let limits = cfg.intake_limits().unwrap_or_else(|variable| {

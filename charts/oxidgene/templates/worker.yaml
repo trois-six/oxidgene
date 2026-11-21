@@ -81,6 +81,9 @@ spec:
             # container's /tmp.
             - name: OXIDGENE_WORK_DIR
               value: /var/cache/oxidgene
+            {{- with include "oxidgene.databaseEnv" (.Values.worker.database | default dict) }}
+            {{- . | nindent 12 }}
+            {{- end }}
             # What an import may read and a tree may hold: the same on the
             # process that takes an upload and on the one that imports it.
             - name: OXIDGENE_IMPORT_GEDCOM_MAX

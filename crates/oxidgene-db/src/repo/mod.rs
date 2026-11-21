@@ -67,9 +67,9 @@ pub use background_job::{
 };
 pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{
-    ACQUIRE_TIMEOUT, Connections, ErasingTransaction, SQLITE_BUSY_TIMEOUT, connect,
-    connect_read_pool, erase_deleted_content, refresh_statistics, rollback_migrations,
-    run_migrations,
+    ACQUIRE_TIMEOUT, Connections, DatabaseSettings, ErasingTransaction, SQLITE_BUSY_TIMEOUT,
+    connect, connect_read_pool, connect_with, erase_deleted_content, refresh_statistics,
+    rollback_migrations, run_migrations,
 };
 pub use descent::DescentRows;
 pub use dictionary::{

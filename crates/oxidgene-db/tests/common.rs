@@ -30,6 +30,15 @@ pub async fn setup_sqlite_db() -> DatabaseConnection {
 /// nextest runs each test in a process of its own, all at once, against the
 /// one database.
 async fn setup_postgres_db(url: &str) -> DatabaseConnection {
+    let db = connect(&postgres_schema_url(url).await)
+        .await
+        .expect("connect to the test's schema");
+    run_migrations(&db).await.expect("migrations");
+    db
+}
+
+/// The URL of a new, empty schema in the PostgreSQL database at `url`.
+async fn postgres_schema_url(url: &str) -> String {
     let schema = format!("test_{}", uuid::Uuid::now_v7().simple());
     connect(url)
         .await
@@ -38,11 +47,13 @@ async fn setup_postgres_db(url: &str) -> DatabaseConnection {
         .await
         .expect("create the test's schema");
     let separator = if url.contains('?') { '&' } else { '?' };
-    let db = connect(&format!(
-        "{url}{separator}options=-c%20search_path%3D{schema}"
-    ))
-    .await
-    .expect("connect to the test's schema");
-    run_migrations(&db).await.expect("migrations");
-    db
+    format!("{url}{separator}options=-c%20search_path%3D{schema}")
+}
+
+/// The URL of a new, empty and unmigrated schema of the disposable
+/// PostgreSQL database, for the tests of what PostgreSQL alone has: its
+/// session limits, its migration lock. `None` on a SQLite run.
+pub async fn fresh_postgres_schema() -> Option<String> {
+    let url = std::env::var("OXIDGENE_TEST_POSTGRES_URL").ok()?;
+    Some(postgres_schema_url(&url).await)
 }

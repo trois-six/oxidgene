@@ -380,6 +380,25 @@ def run() -> None:
         env = backend_env(render(*values("none"), *relay))
         expect(not [k for k in env if k.startswith(("OXIDGENE_SMTP_", "OXIDGENE_MAIL_"))], "mail in none mode")
 
+    @check("database: each process takes its own pool and session limits")
+    def _database() -> None:
+        docs = render(*values("external"),
+                      "--set", "backend.database.lockTimeoutSeconds=0",
+                      "--set", "worker.database.maxConnections=4",
+                      "--set", "worker.database.statementTimeoutSeconds=600")
+        env = backend_env(docs)
+        expect_eq(env.get("OXIDGENE_DB_MAX_CONNECTIONS"), "10", "the backend's pool")
+        expect_eq(env.get("OXIDGENE_DB_ACQUIRE_TIMEOUT_SECS"), "30", "the backend's acquire timeout")
+        expect_eq(env.get("OXIDGENE_DB_LOCK_TIMEOUT_SECS"), "0", "a timeout of 0 is passed on")
+        # A value left null is not set: the process keeps its default.
+        expect("OXIDGENE_DB_STATEMENT_TIMEOUT_SECS" not in env, "a null statement timeout was set")
+        expect("OXIDGENE_DB_IDLE_IN_TRANSACTION_TIMEOUT_SECS" not in env, "a null idle timeout was set")
+        worker = find(docs, "Deployment", f"{RELEASE}-worker")[0]
+        worker_env = env_of(worker["spec"]["template"]["spec"]["containers"][0])
+        expect_eq(worker_env.get("OXIDGENE_DB_MAX_CONNECTIONS"), "4", "the worker's pool")
+        expect_eq(worker_env.get("OXIDGENE_DB_STATEMENT_TIMEOUT_SECS"), "600", "the worker's statement timeout")
+        expect("OXIDGENE_DB_LOCK_TIMEOUT_SECS" not in worker_env, "the backend's lock timeout reached the worker")
+
     @check("the shipped Rauthy setup and the development one agree")
     def _drift() -> None:
         docs = render(*values("rauthy"), "--set", "auth.publicUrl=http://localhost:8081", "--set", "ingress.enabled=false")

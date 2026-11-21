@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use oxidgene_api::profile::ProfileService;
 use oxidgene_api::service::background_job::BackgroundJobWorker;
-use oxidgene_api::startup::{MailSetup, connect_and_migrate};
+use oxidgene_api::startup::{DatabaseSettings, MailSetup, connect_and_migrate};
 use oxidgene_observability::init;
 use oxidgene_server::config::ServerConfig;
 use oxidgene_server::shutdown::shutdown_signal;
@@ -35,7 +35,11 @@ async fn main() {
         std::process::exit(1);
     });
 
-    let db = connect_and_migrate(&config.database_url).await;
+    let db = connect_and_migrate(
+        &config.database_url,
+        &config.database_settings(DatabaseSettings::worker()),
+    )
+    .await;
     // The reason names the missing setting, never its value.
     let media = config.media_store().unwrap_or_else(|reason| {
         error!(

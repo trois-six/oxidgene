@@ -10,7 +10,8 @@ use std::sync::Arc;
 use axum::Router;
 use axum::routing::get;
 use oxidgene_core::OxidGeneError;
-use oxidgene_db::repo::{BackgroundJobRepo, Connections, connect, run_migrations};
+pub use oxidgene_db::repo::DatabaseSettings;
+use oxidgene_db::repo::{BackgroundJobRepo, Connections, connect_with, run_migrations};
 use oxidgene_db::sea_orm::{DatabaseConnection, DbErr};
 use tokio::task::{JoinError, JoinHandle};
 use tracing::error;
@@ -115,10 +116,14 @@ impl ReferenceWarmup {
     }
 }
 
-/// Connect to the database and bring its schema up to date.
-pub async fn connect_and_migrate(database_url: &str) -> DatabaseConnection {
+/// Connect to the database, within the limits `settings` gives, and bring
+/// its schema up to date.
+pub async fn connect_and_migrate(
+    database_url: &str,
+    settings: &DatabaseSettings,
+) -> DatabaseConnection {
     let db = or_exit(
-        connect(database_url).await,
+        connect_with(database_url, settings).await,
         "database_connection",
         "Failed to connect to database",
     );
@@ -130,11 +135,12 @@ pub async fn connect_and_migrate(database_url: &str) -> DatabaseConnection {
     db
 }
 
-/// The database an API server runs on: connected and migrated, then, for a
-/// SQLite file, with its read pool (see [`Connections`]). The worker, which
-/// serves no request, connects with [`connect_and_migrate`] alone.
-pub async fn open_database(database_url: &str) -> Connections {
-    let db = connect_and_migrate(database_url).await;
+/// The database an API server runs on: connected within the limits
+/// `settings` gives and migrated, then, for a SQLite file, with its read
+/// pool (see [`Connections`]). The worker, which serves no request, connects
+/// with [`connect_and_migrate`] alone.
+pub async fn open_database(database_url: &str, settings: &DatabaseSettings) -> Connections {
+    let db = connect_and_migrate(database_url, settings).await;
     or_exit(
         Connections::with_read_pool(db, database_url).await,
         "database_read_pool",
