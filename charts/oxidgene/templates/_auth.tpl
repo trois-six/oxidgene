@@ -107,6 +107,10 @@ bootstrapped with, unless the values name another claim. */}}
 {{- if not (include "oxidgene.authEnabled" .) -}}
 - name: OXIDGENE_AUTH_MODE
   value: none
+{{- /* A pod listens on its network: the acknowledgement the server asks
+       for is the chart's, ingress.exposeApiWithoutAuth. */}}
+- name: OXIDGENE_EXPOSE_WITHOUT_AUTH
+  value: "true"
 {{- else -}}
 {{- $roles := include "oxidgene.oidcRoles" . | fromJson -}}
 - name: OXIDGENE_AUTH_MODE

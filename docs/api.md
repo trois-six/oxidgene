@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-21T13:20:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T13:25:00Z }
 ---
 
 
@@ -266,8 +266,10 @@ separate OpenAPI description. The `graphql` feature is enabled in the
 standalone server only; the desktop's embedded server and the background
 worker do not compile it, so the desktop serves REST only. GraphiQL is served
 at `GET /graphql` only where the deployment enables it (`OXIDGENE_GRAPHIQL`,
-off by default): the page loads its scripts from a public CDN. Elsewhere
-`GET /graphql` is an unknown route (`404 not_found`).
+off by default) and nobody signs in (`OXIDGENE_AUTH_MODE=none`): the page
+loads its scripts from a public CDN, which must not run on the origin of a
+session cookie. Elsewhere `GET /graphql` is an unknown route
+(`404 not_found`).
 
 ### Connecting a client
 

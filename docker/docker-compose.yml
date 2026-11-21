@@ -214,8 +214,6 @@ services:
       OXIDGENE_OIDC_BACKCHANNEL_URL: "http://rauthy:8080"
       OXIDGENE_SESSION_STORE: "redis"
       OXIDGENE_REDIS_URL: "redis://redis:6379/0"
-      # A development stack: GraphiQL (which loads from a CDN) is on.
-      OXIDGENE_GRAPHIQL: "true"
       OXIDGENE_MEDIA_BACKEND: "s3"
       OXIDGENE_S3_ENDPOINT: "http://rustfs:9000"
       OXIDGENE_S3_BUCKET: "oxidgene-media"

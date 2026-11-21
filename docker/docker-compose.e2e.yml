@@ -38,6 +38,9 @@ services:
       # The suite drives the application without signing in; the sign-in
       # journeys are the opt-in `just e2e-auth` (docs/authentication.md §12).
       OXIDGENE_AUTH_MODE: "none"
+      # The container listens on the stack's network, which only the
+      # ingress below reaches: the acknowledgement the server asks for.
+      OXIDGENE_EXPOSE_WITHOUT_AUTH: "true"
       # The page's origin: the ingress below.
       OXIDGENE_CORS_ORIGIN: "http://127.0.0.1:${E2E_WEB_PORT:-18081}"
       OXIDGENE_MEDIA_BACKEND: "filesystem"

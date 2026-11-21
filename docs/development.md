@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T13:02:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T13:25:00Z }
 ---
 
 # Development Environment and Workflows
@@ -1069,9 +1069,14 @@ or imposing an arbitrary limit that rejects valid large exports.
 - OpenAPI and GraphiQL are intentional developer surfaces. Do not remove them
    as a substitute for authentication or network isolation; control exposure
    at the actual deployment and authorization boundaries. GraphiQL loads its
-   page from a public CDN, so it is off unless `OXIDGENE_GRAPHIQL` enables it:
-   `just dev-web` and the Compose stack do, the server's default and the Helm
-   chart (`backend.graphiql`) do not.
+   page from a public CDN, so it is off unless `OXIDGENE_GRAPHIQL` enables it
+   — `just dev-web` does, the server's default and the Helm chart
+   (`backend.graphiql`) do not — and never served where users sign in: the
+   Compose stack and `OXIDGENE_AUTH_MODE=oidc just dev-web` have none.
+- A mode that trusts its network says so or does not start. The `none`
+   mode refuses an address other than loopback without
+   `OXIDGENE_EXPOSE_WITHOUT_AUTH=true`; a new setting that widens who may
+   reach the data follows the same rule, never a warning alone.
 
 ### 5.2 Bounded input and resource use
 

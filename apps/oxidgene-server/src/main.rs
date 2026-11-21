@@ -66,6 +66,7 @@ async fn main() {
 
     // ── Authentication and mail ──────────────────────────────────────
     let (auth, access_log_retention, mail) = start_auth().await;
+    refuse_exposure_without_auth(&cfg, &auth).await;
 
     // ── Database and migrations ──────────────────────────────────────
     let reference_warmup = ReferenceWarmup::start();
@@ -116,8 +117,16 @@ async fn main() {
     tokio::spawn(oxidgene_api::service::job_watch::listen(state.db.clone()));
     tokio::spawn(oxidgene_api::service::updates::listen(state.db.clone()));
     let mut api_router = build_router(state);
-    if cfg.graphiql {
+    if cfg.graphiql && auth.mode_name() == "none" {
         api_router = api_router.layer(axum::Extension(oxidgene_api::graphql::GraphiQl));
+    } else if cfg.graphiql {
+        // Its page runs scripts of a public CDN on the origin the session
+        // cookie belongs to: never beside signed-in users.
+        warn!(
+            error = "graphiql_refused",
+            variable = "OXIDGENE_GRAPHIQL",
+            "GraphiQL is not served with authentication on: the setting is ignored"
+        );
     }
     reference_warmup.finish().await;
 
@@ -217,6 +226,36 @@ fn warn_disabled() {
         auth = "auth_disabled",
         "Authentication is disabled: every request acts as the owner of every tree"
     );
+}
+
+/// End the process rather than serve the `none` mode beyond loopback
+/// unasked: there, whoever reaches the port reads and writes every tree.
+/// `OXIDGENE_EXPOSE_WITHOUT_AUTH=true` acknowledges it — a container, whose
+/// only address is its network's, behind something that authenticates.
+async fn refuse_exposure_without_auth(cfg: &ServerConfig, auth: &Auth) {
+    if auth.mode_name() != "none" || !cfg.listens_beyond_loopback().await {
+        return;
+    }
+    if !cfg.expose_without_auth {
+        exit_exposed_without_auth();
+    }
+    warn!(
+        auth = "auth_disabled_exposed",
+        "Authentication is disabled on an address other than loopback: \
+         whoever reaches it owns every tree"
+    );
+}
+
+/// End the process: the `none` mode would listen beyond loopback and
+/// nothing acknowledges it.
+fn exit_exposed_without_auth() -> ! {
+    error!(
+        error = "auth_disabled_exposed",
+        variable = "OXIDGENE_EXPOSE_WITHOUT_AUTH",
+        "Refusing to serve without authentication on an address other than loopback: \
+         bind to loopback, choose the oidc mode, or acknowledge the exposure"
+    );
+    std::process::exit(1)
 }
 
 /// Where browsers reach the API from: the public URL alone in `oidc`, which

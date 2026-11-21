@@ -234,16 +234,24 @@ pub async fn graphql_handler(
 ///
 /// Off unless a deployment asks for it: the GraphiQL page loads its scripts
 /// and styles from a public CDN, so serving it makes every visitor's browser
-/// call a third party.
+/// call a third party. It is never served where users sign in: the page
+/// would run those scripts, under no content security policy, on the origin
+/// the session cookie belongs to.
 #[derive(Clone, Copy, Debug)]
 pub struct GraphiQl;
 
 /// Axum handler for `GET /graphql` — serves the GraphiQL playground where
-/// [`GraphiQl`] enables it, and is an unknown route everywhere else.
+/// [`GraphiQl`] enables it and nobody signs in, and is an unknown route
+/// everywhere else.
 pub async fn graphql_playground(
     enabled: Option<axum::Extension<GraphiQl>>,
+    #[cfg(feature = "auth")] auth: Option<axum::Extension<Arc<crate::auth::Auth>>>,
 ) -> axum::response::Response {
-    if enabled.is_none() {
+    #[cfg(feature = "auth")]
+    let signing_in = auth.is_some_and(|axum::Extension(auth)| auth.oidc().is_some());
+    #[cfg(not(feature = "auth"))]
+    let signing_in = false;
+    if enabled.is_none() || signing_in {
         return crate::rest::error::unknown_route().await;
     }
     Html(GraphiQLSource::build().endpoint("/graphql").finish()).into_response()

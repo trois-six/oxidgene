@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-21T19:05:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T19:10:00Z }
 ---
 
 # Authentication and Sessions
@@ -66,7 +66,7 @@ network
 | Mode | Where | Who is the viewer | Use |
 |---|---|---|---|
 | Desktop | Desktop's embedded server | Its one local user, with full access, as today | The desktop application, unchanged (§7) |
-| `none` | Standalone server, `OXIDGENE_AUTH_MODE=none` | A local owner of every tree (issuer `local`, subject `local`), for every request | A personal web install equivalent to the desktop, and development and tests. Startup logs a `warn` (`auth_disabled`) at each start, `/auth/session` answers `mode: "none"`, and the Helm chart keeps refusing an Ingress without `ingress.exposeApiWithoutAuth` (§8.1) |
+| `none` | Standalone server, `OXIDGENE_AUTH_MODE=none` | A local owner of every tree (issuer `local`, subject `local`), for every request | A personal web install equivalent to the desktop, and development and tests. Startup logs a `warn` (`auth_disabled`) at each start, `/auth/session` answers `mode: "none"`, the server refuses to start on an address other than loopback without `OXIDGENE_EXPOSE_WITHOUT_AUTH=true`, and the Helm chart keeps refusing an Ingress without `ingress.exposeApiWithoutAuth` (§8.1) |
 | `oidc` | Standalone server, `OXIDGENE_AUTH_MODE=oidc` | The signed-in user, an API client, a share-link holder or an anonymous visitor ([Authorization §4](authorization.md#4-viewercontext)) | Every shared deployment. The only mode that may face an untrusted network |
 
 `none` is a supported mode, not a development shortcut, and stays so: the
@@ -74,6 +74,22 @@ web build run without authentication does everything the desktop does, and
 looks as it does — no sign-in, account menu, banner or profile. What needs
 identities is absent there, as on the desktop: accounts, roles and shares,
 redaction for other viewers, messaging and API clients.
+
+It is the desktop's trust too: whoever reaches the port owns every tree.
+So the server does not serve it beyond its own machine unasked. With
+`OXIDGENE_HOST` naming, or resolving to, an address that is not loopback,
+it ends at start with `auth_disabled_exposed` unless
+`OXIDGENE_EXPOSE_WITHOUT_AUTH=true` acknowledges the exposure — a
+container, whose only address is its network's, behind something that
+authenticates — and then says so in a `warn` at each start. The Helm
+chart's `none` mode and the end-to-end stack set it: a pod listens on its
+network by necessity, and the chart's own acknowledgement is the Ingress's.
+
+GraphiQL is the `none` mode's: its page runs scripts of a public CDN,
+under no content security policy, on the origin the session cookie
+belongs to. In `oidc` the server never serves it, and
+`OXIDGENE_GRAPHIQL=true` is ignored with a `warn` (`graphiql_refused`) at
+start.
 
 `oidc` is the default of the standalone server once EPIC G ships: a server
 started without an issuer refuses to start (`auth_config_missing`) unless
@@ -712,7 +728,9 @@ chart never installing an operator or its CRDs.
   `auth.oidc.issuer` is set, naming the three modes, so a deployment chooses
   its provider explicitly (open decision 3).
 - The backend receives the variables of §3.2, its secrets from the Secrets
-  above through `secretKeyRef`; `none` sets `OXIDGENE_AUTH_MODE=none` and
+  above through `secretKeyRef`; `none` sets `OXIDGENE_AUTH_MODE=none`,
+  `OXIDGENE_EXPOSE_WITHOUT_AUTH=true` — a pod listens on its network, and
+  the Ingress guard below is the chart's acknowledgement (§2) — and
   nothing else of this section.
 - The session store is `redis` whenever `redis.mode` is not `disabled`;
   with `redis.mode=disabled` and authentication on, rendering fails for
@@ -1044,6 +1062,8 @@ retention ([Authorization §9.2](authorization.md#92-access-log)).
 | Tampering | Open redirect after sign-in | `return_to` restricted to application paths (§4.3) |
 | Repudiation | A write nobody owns | Every history entry names its user and client ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)); jobs carry their actor (§5.5); access log |
 | Information disclosure | Tokens readable by page scripts | Backend-for-Frontend: no token in the browser (§4.1) |
+| Elevation of privilege | Third-party scripts on the session's origin | GraphiQL, whose page loads from a CDN, is never served in `oidc` (§2) |
+| Elevation of privilege | The `none` mode reached from a network | Refused at start beyond loopback without `OXIDGENE_EXPOSE_WITHOUT_AUTH` (§2) |
 | Information disclosure | Enumerating trees or users | `404` for what the viewer may not see ([Authorization §4.3](authorization.md#43-errors-401-403-and-404)); no user directory; rate-limited exact lookups |
 | Information disclosure | Living persons leaking through search, statistics, exports, caches or logs | Server-side redaction in one policy ([Privacy](privacy.md)); `no-store`; anonymized logs |
 | Information disclosure | Share token in a URL | Redeemed then redirected away; `Referrer-Policy: no-referrer`; route templates in logs |

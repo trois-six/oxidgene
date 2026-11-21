@@ -191,6 +191,9 @@ def run() -> None:
     def _none() -> None:
         env = backend_env(render(*values("none")))
         expect_eq(env.get("OXIDGENE_AUTH_MODE"), "none", "OXIDGENE_AUTH_MODE")
+        # A pod listens on its network: without it the server would not start.
+        expect_eq(env.get("OXIDGENE_EXPOSE_WITHOUT_AUTH"), "true", "OXIDGENE_EXPOSE_WITHOUT_AUTH")
+        expect("OXIDGENE_EXPOSE_WITHOUT_AUTH" not in backend_env(render(*values("external"))), "an acknowledgement nobody asked for")
         oidc = [k for k in env if k.startswith(("OXIDGENE_OIDC_", "OXIDGENE_SESSION_", "OXIDGENE_PUBLIC_URL"))]
         expect(not oidc, f"none mode sets {oidc}")
         error = refused(*values("none"), "--set", "ingress.exposeApiWithoutAuth=false")

@@ -37,7 +37,8 @@ backend:
     - 192.168.0.0/16
     - fc00::/7
   # Serve GraphiQL at GET /graphql. Its page loads scripts from a public CDN,
-  # so every visitor's browser calls a third party: a development aid.
+  # so every visitor's browser calls a third party: a development aid, and
+  # served with auth.idp.mode=none only.
   graphiql: false
   logLevel: info
   # Console log format, `text` or `json`. With OTLP export enabled, a collector

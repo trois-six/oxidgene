@@ -227,7 +227,8 @@ async fn check_host(State(hosts): State<AllowedHosts>, request: Request, next: N
 /// - `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` on
 ///   JSON, which is data and never a page. Other responses keep the policy
 ///   their handler chose: stored files are sandboxed except PDFs, which a
-///   browser's viewer must be free to render, and GraphiQL is a page.
+///   browser's viewer must be free to render, and GraphiQL is a page, of
+///   the `none` mode alone.
 pub(crate) async fn security_headers(mut response: Response) -> Response {
     let json = response
         .headers()

@@ -1021,3 +1021,20 @@ async fn opaque_tokens_reach_the_provider_once_and_within_the_address_limit() {
     assert_eq!(bearer(&app, &token, "/api/v1/me").await.0, StatusCode::OK);
     assert_eq!(asked(), 30);
 }
+
+/// GraphiQL's page runs scripts of a public CDN: it is never served on the
+/// origin a session cookie belongs to, whatever the deployment asks (§2).
+#[cfg(feature = "graphql")]
+#[tokio::test]
+async fn graphiql_is_never_served_where_users_sign_in() {
+    let provider = MockProvider::start().await;
+    let db = setup_db().await;
+    let (app, _) = provider.app(&db, &[]);
+    let app = app.layer(axum::Extension(oxidgene_api::graphql::GraphiQl));
+    let mut browser = Browser::new(&app);
+    let anonymous = browser.get("/graphql").await;
+    assert_eq!(anonymous.status, StatusCode::NOT_FOUND);
+    assert_eq!(anonymous.json["error"], "not_found");
+    browser.sign_in(&provider, &MockUser::new("ines")).await;
+    assert_eq!(browser.get("/graphql").await.status, StatusCode::NOT_FOUND);
+}

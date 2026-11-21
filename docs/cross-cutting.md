@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T19:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T19:15:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -615,7 +615,7 @@ user cannot lose entered data.
   enforced when a note is written ([Data Model §Note](data-model.md#note)).
   The web fonts ship with the application rather than coming from a font
   service, and GraphiQL, whose page loads from a CDN, is served only where a
-  deployment enables it.
+  deployment enables it and nobody signs in.
 - An archive portal is contacted only when the reader opens a cited register,
   one lookup per click, never ahead of it. It receives what its search needs —
   locality, document kind, year, call number — never the citation text. A
@@ -638,7 +638,10 @@ authorizes every request, on REST, GraphQL, exports, search and direct media
 reads alike ([Authentication](authentication.md),
 [Authorization](authorization.md)). The rules below hold in every mode:
 
-- standalone and development servers bind to loopback by default;
+- standalone and development servers bind to loopback by default, and a
+  server run without authentication refuses to start on any other address
+  unless `OXIDGENE_EXPOSE_WITHOUT_AUTH` acknowledges it
+  ([Authentication §2](authentication.md#2-deployment-modes));
 - host-published container ports bind to loopback; a container may listen on
   its private network only when a trusted same-origin gateway is its sole
   ingress;

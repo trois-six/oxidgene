@@ -12,7 +12,8 @@
 //! | `OXIDGENE_CORS_ORIGIN`           | `http://127.0.0.1:8081`                    | Allowed CORS origin         |
 //! | `OXIDGENE_ALLOWED_HOSTS`         | unset                                      | More `Host` names to answer |
 //! | `OXIDGENE_TRUSTED_PROXIES`       | unset                                      | Reverse proxies believed on the client's address |
-//! | `OXIDGENE_GRAPHIQL`              | `false`                                    | Serve GraphiQL at `GET /graphql` |
+//! | `OXIDGENE_GRAPHIQL`              | `false`                                    | Serve GraphiQL at `GET /graphql`, in the `none` mode |
+//! | `OXIDGENE_EXPOSE_WITHOUT_AUTH`   | `false`                                    | Let the `none` mode listen beyond loopback |
 //! | `OXIDGENE_MEDIA_BACKEND`         | `filesystem`                               | `filesystem` or `s3`        |
 //! | `OXIDGENE_MEDIA_ROOT`            | platform data dir (see below)              | Filesystem media root       |
 //! | `OXIDGENE_WORK_DIR`              | user cache dir (see below)                 | Job scratch, staged uploads |
@@ -149,9 +150,16 @@ pub struct ServerConfig {
     pub trusted_proxies: String,
 
     /// Whether `GET /graphql` serves GraphiQL (default: off). The page loads
-    /// its scripts from a public CDN, so it is a development convenience.
+    /// its scripts from a public CDN, so it is a development convenience,
+    /// and never served in the `oidc` mode.
     #[serde(default)]
     pub graphiql: bool,
+
+    /// Acknowledges that the `none` mode listens on an address other than
+    /// loopback, where whoever reaches the port owns every tree: without
+    /// it the server refuses to start so (docs/authentication.md §2).
+    #[serde(default)]
+    pub expose_without_auth: bool,
 
     /// Directory uploaded media files are stored under.
     #[serde(default = "default_media_root")]
@@ -221,6 +229,7 @@ impl std::fmt::Debug for ServerConfig {
             .field("allowed_hosts", &self.allowed_hosts)
             .field("trusted_proxies", &self.trusted_proxies)
             .field("graphiql", &self.graphiql)
+            .field("expose_without_auth", &self.expose_without_auth)
             .field("media_root", &self.media_root)
             .field("work_dir", &self.work_dir)
             .field("media_backend", &self.media_backend)
@@ -374,6 +383,16 @@ impl ServerConfig {
             archive_entries: self.import_archive_entries,
             tree_media_bytes: (quota > 0).then_some(quota),
         })
+    }
+
+    /// Whether the server, bound to [`Self::host`], would answer callers
+    /// other than this machine's: the host is, or resolves to, an address
+    /// that is not loopback. A host that does not resolve answers nobody;
+    /// binding it reports that.
+    pub async fn listens_beyond_loopback(&self) -> bool {
+        tokio::net::lookup_host((self.host.as_str(), self.port))
+            .await
+            .is_ok_and(|mut addresses| addresses.any(|address| !address.ip().is_loopback()))
     }
 
     /// The reverse proxies `OXIDGENE_TRUSTED_PROXIES` names.
@@ -533,6 +552,31 @@ mod tests {
             with(&[("import_archive_entries", "0")]),
             Err("OXIDGENE_IMPORT_ARCHIVE_ENTRIES")
         );
+    }
+
+    /// What the `none` mode may not do unasked: answer another machine.
+    #[tokio::test]
+    async fn only_a_loopback_host_keeps_the_server_to_this_machine() {
+        let listening_on = |host: &str| {
+            Config::builder()
+                .set_override("host", host)
+                .and_then(|builder| builder.build())
+                .and_then(Config::try_deserialize::<ServerConfig>)
+                .expect("a configuration")
+        };
+        for local in ["127.0.0.1", "::1", "localhost"] {
+            assert!(
+                !listening_on(local).listens_beyond_loopback().await,
+                "{local}"
+            );
+        }
+        for exposed in ["0.0.0.0", "::", "192.0.2.10"] {
+            assert!(
+                listening_on(exposed).listens_beyond_loopback().await,
+                "{exposed}"
+            );
+        }
+        assert!(!listening_on("127.0.0.1").expose_without_auth);
     }
 
     /// The reason names the missing variable, so the operator knows which

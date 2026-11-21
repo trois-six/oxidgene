@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — App Settings"
 description: "The settings page: application-level preferences for appearance, language, pedigree, names, date display, entry options, API connection details and the AI assistant connection, and in the web build the signed-in user's account sections and the administrator's Instance section."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T13:20:00Z }
 ---
 
 
@@ -512,8 +512,9 @@ operating system picks at each launch.
 - The endpoint list opens each entry in the system browser:
   `GET /api/v1/openapi.json`, the generated OpenAPI 3.1 document, and, in the
   web build, `GET /graphql`, GraphiQL, which answers only where the deployment
-  enables it (`OXIDGENE_GRAPHIQL`; development stacks do, production defaults
-  do not).
+  enables it and nobody signs in (`OXIDGENE_GRAPHIQL` with
+  `OXIDGENE_AUTH_MODE=none`; `just dev-web` does, production defaults do
+  not).
 - The **Connect a client** card states, as read-only fields with a copy button,
   the REST base URL (`/api/v1`, every HTTP method the contract uses), a `curl`
   `GET` of the OpenAPI document and, in the web build, the GraphQL endpoint

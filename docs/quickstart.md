@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-11-21T17:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:15:00Z }
 ---
 
 # OxidGene Quickstart
@@ -244,7 +244,8 @@ the Helm chart set these for you; a server run by hand reads:
 | `OXIDGENE_CORS_ORIGIN` | `http://127.0.0.1:8081` | The one browser origin that may call the API; `*` is refused. Writes from any other origin answer `403 forbidden`. |
 | `OXIDGENE_ALLOWED_HOSTS` | Unset | Comma-separated host names the API also answers under. It always answers under `localhost`, `127.0.0.1`, `[::1]` and the host of `OXIDGENE_CORS_ORIGIN`; a request naming any other `Host` answers `403 forbidden`, which defeats DNS rebinding. `/healthz` answers whatever the host. |
 | `OXIDGENE_TRUSTED_PROXIES` | Unset | Comma-separated addresses and CIDR ranges of the reverse proxies in front of the server, such as `127.0.0.1` or `10.0.0.0/8`. The rate limits per address ([Authentication §9.2](authentication.md#92-rate-limits-and-brute-force)) count a request under the address of its connection; from one of these peers, under the client its `X-Forwarded-For` names. **Set it behind a reverse proxy**: unnamed, the proxy is the only address the server sees, and every visitor shares its thirty sign-ins a minute. Never name an address clients connect from directly: they would choose the address they are counted under. |
-| `OXIDGENE_GRAPHIQL` | `false` | Serve GraphiQL at `GET /graphql`. Its page loads scripts from a public CDN, so it is meant for development; Compose and `just dev-web` turn it on. |
+| `OXIDGENE_GRAPHIQL` | `false` | Serve GraphiQL at `GET /graphql`, in the `none` mode only. Its page loads scripts from a public CDN, so it is meant for development: `just dev-web` turns it on. With authentication on it is never served, and the setting is ignored with a warning. |
+| `OXIDGENE_EXPOSE_WITHOUT_AUTH` | `false` | With `OXIDGENE_AUTH_MODE=none`, acknowledges that `OXIDGENE_HOST` is not loopback: whoever reaches the port then reads and writes every tree. Without it the server refuses to start so (`auth_disabled_exposed`). For a container behind something that authenticates; never on an untrusted network. |
 | `OXIDGENE_IMPORT_GEDCOM_MAX` | `350M` | The largest genealogy text taken in: a `.ged` or a `.gw` as uploaded, the `gedcom.ged` of a `.gdz` once inflated. A size in bytes or with a binary unit (`512K`, `350M`, `2G`). The text is parsed whole: this is what an import costs in memory, on the server and on the worker. |
 | `OXIDGENE_MEDIA_QUOTA` | `10G` | The media a tree may hold in the store, and so the largest archive it can import; `0` for none. Uploads and imports past it are refused (`quota_exceeded`). Set it on the server and on the worker alike. |
 | `OXIDGENE_IMPORT_ARCHIVE_ENTRIES` | `100000` | The most files a `.gdz` may hold. A saved Geneanet session holds 100,000 at most, whatever this says. |
@@ -786,7 +787,7 @@ repeat the warning.
 | `backend.service.type` | `ClusterIP` | Backend Service type. |
 | `backend.service.port` | `8080` | Backend Service port. |
 | `backend.corsOrigin` | `https://oxidgene.example.invalid` | Allowed browser origin. Set it to the public application origin; its host is also one the API answers under. |
-| `backend.graphiql` | `false` | Serve GraphiQL at `GET /graphql` (`OXIDGENE_GRAPHIQL`); its page loads scripts from a public CDN. |
+| `backend.graphiql` | `false` | Serve GraphiQL at `GET /graphql` (`OXIDGENE_GRAPHIQL`); its page loads scripts from a public CDN. Served with `auth.idp.mode=none` only. |
 | `backend.trustedProxies` | The private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`) | Reverse proxies whose `X-Forwarded-For` names the client the rate limits count (`OXIDGENE_TRUSTED_PROXIES`): the Ingress controller, which reaches the backend from inside the cluster. Narrow it to the controller's range in a cluster whose other workloads must not be believed, or whose pods have public addresses. |
 | `limits.gedcomMax` | `350M` | The largest genealogy text the backend takes and the worker parses (`OXIDGENE_IMPORT_GEDCOM_MAX`). |
 | `limits.mediaQuota` | `10G` | The media a tree may hold, and the largest archive it can import (`OXIDGENE_MEDIA_QUOTA`); `"0"` for none. |
