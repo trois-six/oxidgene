@@ -2801,6 +2801,19 @@ async fn create_projections(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         )
         .await?;
 
+    // A page of a tree's projections in person order, read in one range
+    // without sorting the tree's rows first.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_person_denorm_tree_person")
+                .table(PersonDenorm::Table)
+                .col(PersonDenorm::TreeId)
+                .col(PersonDenorm::PersonId)
+                .to_owned(),
+        )
+        .await?;
+
     // The rows of a tree written since a generation, and its person ids,
     // from the index alone: what patches a tree's decoded projections after
     // a write instead of reading them all again.
@@ -3885,6 +3898,8 @@ async fn create_history(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .name("idx_record_version_audit_entry")
                 .table(RecordVersion::Table)
                 .col(RecordVersion::AuditEntryId)
+                // A page of an entry's versions, in id order.
+                .col(RecordVersion::Id)
                 .to_owned(),
         )
         .await?;
@@ -4129,22 +4144,28 @@ async fn create_invitations(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
-    // The owner lists a tree's invitations; a signed-in user's are found by
-    // their address.
-    for (name, column) in [
-        ("idx_tree_invitation_tree_id", TreeInvitation::TreeId),
-        ("idx_tree_invitation_email", TreeInvitation::Email),
-    ] {
-        manager
-            .create_index(
-                Index::create()
-                    .name(name)
-                    .table(TreeInvitation::Table)
-                    .col(column)
-                    .to_owned(),
-            )
-            .await?;
-    }
+    // The owner lists a tree's invitations a page at a time, in id order,
+    // which `(tree_id, id)` reads without sorting; a signed-in user's are
+    // found by their address.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_tree_invitation_tree_id")
+                .table(TreeInvitation::Table)
+                .col(TreeInvitation::TreeId)
+                .col(TreeInvitation::Id)
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_tree_invitation_email")
+                .table(TreeInvitation::Table)
+                .col(TreeInvitation::Email)
+                .to_owned(),
+        )
+        .await?;
     // One unanswered invitation per address and tree, so that two owners'
     // concurrent invitations of one address mail it once: a partial unique
     // index, which SQLite and PostgreSQL both support and sea-query does not
@@ -4207,12 +4228,14 @@ async fn create_share_links(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // A tree's links, listed a page at a time in id order.
     manager
         .create_index(
             Index::create()
                 .name("idx_share_link_tree_id")
                 .table(ShareLink::Table)
                 .col(ShareLink::TreeId)
+                .col(ShareLink::Id)
                 .to_owned(),
         )
         .await?;

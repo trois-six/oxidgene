@@ -42,9 +42,12 @@ impl CitationRepo {
         params: &PaginationParams,
         leave_out: LeaveOut,
     ) -> Result<Connection<Citation>, OxidGeneError> {
+        // A citation is of its source's tree (a composite foreign key): its
+        // own `tree_id` reads a page of them in id order from
+        // `uq_citation_tree_id`, the join leaving out a deleted source's.
         let mut query = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
             .join(JoinType::InnerJoin, citation::Relation::Source.def())
-            .filter(source::Column::TreeId.eq(tree_id))
             .filter(source::Column::DeletedAt.is_null())
             .filter(leave_out.keeping(oxidgene_core::types::RecordKind::Citation, Column::Id));
 

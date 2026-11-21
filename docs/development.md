@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:46:03Z }
 ---
 
 # Development Environment and Workflows
@@ -724,7 +724,7 @@ failing).
 | History without duplicates | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | An import stores no version, no stored version copies the live record, deletion markers carry no snapshot |
 | Statement counts | 2 | `just test` (`query_scaling_test`) | Functional tests | No REST or GraphQL request issues statements per record; a batch of 64 ids costs what one of 4 does; no request runs more than four statements at once ([Architecture §4](architecture.md#4-backend-architecture)) |
 | Privacy of logs | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No span or event field carries a name, place, note or SQL value |
-| SQL plans | 2 | `just sql-plans` | Functional tests | No statement scans a large table without an index |
+| SQL plans | 2 | `just sql-plans` | Functional tests | No statement scans a large table without an index; no page of one (a `LIMIT`) sorts what it read in a temporary B-tree, but the pages declared with their reason, whose order is computed |
 | Dependencies | 2 | `just deps` | Dependencies | No dependency declared and unused (`cargo machete`); no advisory, licence, wildcard or source `deny.toml` refuses; no known vulnerability; duplicated crates within `scripts/budgets.json` |
 | Duplication | 2 | `just duplication` | Code duplication | The duplicated share of the Rust code stays within its budget |
 | Request budgets | 3 | `just e2e tests/request-budgets.spec.ts` | Nightly: E2E | Every page's API requests, waterfall depth, duplicates and bytes within `e2e/budgets/requests.json`; the pictures the browser fetches from their versioned addresses are counted by the picture cache check instead |

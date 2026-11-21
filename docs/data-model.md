@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-21T15:04:43Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:46:03Z }
 ---
 
 
@@ -1356,6 +1356,14 @@ depend on the database or API implementation crates.
     (read only by substring) and the event's `date_sort` (whose one range read,
     the media library's year filter, is answered faster from the tree's media
     than by scanning every tree's dated events) carry none.
+- A page of a list sorts nothing: the index it reads leads with the
+    filter's equalities and ends with the column it orders by, so a page
+    costs its rows, not the tree's. `(tree_id, id)` serves the record lists,
+    a tree's invitations and its share links, `(tree_id, person_id)` a page
+    of projections, `(audit_entry_id, id)` the versions of a history entry.
+    The persons last edited, ranked by their latest history entry, are an
+    order computed per person that no index holds. The SQL plans guard
+    checks the large tables ([Development §2.8](development.md#28-guards)).
 - Search should use backend-native indexes and avoid offset scans for ordinary
     list APIs.
 - A whole-tree rebuild holds a slice of the tree in memory, never the tree
@@ -1675,7 +1683,8 @@ Sessions are not stored here: they live in the session store
 `scope_id?` (cascade), `membership_expires_at?`, `expires_at`, `created_by?`,
 `created_at`, `last_sent_at?`, `accepted_at?`, `accepted_by?`,
 `declined_at?`, `revoked_at?`. Indexed by `email` for the matching at
-sign-in, and by `tree_id`; a unique partial index allows one unanswered
+sign-in, and by `(tree_id, id)`, the order the owner's list pages in; a
+unique partial index allows one unanswered
 invitation (none of `accepted_at`, `declined_at`, `revoked_at`) per
 address and tree, so concurrent invitations of one address mail it once,
 and inviting an address again first deletes its invitation that expired
@@ -1689,7 +1698,7 @@ their author or acceptor.
 `id`, `tree_id` (cascade), `token_hash` (the token's SHA-256,
 base64url, unique), `label?`, `scope_id?` (cascade), `expires_at?`,
 `created_by?`, `created_at`, `revoked_at?`, `last_used_at?`, `use_count`.
-Indexed by `tree_id`. The grants a browser holds are not stored here but in
+Indexed by `(tree_id, id)`, the order a tree's links are listed in. The grants a browser holds are not stored here but in
 the session store, by the digest of its `__Host-oxidgene-share` cookie
 ([Authorization §6.3](authorization.md#63-share-links)).
 

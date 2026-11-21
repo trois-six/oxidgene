@@ -234,6 +234,12 @@ async fn assert_indexes(db: &DatabaseConnection) {
         ("background_job", "idx_background_job_active_tree"),
         ("background_job", "idx_background_job_claim"),
         ("person_denorm", "idx_person_denorm_tree_schema_version"),
+        // A page of projections, of invitations and of share links, and an
+        // entry's versions, each in the order it pages in.
+        ("person_denorm", "idx_person_denorm_tree_person"),
+        ("tree_invitation", "idx_tree_invitation_tree_id"),
+        ("share_link", "idx_share_link_tree_id"),
+        ("record_version", "idx_record_version_audit_entry"),
         ("media", "idx_media_tree_sha256"),
         ("media", "idx_media_parent_page"),
         ("person", "idx_person_portrait_media_id"),
