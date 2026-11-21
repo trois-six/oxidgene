@@ -189,6 +189,34 @@ impl Harness {
         (status, bytes.to_vec())
     }
 
+    /// The address `uri` names now — its current version's, where the route
+    /// redirects there — asked as a setup request.
+    ///
+    /// Asked without a trace, the request opened one of its own, and a
+    /// span of it exported a moment late — a statement's span closes after
+    /// its answer is handed over — landed among the spans of the request
+    /// checked next, in a trace that was not that request's.
+    async fn address(&self, uri: &str) -> String {
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .header("traceparent", SETUP.header())
+            .body(Body::empty())
+            .expect("valid request");
+        let response = self
+            .app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("infallible router");
+        let location = response
+            .headers()
+            .get(header::LOCATION)
+            .map(|value| value.to_str().expect("an address").to_string());
+        let _ = response.into_body().collect().await.expect("body");
+        location.unwrap_or_else(|| uri.to_string())
+    }
+
     /// A setup request: it carries the [`SETUP`] trace, whose spans the
     /// assertions ignore wherever and whenever they are exported.
     async fn json(&self, method: Method, uri: &str, body: Option<Value>) -> Value {
@@ -462,11 +490,11 @@ async fn every_span_of_a_request_belongs_to_the_incoming_trace() {
         .await;
     let vignette_id = vignette["id"].as_str().expect("vignette id").to_string();
     // The crop at its version, which a client's address names.
-    let crop = crate::common::current_address(
-        &harness.app,
-        &format!("/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image"),
-    )
-    .await;
+    let crop = harness
+        .address(&format!(
+            "/api/v1/trees/{tree_id}/vignettes/{vignette_id}/image"
+        ))
+        .await;
 
     // ── Read routes ──────────────────────────────────────────────────
     let reads: [(&str, String, &[&str]); 5] = [
