@@ -3066,6 +3066,7 @@ impl ApiError {
             (Some("payload_too_large"), _) | (None, 413) => "error.too_large",
             (Some("unsupported_media_type"), _) | (None, 415) => "error.unsupported_format",
             (Some("rate_limited"), _) | (None, 429) => "error.rate_limited",
+            (Some("busy"), _) => "error.busy",
             (Some("not_an_archive_citation" | "no_adapter"), _) => "error.no_archive",
             (Some("unexpected_response" | "challenged" | "unreachable"), _) | (None, 502) => {
                 "error.archive_unavailable"
@@ -6508,6 +6509,7 @@ mod tests {
                 "error.quota_exceeded",
             ),
             (api(504, r#"{"error":"timeout"}"#), "error.timeout"),
+            (api(503, r#"{"error":"busy"}"#), "error.busy"),
             (
                 api(502, r#"{"error":"challenged"}"#),
                 "error.archive_unavailable",

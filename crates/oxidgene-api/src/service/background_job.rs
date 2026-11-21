@@ -10,9 +10,9 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{Permission, ViewerContext};
 use oxidgene_db::repo::{
     BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, NewBackgroundJob,
-    TreeRepo, db_err, job_actor,
+    TreeRepo, begin_tree_write, begin_write, db_err, job_actor,
 };
-use sea_orm::{DatabaseConnection, DatabaseTransaction, DbBackend, TransactionTrait};
+use sea_orm::{DatabaseConnection, DatabaseTransaction, DbBackend};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tracing::Instrument as _;
@@ -955,7 +955,7 @@ impl BackgroundJobWorker {
         &self,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), OxidGeneError> {
-        let txn = self.db.begin().await.map_err(db_err)?;
+        let txn = begin_write(&self.db).await?;
         #[cfg(feature = "auth")]
         let mut notices = crate::service::notification::Notices::new(self.mailing);
         for membership in oxidgene_db::repo::MembershipRepo::delete_expired(&txn, now).await? {
@@ -1068,7 +1068,7 @@ impl BackgroundJobWorker {
         // import fails as a whole rather than half of its media.
         store.check()?;
         progress.check_cancelled()?;
-        let transaction = self.db.begin().await.map_err(db_err)?;
+        let transaction = begin_tree_write(&self.db, job.tree_id).await?;
         let written = self
             .with_progress(
                 job.id,
@@ -1199,7 +1199,7 @@ impl BackgroundJobWorker {
             self.limits.tree_media_bytes,
         )
         .await?;
-        let transaction = self.db.begin().await.map_err(db_err)?;
+        let transaction = begin_tree_write(&self.db, job.tree_id).await?;
         let import = async {
             let summary = geneanet::import(
                 &transaction,
@@ -1425,7 +1425,7 @@ impl BackgroundJobWorker {
     ) -> Result<(), OxidGeneError> {
         let result = serde_json::to_string(receipt)
             .map_err(|error| OxidGeneError::Internal(error.to_string()))?;
-        let transaction = self.db.begin().await.map_err(db_err)?;
+        let transaction = begin_write(&self.db).await?;
         let viewer = crate::authz::recheck_job(
             &transaction,
             &job_actor(job),
@@ -1964,7 +1964,7 @@ struct GeneanetFetchedInput {
 /// same transaction (see [`BackgroundJobRepo::create`]), then, committed, to
 /// the worker of this one.
 async fn enqueue(db: &DatabaseConnection, job: NewBackgroundJob) -> Result<(), OxidGeneError> {
-    let transaction = db.begin().await.map_err(db_err)?;
+    let transaction = begin_write(db).await?;
     BackgroundJobRepo::create(&transaction, job).await?;
     transaction.commit().await.map_err(db_err)?;
     job_queue::wake();
@@ -2772,7 +2772,7 @@ fn count(value: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{ConnectOptions, Database};
+    use sea_orm::{ConnectOptions, Database, TransactionTrait};
 
     #[test]
     fn geneanet_jobs_require_an_explicit_fidelity() {

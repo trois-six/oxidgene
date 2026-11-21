@@ -7214,6 +7214,7 @@
     "dictionary.usage_empty": "Aucune personne trouvée.",
     "dictionary.view_usage": "Voir les usages",
     "error.archive_unavailable": "Le portail d’archives est injoignable. Réessayez plus tard.",
+    "error.busy": "La base de données est occupée par une autre tâche. Patientez un instant et réessayez.",
     "error.conflict": "Cette modification entre en conflit avec l’état actuel de l’arbre, ou avec une autre tâche en cours. Rechargez la page et réessayez.",
     "error.forbidden": "Vous n’avez pas le droit de faire cela.",
     "error.invalid_file": "Ce fichier n’a pas pu être lu : il est endommagé ou son format n’est pas pris en charge.",

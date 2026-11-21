@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::auth::Principal;
 use crate::media::{MediaStore, sha256_hex, sniff_mime};
 use crate::service::account::{require_user, visible_user};
-use crate::service::scope::{begin_tx, commit_tx};
+use crate::service::scope::{begin_write, commit_tx};
 
 /// The largest upload, refused before it is decoded.
 pub const MAX_AVATAR_BYTES: usize = 5 * 1024 * 1024;
@@ -184,7 +184,7 @@ async fn replace(
     renditions: Option<&Renditions>,
 ) -> Result<AppUser, OxidGeneError> {
     let sha256 = renditions.map(|r| r.sha256.clone());
-    let txn = begin_tx(db).await?;
+    let txn = begin_write(db).await?;
     let previous = AppUserRepo::get_for_update(&txn, user_id)
         .await?
         .avatar_sha256;
@@ -238,7 +238,7 @@ async fn delete_unused(
     user_id: Uuid,
     sha256: &str,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_write(db).await?;
     let current = AppUserRepo::get_for_update(&txn, user_id)
         .await?
         .avatar_sha256;

@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::authz::records::Records;
 use crate::profile::ProfileService;
 use crate::service::history::Change;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 /// The media of `tree_id` linked to entity `entity_id` of kind `target`,
 /// each with its link, as the viewer of `records` sees them: a hidden link
@@ -90,7 +90,7 @@ pub async fn create_media_link(
     tree_id: Uuid,
     new: NewMediaLink,
 ) -> Result<MediaLink, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, new.media_id).await?;
     for (resource, id) in [
         (TreeResource::Person, new.person_id),
@@ -133,7 +133,7 @@ pub async fn delete_media_link(
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::MediaLink, id).await?;
     // Read before it goes: afterwards nothing says whose projection is wrong.
     let link = MediaLinkRepo::get(&txn, id).await?;

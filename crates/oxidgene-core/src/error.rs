@@ -150,10 +150,14 @@ impl DatabaseErrorKind {
     }
 
     /// Whether the same request, sent again, may succeed: the database was
-    /// busy, or ended the transaction for a concurrent one.
+    /// busy, ended the transaction for a concurrent one, or had no
+    /// connection free. The write changed nothing.
     #[must_use]
     pub const fn is_retryable(self) -> bool {
-        matches!(self, Self::Busy | Self::SerializationFailure)
+        matches!(
+            self,
+            Self::Busy | Self::SerializationFailure | Self::ConnectionAcquire
+        )
     }
 }
 
@@ -296,6 +300,8 @@ mod tests {
         assert!(DatabaseErrorKind::CheckViolation.is_constraint_violation());
         assert!(!DatabaseErrorKind::NotNullViolation.is_constraint_violation());
         assert!(DatabaseErrorKind::Busy.is_retryable());
+        assert!(DatabaseErrorKind::SerializationFailure.is_retryable());
+        assert!(DatabaseErrorKind::ConnectionAcquire.is_retryable());
         assert!(!DatabaseErrorKind::Timeout.is_retryable());
     }
 

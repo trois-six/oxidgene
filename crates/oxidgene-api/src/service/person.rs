@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use crate::profile::{ProfileService, invalidation};
 use crate::service::history::Change;
-use crate::service::scope::{begin_tx, commit_tx};
+use crate::service::scope::{begin_tree_write, commit_tx};
 
 /// The deepest an ancestor or descendant walk goes, in generations: the
 /// traversal's own ceiling, so a corrupt cycle cannot recurse forever.
@@ -57,7 +57,7 @@ pub async fn create_person(
     new: NewPerson,
 ) -> Result<Person, OxidGeneError> {
     let id = Uuid::now_v7();
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let pending = Change::create(viewer, tree_id, AuditEntity::Person, id)
         .person(id)
         .prepare(&txn)
@@ -79,7 +79,7 @@ pub async fn update_person(
     id: Uuid,
     patch: PersonPatch,
 ) -> Result<Person, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     PersonRepo::get_in_tree(&txn, tree_id, id).await?;
     let pending = Change::update(viewer, tree_id, AuditEntity::Person, id)
         .person(id)
@@ -104,7 +104,7 @@ pub async fn delete_person(
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     PersonRepo::get_in_tree(&txn, tree_id, id).await?;
     let pending = Change::delete(viewer, tree_id, AuditEntity::Person, id)
         .person(id)

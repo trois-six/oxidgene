@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::profile::ProfileService;
 use crate::service::history::Change;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 const MAX_PORTRAITS_PER_REQUEST: usize = 1_024;
 
@@ -79,7 +79,7 @@ pub async fn set_person_portrait(
     choice: PortraitChoice,
 ) -> Result<Person, OxidGeneError> {
     let portrait = choice.portrait()?;
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     for (resource, id) in [
         (TreeResource::Person, Some(person_id)),
         (TreeResource::Media, choice.media_id),

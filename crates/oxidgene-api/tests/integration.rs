@@ -73,3 +73,4 @@ mod trace_continuity_test;
 mod tree_cache_test;
 #[cfg(feature = "auth")]
 mod visibility_test;
+mod write_lock_test;

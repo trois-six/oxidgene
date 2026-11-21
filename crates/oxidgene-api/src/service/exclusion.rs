@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::service::history::Change;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 use crate::service::tag_bulk::{MAX_DEPTH, MIN_DEPTH};
 
 /// An exclusion to create.
@@ -127,7 +127,7 @@ pub async fn excluded_persons(
 ) -> Result<HashSet<Uuid>, OxidGeneError> {
     let (generation, built) = ExclusionRepo::generations(db, tree_id).await?;
     if built != Some(generation) {
-        let txn = begin_tx(db).await?;
+        let txn = begin_tree_write(db, tree_id).await?;
         rebuild(&txn, tree_id, false).await?;
         commit_tx(txn).await?;
     }
@@ -201,7 +201,7 @@ pub async fn create_exclusion(
         created_by: viewer.user().map(|identity| identity.user_id),
         created_at: Utc::now(),
     };
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
     ExclusionRepo::create(&txn, &exclusion).await?;
     rebuild(&txn, tree_id, true).await?;
@@ -228,7 +228,7 @@ pub async fn delete_exclusion(
     tree_id: Uuid,
     exclusion_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let exclusion = ExclusionRepo::get(&txn, tree_id, exclusion_id).await?;
     ExclusionRepo::delete(&txn, tree_id, exclusion_id).await?;
     rebuild(&txn, tree_id, true).await?;

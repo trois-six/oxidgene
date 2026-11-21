@@ -28,7 +28,7 @@ use oxidgene_db::repo::{
     AncestryRepo, CitationRepo, Connections, EventRepo, FamilyChildRepo, FamilyRepo,
     FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonDistinctRepo,
     PersonNameRepo, PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo,
-    RecordTagRepo, SosaRepo, VignetteRepo, db_err,
+    RecordTagRepo, SosaRepo, VignetteRepo, begin_tree_write, begin_write, db_err,
 };
 use sea_orm::{
     AccessMode, ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend,
@@ -358,7 +358,7 @@ impl ProfileService {
         tree_id: Uuid,
         force: bool,
     ) -> Result<usize, OxidGeneError> {
-        let txn = writer.begin().await.map_err(db_err)?;
+        let txn = begin_write(writer).await?;
         // A tree deleted meanwhile has nothing to build; one a request
         // ahead of this one rebuilt is read as it stands.
         let wanted = PersonDenormRepo::lock_tree(&txn, tree_id).await?
@@ -381,7 +381,7 @@ impl ProfileService {
         if SosaRepo::is_current(&self.reader, tree_id).await? {
             return Ok(());
         }
-        let txn = self.writer.begin().await.map_err(db_err)?;
+        let txn = begin_tree_write(&self.writer, tree_id).await?;
         if let Some(generation) = SosaRepo::begin_rebuild(&txn, tree_id).await? {
             let ancestors = sosa::ancestry(&txn, tree_id).await?;
             debug!(count = ancestors.len(), "Rebuilt the SOSA ancestry");
@@ -426,7 +426,7 @@ impl ProfileService {
     ) -> Result<HashMap<Uuid, oxidgene_core::privacy::PersonVisibility>, OxidGeneError> {
         use oxidgene_db::repo::PersonVisibilityRepo;
         if !PersonVisibilityRepo::is_materialized(&self.reader, tree_id).await? {
-            let txn = self.writer.begin().await.map_err(db_err)?;
+            let txn = begin_tree_write(&self.writer, tree_id).await?;
             if !PersonVisibilityRepo::is_materialized(&txn, tree_id).await? {
                 super::visibility::rebuild_tree(&txn, tree_id).await?;
             }
@@ -471,7 +471,7 @@ impl ProfileService {
         tree_id: Uuid,
         person_id: Uuid,
     ) -> Result<PersonProfile, OxidGeneError> {
-        let txn = self.writer.begin().await.map_err(db_err)?;
+        let txn = begin_tree_write(&self.writer, tree_id).await?;
         let profile = self.rebuild_person(&txn, tree_id, person_id).await?;
         txn.commit().await.map_err(db_err)?;
         Ok(profile)
@@ -480,7 +480,7 @@ impl ProfileService {
     /// [`Self::invalidate_tree`] in a transaction of its own on the writer:
     /// the projection admin operation of REST and GraphQL.
     pub async fn drop_tree(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
-        let txn = self.writer.begin().await.map_err(db_err)?;
+        let txn = begin_tree_write(&self.writer, tree_id).await?;
         self.invalidate_tree(&txn, tree_id).await?;
         txn.commit().await.map_err(db_err)
     }

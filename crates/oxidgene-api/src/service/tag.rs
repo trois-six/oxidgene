@@ -29,7 +29,7 @@ use crate::authz::records::Records;
 use crate::profile::{ProfileService, invalidation};
 use crate::service::history::Change;
 use crate::service::scope::{
-    TreeResource, begin_tx, commit_tx, require_live_tree, require_tree_resource,
+    TreeResource, begin_tree_write, commit_tx, require_live_tree, require_tree_resource,
 };
 
 /// The vocabulary of `tree_id` with every tag's counts, sorted by folded label.
@@ -70,7 +70,7 @@ pub async fn create(
     if let Some(color) = color {
         checked_color(color)?;
     }
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_live_tree(&txn, tree_id).await?;
     let (tag, created) = TagRepo::create(&txn, tree_id, label).await?;
     if created {
@@ -98,7 +98,7 @@ pub async fn update(
     label: Option<&str>,
     color: Option<i16>,
 ) -> Result<TagUsage, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_live_tree(&txn, tree_id).await?;
     let before = TagRepo::get(&txn, tree_id, id).await?;
     let after = TagRepo::update(&txn, tree_id, id, label, color).await?;
@@ -129,7 +129,7 @@ pub async fn merge(
     from: Uuid,
     into: Uuid,
 ) -> Result<TagUsage, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_live_tree(&txn, tree_id).await?;
     let source = TagRepo::get(&txn, tree_id, from).await?;
     let target = TagRepo::get(&txn, tree_id, into).await?;
@@ -158,7 +158,7 @@ pub async fn delete(
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<u64, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_live_tree(&txn, tree_id).await?;
     let tag = TagRepo::get(&txn, tree_id, id).await?;
     // Read before the links go: afterwards nothing says whose profile shows it.
@@ -673,7 +673,7 @@ async fn set_record_tag(
     (kind, record_id): (RecordKind, Uuid),
     present: bool,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_live_tree(&txn, tree_id).await?;
     let tag = TagRepo::get(&txn, tree_id, tag_id).await?;
     let record_id = tagged_record(&txn, tree_id, kind, record_id).await?;

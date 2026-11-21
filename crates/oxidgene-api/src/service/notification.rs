@@ -365,7 +365,7 @@ pub async fn update_preferences(
     patch: PreferencesPatch,
 ) -> Result<NotificationPreferences, OxidGeneError> {
     let identity = require_user(viewer.principal())?;
-    let txn = crate::service::scope::begin_tx(db).await?;
+    let txn = crate::service::scope::begin_write(db).await?;
     if let Some(enabled) = patch.email_enabled {
         let value = if enabled { "on" } else { "off" };
         NotificationRepo::set_preference(&txn, identity.user_id, ALL_EMAIL, value).await?;
@@ -415,7 +415,7 @@ pub async fn unsubscribe(
     } else {
         vec![NotificationKind::parse(&unsubscription.kind).ok_or_else(invalid)?]
     };
-    let txn = crate::service::scope::begin_tx(db).await?;
+    let txn = crate::service::scope::begin_write(db).await?;
     for kind in kinds {
         NotificationRepo::set_preference(&txn, user.id, kind.as_str(), "off").await?;
     }

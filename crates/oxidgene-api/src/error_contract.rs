@@ -78,13 +78,31 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
     }
 }
 
+/// How many seconds a client is asked to wait before sending again a
+/// request the database was too busy to take (`Retry-After`).
+pub(crate) const BUSY_RETRY_AFTER_SECS: u64 = 1;
+
+/// Whether `error` is a write the database could not take in time, which
+/// changed nothing and may be sent again: `503 busy`.
+pub(crate) fn is_busy(error: &OxidGeneError) -> bool {
+    matches!(error, OxidGeneError::Database(error) if error.kind().is_retryable())
+}
+
 /// A database failure, by its kind: a row a constraint of the schema
 /// refused — a second link where one may exist, a record that is no longer
 /// there, a broken invariant — is the conflict its service would have
-/// reported had it seen it first, not a server failure.
+/// reported had it seen it first, and a write the database could not take
+/// in time is to be sent again; neither is a server failure.
 fn database_contract(kind: DatabaseErrorKind) -> ErrorContract {
     if kind.is_constraint_violation() {
         return CONFLICT;
+    }
+    if kind.is_retryable() {
+        return ErrorContract {
+            code: "busy",
+            message: "The database is busy; try again",
+            unexpected: false,
+        };
     }
     ErrorContract {
         code: "database_error",
@@ -192,6 +210,17 @@ mod tests {
             let contract = classify(&OxidGeneError::database(kind, "private"));
             assert_eq!(contract.code, "conflict", "{kind}");
             assert!(!contract.unexpected, "{kind}");
+        }
+        for kind in [
+            DatabaseErrorKind::Busy,
+            DatabaseErrorKind::SerializationFailure,
+            DatabaseErrorKind::ConnectionAcquire,
+        ] {
+            let error = OxidGeneError::database(kind, "private");
+            let contract = classify(&error);
+            assert_eq!(contract.code, "busy", "{kind}");
+            assert!(!contract.unexpected, "{kind}");
+            assert!(is_busy(&error), "{kind}");
         }
         for kind in [
             DatabaseErrorKind::NotNullViolation,

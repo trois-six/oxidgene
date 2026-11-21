@@ -26,7 +26,7 @@ use uuid::Uuid;
 use crate::authz;
 use crate::service::access_scope::{self, ScopeView};
 use crate::service::patch::double_option;
-use crate::service::scope::{begin_tx, commit_tx};
+use crate::service::scope::{begin_tree_write, commit_tx};
 use crate::service::sharing::{SharingEnv, future, record};
 use crate::tree_cache::TreeCache;
 
@@ -164,7 +164,7 @@ pub async fn create(
     let label = checked_label(request.label)?;
     future(request.expires_at)?;
     let token = format!("{TOKEN_PREFIX}{}", crate::auth::crypto::random_token());
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let scope_id = access_scope::create_optional(&txn, tree_id, request.scope.as_ref()).await?;
     let link = ShareLinkRepo::create(
         &txn,
@@ -205,7 +205,7 @@ pub async fn update(
 ) -> Result<ShareLinkView, OxidGeneError> {
     let label = patch.label.map(checked_label).transpose()?;
     future(patch.expires_at.flatten())?;
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let current = ShareLinkRepo::get(&txn, tree_id, link_id).await?;
     if current.revoked_at.is_some() {
         return Err(OxidGeneError::NotFound {
@@ -251,7 +251,7 @@ pub async fn revoke(
     tree_id: Uuid,
     link_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     ShareLinkRepo::revoke(&txn, tree_id, link_id, Utc::now()).await?;
     record(
         &txn,

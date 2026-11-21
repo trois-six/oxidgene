@@ -65,7 +65,7 @@ use oxidgene_db::sea_orm::{
 use uuid::Uuid;
 
 use crate::profile::{ProfileService, invalidation};
-use crate::service::scope::{begin_tx, commit_tx};
+use crate::service::scope::{begin_tree_write, commit_tx};
 
 /// The versioned record types, in the order a change stores them.
 const RECORD_TYPES: [RecordType; 5] = [
@@ -934,7 +934,7 @@ pub async fn restore(
     record_id: Uuid,
     version: i32,
 ) -> Result<AuditEntry, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let entry = revert(
         viewer,
         &txn,

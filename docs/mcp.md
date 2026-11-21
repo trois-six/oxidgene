@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: tools that each name their tree, read-only by default and writing only when the launch command opts in, stdio transport, consent, history, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:24:32Z }
 ---
 
 # Assistant Access (MCP)
@@ -136,8 +136,14 @@ SQLite runs in WAL mode, so readers in either process do not block each other.
 A read-only session writes nothing but lazy rebuilds of stale person
 projections ([Data Model §4](data-model.md)), and never makes the desktop's
 caches stale. The write tools of a session that allows them, and those
-rebuilds, contend for the writer lock like any other write and wait for
-SQLite's busy timeout. Each write commits in its own transaction, with its
+rebuilds, contend for the writer lock like any other write: each begins its
+transaction with the lock (`BEGIN IMMEDIATE`,
+[Architecture §4](architecture.md#4-backend-architecture)), waiting for the
+application's write up to SQLite's busy timeout, five seconds, and the
+application's writes wait for the session's the same way. A write that
+waited in vain — the application is importing a tree — fails as busy: the
+tool answers its error, nothing was written, and the assistant may call it
+again. Each write commits in its own transaction, with its
 projections and its history entry, so the desktop process reads either the
 whole write or none of it; an open desktop window shows it once its own
 caches refresh, as after a write from another REST client.

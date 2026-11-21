@@ -28,7 +28,7 @@ use uuid::Uuid;
 use crate::profile::ProfileService;
 use crate::service::history::Change;
 use crate::service::scope::{
-    TreeResource, begin_tx, commit_tx, require_live_tree, require_tree_resource,
+    TreeResource, begin_tree_write, commit_tx, require_live_tree, require_tree_resource,
 };
 
 /// Most persons a target may list by id.
@@ -125,7 +125,7 @@ pub async fn bulk_tag(
     spec: &TagTargetSpec,
 ) -> Result<u64, OxidGeneError> {
     let redaction = crate::authz::redaction::redaction(db, profiles, viewer, tree_id).await?;
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_live_tree(&txn, tree_id).await?;
     let tag = TagRepo::get(&txn, tree_id, tag_id).await?;
     let ids = resolve(&txn, &redaction, tree_id, spec, Some(MAX_TARGET_PERSONS)).await?;

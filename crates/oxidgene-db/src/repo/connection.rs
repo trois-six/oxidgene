@@ -4,12 +4,28 @@ use oxidgene_core::error::OxidGeneError;
 use sea_orm::sqlx::sqlite::{SqliteAutoVacuum, SqliteJournalMode, SqliteSynchronous};
 use sea_orm::{
     ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection,
-    DatabaseTransaction, DbErr, Statement, TransactionTrait,
+    DatabaseTransaction, DbErr, Statement,
 };
 use sea_orm_migration::MigratorTrait;
+use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::Migrator;
+
+/// How long a SQLite connection waits for the lock another connection
+/// holds before its statement fails as busy: the desktop application and an
+/// MCP session write the same file (docs/mcp.md §4.5), and a write
+/// transaction waits this long for the other's to end
+/// (`repo::begin_write`). SQLx's own default, set explicitly so that it is
+/// ours to change and to document.
+pub const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long a request waits for a connection of the pool before it fails:
+/// under SQLite, for the single writer another write holds — an import, for
+/// its whole transaction. SQLx's own default, set explicitly. A request
+/// that waited in vain is answered as busy, to be sent again
+/// (docs/cross-cutting.md §4.2).
+pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Connect to a database using the provided URL.
 ///
@@ -33,6 +49,9 @@ use crate::Migrator;
 /// connection, so every connection in the pool gets them. In-memory databases
 /// have no log and silently keep their `memory` journal.
 ///
+/// The busy timeout ([`SQLITE_BUSY_TIMEOUT`]) and the pool's acquire timeout
+/// ([`ACQUIRE_TIMEOUT`]) are set explicitly on both backends' pools.
+///
 /// `auto_vacuum=INCREMENTAL` lets [`erase_deleted_content`] give the pages a
 /// purge frees back to the file system without rewriting the file. SQLite
 /// records it in the file only when it is set before the first table, so it
@@ -44,11 +63,13 @@ pub async fn connect(database_url: &str) -> Result<DatabaseConnection, DbErr> {
     opts.sqlx_logging(false);
     // SeaORM records the parameterized statement; bound values remain separate.
     opts.record_stmt_in_spans(true);
+    opts.acquire_timeout(ACQUIRE_TIMEOUT);
     opts.map_sqlx_sqlite_opts(|sqlite| {
         sqlite
             .auto_vacuum(SqliteAutoVacuum::Incremental)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(SQLITE_BUSY_TIMEOUT)
     });
     // SQLx times every pool acquisition; at `trace` it reports the time as a
     // `sqlx::pool::acquire` event, which OpenTelemetry export turns into the
@@ -130,7 +151,13 @@ pub async fn connect_read_pool(database_url: &str) -> Result<Option<DatabaseConn
     opts.sqlx_logging(false);
     opts.record_stmt_in_spans(true);
     opts.max_connections(READ_POOL_SIZE);
-    opts.map_sqlx_sqlite_opts(|sqlite| sqlite.read_only(true).create_if_missing(false));
+    opts.acquire_timeout(ACQUIRE_TIMEOUT);
+    opts.map_sqlx_sqlite_opts(|sqlite| {
+        sqlite
+            .read_only(true)
+            .create_if_missing(false)
+            .busy_timeout(SQLITE_BUSY_TIMEOUT)
+    });
     opts.map_sqlx_sqlite_pool_opts(|pool| pool.acquire_time_level(log::LevelFilter::Trace));
     let reader = Database::connect(opts).await?;
     info!(
@@ -240,9 +267,10 @@ pub struct ErasingTransaction {
 }
 
 impl ErasingTransaction {
-    /// Open the transaction on `db`'s writer.
+    /// Open the transaction on `db`'s writer: a write transaction
+    /// (`repo::begin_write`).
     pub async fn begin(db: &DatabaseConnection) -> Result<Self, OxidGeneError> {
-        let txn = db.begin().await.map_err(crate::repo::db_err)?;
+        let txn = crate::repo::begin_write(db).await?;
         let previous = match txn.get_database_backend() {
             DatabaseBackend::Sqlite => Some(set_secure_delete(&txn, 1).await?),
             _ => None,
@@ -423,6 +451,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use sea_orm::TransactionTrait;
 
     /// The `acquired_after_secs` of every pool timing event.
     #[derive(Clone, Default)]

@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:24:32Z }
 ---
 
 
@@ -122,11 +122,46 @@ API endpoints are documented in [API Contract](api.md).
 
 **PDF viewer.** The PDF viewer draws with Mozilla pdf.js (`pdfjs-dist`, Apache-2.0; JPEG 2000 and JBIG2 decoders under BSD licences), vendored as files rather than a Cargo dependency: the legacy build's library, worker, viewer components, stylesheet and two wasm decoders in `assets/public/pdfjs/{release}/` (about 2.9 MB, 0.67 MB brotli), beside the `VERSION` that names the release. The web bundle serves them as static files (`public_dir`), and the desktop brotli-compresses them into its binary at build time and serves them from an asset handler at the same `/pdfjs/{release}/` path; the directory's name versions them ([§4.3](#43-versioned-assets)). They are loaded on first use only, never from the network. `oxidgene-ui` drives them through `document::eval` (`components/pdf_viewer.js`) and keeps no JS or web-sys dependency, so it still compiles to WASM. `scripts/pdfjs.sh` (`just pdfjs`) updates them against the npm integrity, and a guard keeps them one release of the legacy build. The same library draws, client-side, the gallery preview of a PDF the server could not thumbnail.
 
+**Write transactions.** A transaction that writes begins one way,
+`oxidgene_db::repo::begin_tree_write(db, tree_id)` — or `begin_write(db)` for
+the few writes that belong to no tree, or to one being created — so that
+what it reads before writing is the committed state it writes over: its
+checks, and the state its history stores as replaced
+([Data Model §5.2](data-model.md#52-versions-record_version)). A plain
+`BEGIN` gives that on neither backend:
+
+- **SQLite** defers the write lock to the first write. A transaction that
+  read, then finds that another connection has written since, cannot wait:
+  its snapshot is stale, and SQLite refuses the write at once. The
+  primitive begins with `BEGIN IMMEDIATE`, which takes the write lock
+  first, waiting for another connection's up to the busy timeout
+  (`SQLITE_BUSY_TIMEOUT`, five seconds, set explicitly on every
+  connection). Two connections write one file when an assistant's session
+  runs beside the desktop application ([Assistant Access §4.5](mcp.md)).
+- **PostgreSQL** runs under `READ COMMITTED`: a transaction that read a
+  record, then waited for another writer of the tree at its first write,
+  has read the state before that writer's commit. The primitive takes the
+  tree's lock first — its `projection_state` row, the first of the three
+  every writer of a tree takes in one order
+  ([Data Model §4.1](data-model.md#41-person-projection-person_denorm)) —
+  so two writers of one tree run one after the other from their first
+  statement, and writers of different trees do not wait for each other.
+
+A writer that cannot start in time — the busy timeout, PostgreSQL's
+`lock_timeout`, a serialization failure or deadlock, or no connection free
+in the pool within its acquire timeout (thirty seconds) — fails with a
+database error of kind `busy`, `serialization_failure` or
+`connection_acquire`, which both API surfaces answer `503 busy` with
+`Retry-After` ([Cross-cutting Rules §4.2](cross-cutting.md#42-rest-envelope)):
+the request changed nothing and may be sent again. The layering guard keeps
+REST handlers and GraphQL mutations from opening a transaction themselves.
+
 **Database connections.** A SQLite database opens in write-ahead-log mode and
 has a single writer: one pooled connection, SeaORM's default, through which
 every write goes with the projection refresh in its transaction, as do the
-purge worker and the job worker. A larger writing pool would not help:
-concurrent writers fail with `SQLITE_BUSY` instead of waiting. A file-backed
+purge worker and the job worker. A larger writing pool would not help: SQLite
+has one writer at a time, and a second connection would only wait for the
+first. A file-backed
 database adds a pool of four read-only connections (`connect_read_pool`,
 opened once the schema is migrated; `Connections` carries both), and what only
 reads goes there: REST's `GET` handlers and the read-only `POST`s (gallery and

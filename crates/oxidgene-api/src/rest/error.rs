@@ -8,7 +8,7 @@ use serde::Serialize;
 use tracing::error;
 use uuid::Uuid;
 
-use crate::error_contract::{classify, error_kind};
+use crate::error_contract::{BUSY_RETRY_AFTER_SECS, classify, error_kind, is_busy};
 use crate::request_context::RequestContext;
 
 /// JSON error body returned to clients.
@@ -61,7 +61,12 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let body = ErrorBody::from_error(&self.0);
         let mut response = (status(&self.0), axum::Json(body)).into_response();
-        if let OxidGeneError::RateLimited { retry_after } = self.0
+        let retry_after = match self.0 {
+            OxidGeneError::RateLimited { retry_after } => Some(retry_after),
+            ref error if is_busy(error) => Some(BUSY_RETRY_AFTER_SECS),
+            _ => None,
+        };
+        if let Some(retry_after) = retry_after
             && let Ok(value) = axum::http::HeaderValue::from_str(&retry_after.to_string())
         {
             response
@@ -138,6 +143,8 @@ fn status(error: &OxidGeneError) -> StatusCode {
         OxidGeneError::Database(error) if error.kind().is_constraint_violation() => {
             StatusCode::CONFLICT
         }
+        // A write the database could not take in time: to be sent again.
+        error if is_busy(error) => StatusCode::SERVICE_UNAVAILABLE,
         OxidGeneError::Unauthenticated => StatusCode::UNAUTHORIZED,
         OxidGeneError::Forbidden => StatusCode::FORBIDDEN,
         OxidGeneError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
@@ -196,5 +203,30 @@ mod tests {
 
         let failed = OxidGeneError::database(DatabaseErrorKind::Connection, "private SQL");
         assert_eq!(status(&failed), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    /// A write the database was too busy to take answers `503 busy` with
+    /// `Retry-After`, and is not logged as a server failure.
+    #[test]
+    fn a_busy_database_answers_as_retryable() {
+        use oxidgene_core::error::DatabaseErrorKind;
+
+        let response = ApiError(OxidGeneError::database(
+            DatabaseErrorKind::Busy,
+            "private SQL",
+        ))
+        .into_response();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok()),
+            Some("1")
+        );
+        let body =
+            ErrorBody::from_error(&OxidGeneError::database(DatabaseErrorKind::Busy, "private"));
+        assert_eq!(body.error, "busy");
+        assert!(body.request_id.is_none());
     }
 }

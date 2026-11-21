@@ -23,7 +23,7 @@ use crate::profile::{ProfileService, invalidation};
 use crate::service::event_date;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 /// An event to create: what happened, when, where, and to whom — a person or
 /// a family.
@@ -151,7 +151,7 @@ pub async fn create_event(
     let (details, spouse_ages) = new_details(&mut new)?;
     // Derived here, never taken from the request — see `service::event_date`.
     let date_sort = event_date::derive(new.calendar, new.date_value.as_deref());
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     for (resource, id) in [
         (TreeResource::Place, new.place_id),
         (TreeResource::Person, new.person_id),
@@ -212,7 +212,7 @@ pub async fn update_event(
     id: Uuid,
     mut patch: EventPatch,
 ) -> Result<Event, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Event, id).await?;
     require_patched_records(&txn, tree_id, &patch).await?;
     // Derived from the patched state, reading whichever half the patch leaves
@@ -279,7 +279,7 @@ pub async fn delete_event(
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Event, id).await?;
     let event = EventRepo::get(&txn, id).await?;
     let pending = Change::delete(viewer, tree_id, AuditEntity::Event, id)
@@ -459,7 +459,7 @@ pub async fn add_witness(
     new: NewWitness,
 ) -> Result<EventWitness, OxidGeneError> {
     let id = Uuid::now_v7();
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Event, event_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
     let pending = Change::create(viewer, tree_id, AuditEntity::EventWitness, id)
@@ -491,7 +491,7 @@ pub async fn remove_witness(
     event_id: Option<Uuid>,
     witness_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::EventWitness, witness_id).await?;
     let witness = EventWitnessRepo::get(&txn, witness_id).await?;
     if event_id.is_some_and(|event_id| event_id != witness.event_id) {

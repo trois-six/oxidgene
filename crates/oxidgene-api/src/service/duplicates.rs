@@ -31,7 +31,7 @@ use crate::profile::builder::build_search_entry;
 use crate::profile::invalidation;
 use crate::profile::service::{ProfileService, SEARCH_MAX_LIMIT};
 use crate::service::history::Change;
-use crate::service::scope::{begin_tx, commit_tx};
+use crate::service::scope::{begin_tree_write, commit_tx};
 
 /// Record that `person_id` is a different person from each of `others`.
 ///
@@ -50,7 +50,7 @@ pub async fn mark_distinct(
     person_id: Uuid,
     others: &[Uuid],
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     mark_distinct_in(viewer, &txn, tree_id, person_id, others).await?;
     commit_tx(txn).await
 }
@@ -136,7 +136,7 @@ pub async fn merge_persons(
     duplicate: Uuid,
     choices: &MergeChoices,
 ) -> Result<Person, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let person = Box::pin(merge_persons_in(
         viewer, &txn, profiles, tree_id, kept, duplicate, choices,
     ))

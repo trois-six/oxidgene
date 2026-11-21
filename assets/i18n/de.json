@@ -7214,6 +7214,7 @@
     "dictionary.usage_empty": "Keine Personen gefunden.",
     "dictionary.view_usage": "Verwendung anzeigen",
     "error.archive_unavailable": "Das Archivportal ist nicht erreichbar. Versuchen Sie es später erneut.",
+    "error.busy": "Die Datenbank ist mit einer anderen Aufgabe beschäftigt. Warten Sie einen Moment und versuchen Sie es erneut.",
     "error.conflict": "Diese Änderung steht im Widerspruch zum aktuellen Stand des Stammbaums oder zu einer anderen laufenden Aufgabe. Laden Sie die Seite neu und versuchen Sie es erneut.",
     "error.forbidden": "Sie sind dazu nicht berechtigt.",
     "error.invalid_file": "Diese Datei konnte nicht gelesen werden: Sie ist beschädigt oder ihr Format wird nicht unterstützt.",

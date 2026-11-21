@@ -7214,6 +7214,7 @@
     "dictionary.usage_empty": "Geen personen gevonden.",
     "dictionary.view_usage": "Gebruik bekijken",
     "error.archive_unavailable": "Het archiefportaal is niet bereikbaar. Probeer het later opnieuw.",
+    "error.busy": "De database is bezig met een andere taak. Wacht even en probeer het opnieuw.",
     "error.conflict": "Deze wijziging botst met de huidige staat van de stamboom of met een andere taak die bezig is. Laad de pagina opnieuw en probeer het opnieuw.",
     "error.forbidden": "U hebt geen toestemming om dit te doen.",
     "error.invalid_file": "Dit bestand kon niet worden gelezen: het is beschadigd of de indeling wordt niet ondersteund.",

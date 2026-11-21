@@ -22,7 +22,7 @@ use crate::media::MediaStore;
 use crate::profile::ProfileService;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 /// A region to cut out of a media file, and what it shows.
 #[derive(Debug, Deserialize)]
@@ -57,7 +57,7 @@ pub async fn create_vignette(
     media_id: Uuid,
     new: NewVignette,
 ) -> Result<Vignette, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, media_id).await?;
     require_subjects(&txn, tree_id, new.person_id, new.event_id).await?;
     let media = MediaRepo::get(&txn, media_id).await?;
@@ -105,7 +105,7 @@ pub async fn update_vignette(
             ));
         }
     };
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Vignette, id).await?;
     require_subjects(
         &txn,
@@ -153,7 +153,7 @@ pub async fn delete_vignette(
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Vignette, id).await?;
     let media_id = VignetteRepo::get(&txn, id).await?.media_id;
     // Read while the portrait still points at it.

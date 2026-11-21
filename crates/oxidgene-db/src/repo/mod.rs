@@ -55,6 +55,7 @@ mod source;
 mod tag;
 mod tree;
 mod vignette;
+mod write;
 
 pub use access_event::{AccessEvent, AccessEventRepo, NewAccessEvent};
 pub use access_scope::{AccessScope, AccessScopeRepo, NamedRecords};
@@ -66,8 +67,9 @@ pub use background_job::{
 };
 pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{
-    Connections, ErasingTransaction, connect, connect_read_pool, erase_deleted_content,
-    refresh_statistics, rollback_migrations, run_migrations,
+    ACQUIRE_TIMEOUT, Connections, ErasingTransaction, SQLITE_BUSY_TIMEOUT, connect,
+    connect_read_pool, erase_deleted_content, refresh_statistics, rollback_migrations,
+    run_migrations,
 };
 pub use descent::DescentRows;
 pub use dictionary::{
@@ -119,6 +121,7 @@ pub use source::{SourceFilter, SourceRepo};
 pub use tag::{TagRepo, TagUsage, checked_color, checked_label};
 pub use tree::{TreeChanges, TreeRepo};
 pub use vignette::{VignetteInput, VignettePatch, VignetteRepo};
+pub use write::{begin_tree_write, begin_write};
 
 /// Row `id` of entity `E` unless it is missing or soft-deleted (its
 /// `deleted_at` column set); `NotFound` naming `entity` otherwise. What every

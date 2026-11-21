@@ -33,7 +33,7 @@ use crate::service::account::require_admin;
 use crate::service::history::Change;
 use crate::service::notification::{About, Mailing, Notices, NotificationKind};
 use crate::service::patch::double_option;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 use crate::tree_cache::TreeCache;
 
 /// A member of a tree, as the members list shows them.
@@ -185,7 +185,7 @@ pub async fn update_member(
         .filter(|membership| manages || membership.user_id == identity.user_id)
         .ok_or_else(|| membership_not_found(user_id))?;
     check_patch(&patch, &current, manages, user_id == identity.user_id)?;
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let scope_id = prepare_patch(&txn, tree_id, &patch).await?;
     let updated = MembershipRepo::update(
         &txn,
@@ -308,7 +308,7 @@ pub async fn remove_member(
     let membership = MembershipRepo::get(db, tree_id, user_id)
         .await?
         .ok_or_else(|| membership_not_found(user_id))?;
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     MembershipRepo::delete(&txn, tree_id, user_id).await?;
     drop_scope(&txn, membership.scope_id).await?;
     record(&txn, viewer, tree_id, AuditAction::Delete, membership.id).await?;
@@ -375,7 +375,7 @@ pub async fn transfer_ownership(
         .filter(|membership| membership.is_live(Utc::now()))
         .ok_or_else(|| membership_not_found(user_id))?;
     require_active(db, user_id).await?;
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let owner = MembershipRepo::owner(&txn, tree_id)
         .await?
         .ok_or(OxidGeneError::Forbidden)?;
@@ -465,7 +465,7 @@ pub async fn assign_owner(
     require_admin(viewer.principal())?;
     TreeRepo::get(db, tree_id).await?;
     require_active(db, user_id).await?;
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     if MembershipRepo::owner(&txn, tree_id).await?.is_some() {
         return Err(OxidGeneError::Conflict("the tree has an owner".into()));
     }

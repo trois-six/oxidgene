@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::profile::ProfileService;
 use crate::service::history;
-use crate::service::scope::{begin_tx, commit_tx};
+use crate::service::scope::{begin_tree_write, commit_tx};
 
 /// An occupation to rename.
 #[derive(Debug, Deserialize)]
@@ -36,7 +36,7 @@ pub async fn rename(
     tree_id: Uuid,
     change: OccupationChange,
 ) -> Result<OccupationRename, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let holders =
         DictionaryRepo::persons_holding_occupations(&txn, tree_id, &[&change.value]).await?;
     let pending = history::occupation_change(viewer, tree_id, change.value.trim(), &holders)

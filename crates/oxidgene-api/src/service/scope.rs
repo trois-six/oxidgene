@@ -4,10 +4,7 @@
 
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_db::repo::{TreeRepo, db_err};
-use sea_orm::{
-    ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend, Statement,
-    TransactionTrait,
-};
+use sea_orm::{ConnectionTrait, DatabaseTransaction, DbBackend, Statement};
 use uuid::Uuid;
 
 #[derive(Clone, Copy)]
@@ -121,8 +118,10 @@ pub(crate) async fn require_tree_resource(
     Ok(())
 }
 
-/// Begin a transaction spanning a mutation and the projection refresh it
-/// triggers.
+/// How a service begins the transaction of a write: `begin_tree_write` for
+/// a write to a tree, `begin_write` for one that belongs to none
+/// (docs/architecture.md §4, Write transactions). It spans the mutation and
+/// the projection refresh it triggers.
 ///
 /// The refresh reads the *post-mutation* state (family links, names) to build
 /// the projections, so it has to see the write — which means both must run on
@@ -131,11 +130,9 @@ pub(crate) async fn require_tree_resource(
 ///
 /// A dropped transaction rolls back, so any `?` in the handler undoes the
 /// mutation and the refresh as a unit.
-pub async fn begin_tx(db: &DatabaseConnection) -> Result<DatabaseTransaction, OxidGeneError> {
-    db.begin().await.map_err(db_err)
-}
+pub use oxidgene_db::repo::{begin_tree_write, begin_write};
 
-/// Commit a transaction opened with [`begin_tx`].
+/// Commit a transaction opened with [`begin_tree_write`] or [`begin_write`].
 pub async fn commit_tx(txn: DatabaseTransaction) -> Result<(), OxidGeneError> {
     txn.commit().await.map_err(db_err)
 }

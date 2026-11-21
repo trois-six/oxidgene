@@ -7214,6 +7214,7 @@
     "dictionary.usage_empty": "Nessuna persona trovata.",
     "dictionary.view_usage": "Vedi utilizzi",
     "error.archive_unavailable": "Impossibile raggiungere il portale dell’archivio. Riprova più tardi.",
+    "error.busy": "Il database è occupato da un’altra attività. Attendi un momento e riprova.",
     "error.conflict": "Questa modifica è in conflitto con lo stato attuale dell’albero o con un’altra attività in corso. Ricarica la pagina e riprova.",
     "error.forbidden": "Non hai il permesso di farlo.",
     "error.invalid_file": "Impossibile leggere questo file: è danneggiato o il suo formato non è supportato.",

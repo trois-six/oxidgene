@@ -16,3 +16,4 @@ mod person_search_test;
 mod repo_test;
 mod sharing_test;
 mod tag_test;
+mod write_test;

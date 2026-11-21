@@ -16,7 +16,7 @@ use uuid::Uuid;
 use crate::authz::records::Records;
 use crate::profile::ProfileService;
 use crate::service::history::{self, NoteTarget};
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 /// A note to create: its text and what it is about.
 #[derive(Debug, Deserialize)]
@@ -93,7 +93,7 @@ pub async fn create_note(
     if new.confidential {
         crate::authz::authorize(db, viewer, tree_id, Permission::PrivacyEdit).await?;
     }
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     for (resource, id) in [
         (TreeResource::Person, new.person_id),
         (TreeResource::Event, new.event_id),
@@ -153,7 +153,7 @@ pub async fn update_note(
     id: Uuid,
     patch: NotePatch,
 ) -> Result<Note, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Note, id).await?;
     let previous = NoteRepo::get(&txn, id).await?;
     if patch
@@ -185,7 +185,7 @@ pub async fn delete_note(
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Note, id).await?;
     let note = NoteRepo::get(&txn, id).await?;
     let pending = history::note_change(viewer, tree_id, AuditAction::Delete, id, (&note).into())

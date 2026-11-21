@@ -19,7 +19,7 @@ use uuid::Uuid;
 use crate::profile::{ProfileService, invalidation};
 use crate::service::history::Change;
 use crate::service::patch::double_option;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 /// A name to give a person.
 #[derive(Debug, Deserialize)]
@@ -93,7 +93,7 @@ pub async fn create_person_name(
     new: NewPersonName,
 ) -> Result<PersonName, OxidGeneError> {
     let id = Uuid::now_v7();
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, person_id).await?;
     let pending = Change::create(viewer, tree_id, AuditEntity::PersonName, id)
         .person(person_id)
@@ -132,7 +132,7 @@ pub async fn update_person_name(
     name_id: Uuid,
     patch: PersonNamePatch,
 ) -> Result<PersonName, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_owned_name(&txn, tree_id, person_id, name_id).await?;
     let pending = Change::update(viewer, tree_id, AuditEntity::PersonName, name_id)
         .person(person_id)
@@ -169,7 +169,7 @@ pub async fn delete_person_name(
     person_id: Uuid,
     name_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_owned_name(&txn, tree_id, person_id, name_id).await?;
     let pending = Change::delete(viewer, tree_id, AuditEntity::PersonName, name_id)
         .person(person_id)

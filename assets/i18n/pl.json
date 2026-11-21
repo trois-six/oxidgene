@@ -7269,6 +7269,7 @@
     "dictionary.usage_empty": "Nie znaleziono osób.",
     "dictionary.view_usage": "Pokaż użycia",
     "error.archive_unavailable": "Nie można połączyć się z portalem archiwum. Spróbuj ponownie później.",
+    "error.busy": "Baza danych jest zajęta innym zadaniem. Odczekaj chwilę i spróbuj ponownie.",
     "error.conflict": "Ta zmiana koliduje z bieżącym stanem drzewa lub z innym trwającym zadaniem. Odśwież stronę i spróbuj ponownie.",
     "error.forbidden": "Nie masz uprawnień do wykonania tej czynności.",
     "error.invalid_file": "Nie udało się odczytać tego pliku: jest uszkodzony lub jego format nie jest obsługiwany.",

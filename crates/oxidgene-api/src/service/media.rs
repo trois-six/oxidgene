@@ -30,7 +30,7 @@ use crate::profile::ProfileService;
 use crate::service::event_date;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 /// A page that names a file without holding its bytes — a URL an archive
 /// serves, or a path a GEDCOM mentioned.
@@ -155,7 +155,7 @@ pub async fn create_page(
     let thumbnail_url = thumbnail_address(&new.file_path, new.thumbnail_url)?;
     let dimensions = page_dimensions(new.width, new.height)?;
     let id = Uuid::now_v7();
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, new.document_id).await?;
     // `create` counts the page into its document's `page_count`.
     let mut page = MediaRepo::create(
@@ -308,7 +308,7 @@ async fn write_upload(
     target: UploadTarget,
     uploaded: oxidgene_db::repo::UploadedMedia,
 ) -> Result<(Media, bool), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let (page, change) = match target {
         UploadTarget::Attach { media_id } => {
             require_tree_resource(&txn, tree_id, TreeResource::Media, media_id).await?;
@@ -347,7 +347,7 @@ pub async fn create_document(
     tree_id: Uuid,
     title: Option<String>,
 ) -> Result<Media, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let document =
         MediaRepo::create_document(&txn, Uuid::now_v7(), tree_id, title, chrono::Utc::now())
             .await?;
@@ -368,7 +368,7 @@ pub async fn update_media(
     id: Uuid,
     update: MediaUpdate,
 ) -> Result<Media, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, id).await?;
     if let Some(Some(place_id)) = update.place_id {
         require_tree_resource(&txn, tree_id, TreeResource::Place, place_id).await?;
@@ -571,7 +571,7 @@ pub async fn reorder_pages(
     document_id: Uuid,
     page_ids: &[Uuid],
 ) -> Result<Vec<Media>, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, document_id).await?;
     for page_id in page_ids {
         require_tree_resource(&txn, tree_id, TreeResource::Media, *page_id).await?;
@@ -606,7 +606,7 @@ pub async fn delete_page(
     document_id: Uuid,
     page_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, document_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, page_id).await?;
     // Read before the page and its links go.
@@ -638,7 +638,7 @@ pub async fn delete_media(
     id: Uuid,
     allowed_link_id: Option<Uuid>,
 ) -> Result<bool, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Media, id).await?;
     if let Some(link_id) = allowed_link_id {
         require_tree_resource(&txn, tree_id, TreeResource::MediaLink, link_id).await?;

@@ -32,7 +32,14 @@ const READS: &[&str] = &[
 ];
 
 /// What opens a transaction.
-const TRANSACTIONS: &[&str] = &["begin_tx(", "commit_tx(", ".begin()", ".commit()"];
+const TRANSACTIONS: &[&str] = &[
+    "begin_tree_write(",
+    "begin_write(",
+    "begin_with_options(",
+    "commit_tx(",
+    ".begin()",
+    ".commit()",
+];
 
 #[test]
 fn services_do_not_depend_on_the_surfaces() {

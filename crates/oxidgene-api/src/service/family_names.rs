@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::profile::{ProfileService, invalidation};
 use crate::service::history;
-use crate::service::scope::{begin_tx, commit_tx};
+use crate::service::scope::{begin_tree_write, commit_tx};
 
 /// A surname to re-cut at a particle.
 #[derive(Debug, Deserialize)]
@@ -50,7 +50,7 @@ pub async fn set_particle(
     tree_id: Uuid,
     change: ParticleChange,
 ) -> Result<FamilyNameParticleUpdate, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let bearers =
         DictionaryRepo::persons_bearing_family_names(&txn, tree_id, &[&change.value]).await?;
     let pending = history::family_name_change(viewer, tree_id, change.value.trim(), &bearers)
@@ -88,7 +88,7 @@ pub async fn rename(
     tree_id: Uuid,
     change: FamilyNameChange,
 ) -> Result<FamilyNameRename, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     // Bearers of the new name too: an explicit particle re-cuts them.
     let bearers = DictionaryRepo::persons_bearing_family_names(
         &txn,

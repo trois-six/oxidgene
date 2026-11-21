@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T12:27:41Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:43:01Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -201,6 +201,7 @@ error (a `500`), and names the server log line that records it.
 | 415 | `unsupported_media_type` | Payload format is unsupported, such as a body without a JSON content type on a JSON route. |
 | 422 | `not_an_archive_citation`, `no_adapter` | A source asked for its archive target is not an archive citation, or cites an act no catalogued collection holds ([API Contract](api.md#sources)). |
 | 503 | `timeout` | The standalone server's time limit for the request ran out before a response (§7.1); a `504 timeout` is an archive portal's. |
+| 503 | `busy` | The database could not take the write in time: another writer holds the tree or the file past the wait, the transaction was ended for a concurrent one to go on, or no connection came free ([Architecture §4](architecture.md#4-backend-architecture)). Nothing was written; `Retry-After` says when to send the request again. |
 | 503 | `auth_unavailable` | The web build's identity provider or session store could not be reached where a request needed it ([Authentication §4.6](authentication.md#46-lifetimes-refresh-and-revalidation)). |
 | 502 | `unexpected_response`, `challenged`, `unreachable` | An archive portal answered not as its adapter expects, answered with an anti-bot challenge, or could not be reached. |
 | 504 | `timeout` | An archive portal did not answer in time. |
@@ -228,14 +229,15 @@ layer above reads: `unique_violation`, `foreign_key_violation`,
 cause; it displays as its kind alone, so the driver's text — SQL, values,
 paths — reaches neither a client nor a log. The first three kinds answer
 `409 conflict`, as the service would have had it seen the conflict first;
-the others answer `500 database_error`, and the kind is the `error.kind` of
-their log line (§5.4).
+`busy`, `serialization_failure` and `connection_acquire` answer `503 busy`,
+the write having changed nothing; the others answer `500 database_error`,
+and the kind is the `error.kind` of their log line (§5.4).
 
 ### 4.3 GraphQL mapping
 
 GraphQL uses the standard `errors` array. Each error carries the equivalent
 uppercase code (`VALIDATION_ERROR`, `GEDCOM_ERROR`, `NOT_FOUND`, `CONFLICT`,
-`DATABASE_ERROR`, `IO_ERROR`, `INTERNAL_ERROR`, and the archive codes
+`BUSY`, `DATABASE_ERROR`, `IO_ERROR`, `INTERNAL_ERROR`, and the archive codes
 `NOT_AN_ARCHIVE_CITATION`, `NO_ADAPTER`, `UNEXPECTED_RESPONSE`, `TIMEOUT`,
 `UNREACHABLE`, and with EPIC G `UNAUTHENTICATED`, `FORBIDDEN` and
 `RATE_LIMITED`) and optional request ID in `extensions`. Mutation payloads do not invent a second error model.

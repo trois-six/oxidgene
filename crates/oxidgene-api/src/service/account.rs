@@ -15,9 +15,9 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::Connection;
 use oxidgene_db::repo::{
     AppUser, AppUserChanges, AppUserRepo, InstanceRole, MembershipRepo, NewAppUser,
-    PaginationParams, UserStatus, db_err,
+    PaginationParams, UserStatus, begin_write, db_err,
 };
-use sea_orm::{DatabaseConnection, TransactionTrait};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -149,7 +149,7 @@ pub async fn sign_in(
     policy: &SignupPolicy,
     claims: &IdentityClaims,
 ) -> Result<Result<Admission, SignInRefusal>, OxidGeneError> {
-    let txn = db.begin().await.map_err(db_err)?;
+    let txn = begin_write(db).await?;
     let existing = AppUserRepo::find_by_identity(&txn, &claims.issuer, &claims.subject).await?;
     let (bootstrap, invited) = gates(&txn, policy, claims, existing.is_none()).await?;
     let outcome = match existing {
@@ -888,7 +888,7 @@ pub async fn rebind_identity(
     if issuer.is_empty() || subject.is_empty() {
         return Err(invalid("issuer and subject are required"));
     }
-    let txn = db.begin().await.map_err(db_err)?;
+    let txn = begin_write(db).await?;
     let current = AppUserRepo::get(&txn, id).await?;
     if current.status == UserStatus::Erased {
         return Err(OxidGeneError::Conflict("the user is erased".into()));
@@ -965,7 +965,7 @@ async fn tombstone(
     id: Uuid,
     email: Option<&str>,
 ) -> Result<(), OxidGeneError> {
-    let txn = db.begin().await.map_err(db_err)?;
+    let txn = begin_write(db).await?;
     MembershipRepo::delete_of_user(&txn, id).await?;
     // The invitations addressed to them go; those they sent and the share
     // links they made stay the tree's, without their author.

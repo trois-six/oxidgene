@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::profile::ProfileService;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_write, commit_tx, require_tree_resource};
 
 /// The live persons of `tree_id` and how their families link them: what a
 /// scope or an exclusion walks.
@@ -172,7 +172,7 @@ pub async fn ensure_current(db: &DatabaseConnection, scope_id: Uuid) -> Result<(
     if built == Some(generation) {
         return Ok(());
     }
-    let txn = begin_tx(db).await?;
+    let txn = begin_write(db).await?;
     if let Some(scope) = AccessScopeRepo::get(&txn, scope_id).await? {
         // Another request may have rebuilt it meanwhile: the row locked,
         // until this transaction ends, before it is read again — after the

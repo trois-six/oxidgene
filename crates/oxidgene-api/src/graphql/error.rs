@@ -110,6 +110,24 @@ mod tests {
         assert!(extensions.get("requestId").is_some());
     }
 
+    /// As on REST: a write the database was too busy to take is `BUSY`, to
+    /// be sent again, without a correlation id.
+    #[test]
+    fn a_busy_database_is_retryable() {
+        let busy = OxidGeneError::database(
+            oxidgene_core::error::DatabaseErrorKind::SerializationFailure,
+            "private SQL",
+        );
+        let mut error = Error::from(busy).into_server_error(Pos::default());
+
+        sanitize(&mut error);
+
+        assert_eq!(error.message, "The database is busy; try again");
+        let extensions = error.extensions.expect("error extensions");
+        assert_eq!(extensions.get("code"), Some(&"BUSY".into()));
+        assert!(extensions.get("requestId").is_none());
+    }
+
     /// As on REST: a row the schema refused is a conflict, an expected
     /// answer without a correlation id.
     #[test]
@@ -147,11 +165,11 @@ mod tests {
     #[tokio::test]
     async fn unexpected_failures_are_logged_with_a_bounded_cause_kind() {
         let database = Error::from(OxidGeneError::database(
-            oxidgene_core::error::DatabaseErrorKind::Busy,
-            "error returned from database: (code: 5) database is locked",
+            oxidgene_core::error::DatabaseErrorKind::Connection,
+            "error communicating with database",
         ))
         .into_server_error(Pos::default());
-        assert_eq!(cause_kind(&database), "busy");
+        assert_eq!(cause_kind(&database), "connection");
 
         let panicked = tokio::spawn(async { panic!("private payload") })
             .await

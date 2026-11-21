@@ -17,7 +17,7 @@ use crate::authz::records::Records;
 use crate::profile::ProfileService;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 /// A citation to create: the source it cites, what it is attached to, and
 /// what it says.
@@ -83,7 +83,7 @@ pub async fn create_citation(
     tree_id: Uuid,
     new: NewCitation,
 ) -> Result<Citation, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Source, new.source_id).await?;
     for (resource, id) in [
         (TreeResource::Person, new.person_id),
@@ -130,7 +130,7 @@ pub async fn update_citation(
     id: Uuid,
     patch: CitationPatch,
 ) -> Result<Citation, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Citation, id).await?;
     let previous = CitationRepo::get(&txn, id).await?;
     if let Some(source_id) = patch.source_id {
@@ -169,7 +169,7 @@ pub async fn delete_citation(
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Citation, id).await?;
     let citation = CitationRepo::get(&txn, id).await?;
     let pending = change_of(

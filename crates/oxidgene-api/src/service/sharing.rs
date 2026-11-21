@@ -40,7 +40,7 @@ use crate::service::access_scope::{self, ScopeView};
 use crate::service::history::Change;
 use crate::service::membership::{MemberView, member_view};
 use crate::service::notification::{About, Mailing, Notices, NotificationKind};
-use crate::service::scope::{begin_tx, commit_tx};
+use crate::service::scope::{begin_tree_write, commit_tx};
 
 /// How long an invitation waits for an answer by default.
 pub const INVITATION_DAYS: i64 = 14;
@@ -477,7 +477,7 @@ async fn add_member(
 ) -> Result<MemberView, OxidGeneError> {
     // Checked in the transaction that writes, so that a concurrent share
     // meets the check or the unique index, a `409` either way.
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     if let Some(current) = MembershipRepo::get(&txn, tree_id, user_id).await? {
         if current.is_live(Utc::now()) {
             return Err(OxidGeneError::Conflict(
@@ -570,7 +570,7 @@ async fn invite(
     let expires_at = invitation_expiry(now, request.invitation_expires_at)?;
     // Checked in the transaction that writes; a concurrent invitation of
     // the same address meets the unique index instead, a `409` too.
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     if InvitationRepo::pending_for(&txn, tree_id, &email, now)
         .await?
         .is_some()
@@ -759,7 +759,7 @@ pub async fn resend_invitation(
     if env.outbox.delivers() {
         count_lookup(identity.user_id)?;
     }
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let current = pending_of_tree(&txn, tree_id, invitation_id).await?;
     let now = Utc::now();
     let expires_at = current
@@ -792,7 +792,7 @@ pub async fn revoke_invitation(
     invitation_id: Uuid,
 ) -> Result<(), OxidGeneError> {
     sharer(viewer)?;
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     pending_of_tree(&txn, tree_id, invitation_id).await?;
     InvitationRepo::end(&txn, invitation_id, InvitationEnd::Revoked, Utc::now()).await?;
     record(
@@ -891,7 +891,10 @@ pub async fn accept_invitation(
     mailing: Mailing,
     invitation_id: Uuid,
 ) -> Result<MemberView, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    // The invitation names the tree its answer writes: read once to learn
+    // it, then again under the tree's lock.
+    let (_, named) = my_pending(db, viewer, invitation_id).await?;
+    let txn = begin_tree_write(db, named.tree_id).await?;
     let (user_id, invitation) = my_pending(&txn, viewer, invitation_id).await?;
     if MembershipRepo::get(&txn, invitation.tree_id, user_id)
         .await?
@@ -959,7 +962,8 @@ pub async fn decline_invitation(
     db: &DatabaseConnection,
     invitation_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let (_, named) = my_pending(db, viewer, invitation_id).await?;
+    let txn = begin_tree_write(db, named.tree_id).await?;
     let (_, invitation) = my_pending(&txn, viewer, invitation_id).await?;
     InvitationRepo::end(&txn, invitation_id, InvitationEnd::Declined, Utc::now()).await?;
     record(

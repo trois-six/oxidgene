@@ -25,7 +25,9 @@ use crate::service::gedcom;
 use crate::service::history::{self, Change};
 use crate::service::patch::double_option;
 use crate::service::purge::PurgeQueue;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{
+    TreeResource, begin_tree_write, begin_write, commit_tx, require_tree_resource,
+};
 use crate::tree_cache::TreeCache;
 
 /// A tree as the tree list shows it, with the import running into it.
@@ -266,7 +268,7 @@ pub async fn create_tree(
 ) -> Result<Tree, OxidGeneError> {
     require_name(&new.name)?;
     let id = Uuid::now_v7();
-    let txn = begin_tx(db).await?;
+    let txn = begin_write(db).await?;
     let pending = Change::create(viewer, id, AuditEntity::Tree, id)
         .tree_settings()
         .prepare(&txn)
@@ -297,7 +299,7 @@ pub async fn update_tree(
     if let Some(years) = patch.contemporary_years {
         check_contemporary_years(years).map_err(OxidGeneError::Validation)?;
     }
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     for person_id in [patch.sosa_root_person_id, patch.self_person_id]
         .into_iter()
         .flatten()
@@ -404,7 +406,7 @@ pub async fn delete_tree(
     purge: &PurgeQueue,
     tree_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let pending = Change::delete(viewer, tree_id, AuditEntity::Tree, tree_id)
         .tree_settings()
         .prepare(&txn)
@@ -454,7 +456,7 @@ pub async fn duplicate_tree(
     })
     .await?;
 
-    let txn = begin_tx(db).await?;
+    let txn = begin_write(db).await?;
     let tree = TreeRepo::create(&txn, new_tree_id, name, None).await?;
     make_owner(viewer, &txn, new_tree_id).await?;
     let summary = gedcom::persist_import_result_in(&txn, parsed, &mut |_| Ok(())).await?;

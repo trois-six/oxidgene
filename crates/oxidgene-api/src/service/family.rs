@@ -19,7 +19,7 @@ use uuid::Uuid;
 use crate::authz::records::Records;
 use crate::profile::{ProfileService, invalidation};
 use crate::service::history::Change;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 /// The fields a family update changes; `None` keeps a field. An update
 /// touches `updated_at` whatever it carries.
@@ -56,7 +56,7 @@ pub async fn create_family(
     tree_id: Uuid,
 ) -> Result<Family, OxidGeneError> {
     let id = Uuid::now_v7();
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let pending = Change::create(viewer, tree_id, AuditEntity::Family, id)
         .family(id)
         .prepare(&txn)
@@ -75,7 +75,7 @@ pub async fn update_family(
     family_id: Uuid,
     patch: FamilyPatch,
 ) -> Result<Family, OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     let pending = Change::update(viewer, tree_id, AuditEntity::Family, family_id)
         .family(family_id)
@@ -96,7 +96,7 @@ pub async fn delete_family(
     tree_id: Uuid,
     family_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     // Read while the links still exist.
     let affected = invalidation::affected_persons_for_family_delete(&txn, family_id).await?;
@@ -164,7 +164,7 @@ pub async fn add_spouse(
     new: NewSpouse,
 ) -> Result<FamilySpouse, OxidGeneError> {
     let id = Uuid::now_v7();
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
     // The new spouse is named: the family's spouses are read before the link.
@@ -196,7 +196,7 @@ pub async fn remove_spouse(
     family_id: Uuid,
     link_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     let link = FamilySpouseRepo::get(&txn, link_id).await?;
     if link.family_id != family_id {
@@ -232,7 +232,7 @@ pub async fn add_child(
     new: NewChild,
 ) -> Result<FamilyChild, OxidGeneError> {
     let id = Uuid::now_v7();
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Person, new.person_id).await?;
     let pending = Change::create(viewer, tree_id, AuditEntity::FamilyChild, id)
@@ -269,7 +269,7 @@ pub async fn remove_child(
     family_id: Uuid,
     link_id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     let link = FamilyChildRepo::get(&txn, link_id).await?;
     if link.family_id != family_id {

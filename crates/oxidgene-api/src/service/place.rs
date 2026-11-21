@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::profile::{ProfileService, invalidation};
 use crate::service::history::Change;
 use crate::service::patch::double_option;
-use crate::service::scope::{TreeResource, begin_tx, commit_tx, require_tree_resource};
+use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
 
 /// A place to create.
 #[derive(Debug, Deserialize)]
@@ -61,7 +61,7 @@ pub async fn create_place(
 ) -> Result<Place, OxidGeneError> {
     require_name(&new.name)?;
     let id = Uuid::now_v7();
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     let pending = Change::create(viewer, tree_id, AuditEntity::Place, id)
         .place(id)
         .prepare(&txn)
@@ -84,7 +84,7 @@ pub async fn update_place(
     if let Some(name) = &patch.name {
         require_name(name)?;
     }
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Place, id).await?;
     let affected = invalidation::affected_persons_for_place(&txn, id).await?;
     let pending = Change::update(viewer, tree_id, AuditEntity::Place, id)
@@ -108,7 +108,7 @@ pub async fn delete_place(
     tree_id: Uuid,
     id: Uuid,
 ) -> Result<(), OxidGeneError> {
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Place, id).await?;
     let affected = invalidation::affected_persons_for_place(&txn, id).await?;
     // The deleted place's events lose their place: their owners change too.
@@ -142,7 +142,7 @@ pub async fn merge_place(
             "a place cannot be merged into itself".to_string(),
         ));
     }
-    let txn = begin_tx(db).await?;
+    let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Place, id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Place, merge.into).await?;
     // Read before the merge moves the events: the persons both places show
