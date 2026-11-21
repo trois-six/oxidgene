@@ -198,43 +198,28 @@ pub async fn wait(
     }
 }
 
-/// Listen, under PostgreSQL, to the notifications every process announces
-/// (see [`oxidgene_db::repo::UPDATES_CHANNEL`]) and wake their users'
-/// waiters. Runs until the process ends; a lost connection is opened again,
-/// and every waiter woken, since what it missed is unknown. Does nothing on
+/// Have this process listen, under PostgreSQL, to the notifications every
+/// process announces (see [`oxidgene_db::repo::UPDATES_CHANNEL`]) and wake
+/// their users' waiters: on the one connection the process listens to
+/// every channel with (`service::pg_notifications`). Does nothing on
 /// another database.
 #[cfg(feature = "postgres")]
-pub async fn listen(db: oxidgene_db::sea_orm::DatabaseConnection) {
-    if db.get_database_backend() != oxidgene_db::sea_orm::DbBackend::Postgres {
-        return;
-    }
-    let pool = db.get_postgres_connection_pool().clone();
-    loop {
-        if relay(&pool).await.is_err() {
-            tracing::warn!(
-                error = "updates_listener",
-                "lost the update notifications; listening again"
-            );
-            announce_all();
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    }
+pub fn listen(db: &oxidgene_db::sea_orm::DatabaseConnection) {
+    crate::service::pg_notifications::start(db);
 }
 
+/// A notification was written by another process: wake the waiters of user
+/// `user_id`, or every waiter when listening just started — what changed
+/// meanwhile is unknown.
 #[cfg(feature = "postgres")]
-async fn relay(
-    pool: &oxidgene_db::sea_orm::sqlx::PgPool,
-) -> Result<std::convert::Infallible, oxidgene_db::sea_orm::sqlx::Error> {
-    loop {
-        let mut listener =
-            oxidgene_db::sea_orm::sqlx::postgres::PgListener::connect_with(pool).await?;
-        listener.listen(oxidgene_db::repo::UPDATES_CHANNEL).await?;
-        announce_all();
-        while let Some(notification) = listener.try_recv().await? {
-            if let Ok(user_id) = notification.payload().parse() {
+pub(crate) fn notified(user_id: Option<&str>) {
+    match user_id {
+        Some(user_id) => {
+            if let Ok(user_id) = user_id.parse() {
                 announce(user_id);
             }
         }
+        None => announce_all(),
     }
 }
 
@@ -260,7 +245,7 @@ mod tests {
         oxidgene_db::repo::run_migrations(&db)
             .await
             .expect("migrates");
-        let listener = tokio::spawn(listen(db.clone()));
+        listen(&db);
         let user = AppUserRepo::create(
             &db,
             NewAppUser {
@@ -318,7 +303,6 @@ mod tests {
             .expect("reads");
         assert_eq!(updates.events.len(), 1);
         assert!(started.elapsed() < Duration::from_secs(5));
-        listener.abort();
         db.execute_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             "DELETE FROM app_user WHERE id = $1",

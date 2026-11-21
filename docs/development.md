@@ -696,7 +696,7 @@ failing).
 | Pagination | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every collection clamps `first` to 1–100 and pages by cursor; every whole list is declared |
 | Purge completeness | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | A purged tree leaves no row in any table and no file in the media store, the crops stored of its vignettes included |
 | History without duplicates | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | An import stores no version, no stored version copies the live record, deletion markers carry no snapshot |
-| Statement counts | 2 | `just test` (`query_scaling_test`) | Functional tests | No REST or GraphQL request issues statements per record; a batch of 64 ids costs what one of 4 does |
+| Statement counts | 2 | `just test` (`query_scaling_test`) | Functional tests | No REST or GraphQL request issues statements per record; a batch of 64 ids costs what one of 4 does; no request runs more than four statements at once ([Architecture §4](architecture.md#4-backend-architecture)) |
 | Privacy of logs | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No span or event field carries a name, place, note or SQL value |
 | SQL plans | 2 | `just sql-plans` | Functional tests | No statement scans a large table without an index |
 | Dependencies | 2 | `just deps` | Dependencies | No dependency declared and unused (`cargo machete`); no advisory, licence, wildcard or source `deny.toml` refuses; no known vulnerability; duplicated crates within `scripts/budgets.json` |

@@ -1025,19 +1025,15 @@ impl ProfileService {
         family_ids.sort();
 
         // 2. All members of those families, plus attached entities.
-        let (
-            spouses,
-            children,
-            person_events,
-            family_events,
-            media_links,
-            citation_counts,
-            note_counts,
-        ) = tokio::try_join!(
+        // Four statements at once at most, here as everywhere: what a
+        // request takes from the pool at a time (docs/architecture.md §4).
+        let (spouses, children, person_events, family_events) = tokio::try_join!(
             FamilySpouseRepo::list_by_families(conn, &family_ids),
             FamilyChildRepo::list_by_families(conn, &family_ids),
             EventRepo::list_by_persons(conn, targets),
             EventRepo::list_by_families(conn, &family_ids),
+        )?;
+        let (media_links, citation_counts, note_counts) = tokio::try_join!(
             MediaLinkRepo::list_by_persons(conn, targets),
             CitationRepo::count_by_persons(conn, targets),
             NoteRepo::count_by_persons(conn, tree_id, targets),

@@ -185,11 +185,14 @@ pub(crate) async fn load_seen_bundle(
 
     let place_ids = sorted_unique(events.iter().filter_map(|event| event.place_id));
     let event_ids = events.iter().map(|event| event.id).collect::<Vec<_>>();
-    let (places, citations, media_rows, profile_media_rows, profile_vignettes, event_vignettes) = tokio::try_join!(
+    // Four statements at once at most (docs/architecture.md §4).
+    let (places, citations, media_rows, profile_media_rows) = tokio::try_join!(
         PlaceRepo::get_many(db, &place_ids),
         CitationRepo::list_for_person_events(db, tree_id, person_id, &event_ids),
         MediaLinkRepo::list_with_media_for_many(db, MediaLinkTarget::Event, &event_ids),
         MediaLinkRepo::list_with_media_for_profile(db, person_id, &profile_family_ids),
+    )?;
+    let (profile_vignettes, event_vignettes) = tokio::try_join!(
         VignetteRepo::list_for_person(db, person_id),
         live_event_vignettes(db, &event_ids),
     )?;

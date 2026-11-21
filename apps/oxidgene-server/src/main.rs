@@ -124,8 +124,8 @@ async fn main() {
     // Under PostgreSQL the workers may run in other processes: their writes
     // reach this one's waiting job status reads as notifications, and the
     // notifications they and the other replicas write reach its long polls.
-    tokio::spawn(oxidgene_api::service::job_watch::listen(state.db.clone()));
-    tokio::spawn(oxidgene_api::service::updates::listen(state.db.clone()));
+    oxidgene_api::service::job_watch::listen(&state.db);
+    oxidgene_api::service::updates::listen(&state.db);
     let mut api_router = build_router(state);
     if cfg.graphiql && auth.mode_name() == "none" {
         api_router = api_router.layer(axum::Extension(oxidgene_api::graphql::GraphiQl));

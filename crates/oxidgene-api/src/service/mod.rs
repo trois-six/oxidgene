@@ -47,6 +47,8 @@ pub mod pedigrees;
 pub mod person;
 pub mod person_detail;
 pub mod person_name;
+#[cfg(feature = "postgres")]
+pub(crate) mod pg_notifications;
 pub mod place;
 pub mod portrait;
 pub mod purge;

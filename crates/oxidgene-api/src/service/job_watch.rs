@@ -11,8 +11,8 @@
 //! something changed. Whoever changes a job wakes it: the
 //! worker of this process at each progress report, registration, cancellation
 //! and end; and, under PostgreSQL, where the worker may run in another
-//! process, a listener of the database's notifications, which the workers
-//! send with each write to a job (see `listen`).
+//! process, the listener of the database's notifications, which the
+//! workers send with each write to a job (see `listen`).
 //!
 //! At most [`MAX_WAITERS`] requests wait at once; past them a status read
 //! answers at once, as one without `wait` does.
@@ -151,49 +151,28 @@ where
     }
 }
 
-/// Listen, under PostgreSQL, to the notifications the workers of every
-/// process send as they write a job (see
+/// Have this process listen, under PostgreSQL, to the notifications the
+/// workers of every process send as they write a job (see
 /// [`oxidgene_db::repo::BackgroundJobRepo::announce`]), and wake its
-/// waiters. Runs until the process ends; a lost connection is opened again,
-/// and every waiter woken, since what it missed is unknown. Does nothing on
-/// another database.
+/// waiters: on the one connection the process listens to every channel
+/// with ([`super::pg_notifications`]). Does nothing on another database.
 #[cfg(feature = "postgres")]
-pub async fn listen(db: sea_orm::DatabaseConnection) {
-    if db.get_database_backend() != sea_orm::DbBackend::Postgres {
-        return;
-    }
-    let pool = db.get_postgres_connection_pool().clone();
-    loop {
-        if relay(&pool).await.is_err() {
-            tracing::warn!(
-                error = "job_notification_listener",
-                "lost the job notifications; listening again"
-            );
-            announce_all();
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    }
+pub fn listen(db: &sea_orm::DatabaseConnection) {
+    super::pg_notifications::start(db);
 }
 
-/// Wake the waiters of each job announced on `pool`'s database, and every
-/// waiter each time it starts listening, until listening fails.
+/// A job was written by another process: wake the waiters of job `job_id`,
+/// or every waiter when listening just started — what changed meanwhile is
+/// unknown.
 #[cfg(feature = "postgres")]
-async fn relay(
-    pool: &sea_orm::sqlx::PgPool,
-) -> Result<std::convert::Infallible, sea_orm::sqlx::Error> {
-    loop {
-        let mut listener = sea_orm::sqlx::postgres::PgListener::connect_with(pool).await?;
-        listener.listen(oxidgene_db::repo::JOB_CHANNEL).await?;
-        // Whatever changed while nobody listened.
-        announce_all();
-        // `None` is a lost connection, which `recv` would reconnect behind
-        // our back, dropping what was sent meanwhile: listen again instead,
-        // and wake everybody.
-        while let Some(notification) = listener.try_recv().await? {
-            if let Ok(job_id) = notification.payload().parse() {
+pub(crate) fn notified(job_id: Option<&str>) {
+    match job_id {
+        Some(job_id) => {
+            if let Ok(job_id) = job_id.parse() {
                 announce(job_id);
             }
         }
+        None => announce_all(),
     }
 }
 

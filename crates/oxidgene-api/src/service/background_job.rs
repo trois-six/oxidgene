@@ -803,9 +803,9 @@ impl BackgroundJobWorker {
     ///
     /// The loop runs on a task of its own, restarted after a pause if it
     /// panics: one job's failure must not end every job after it. Idle, it
-    /// sleeps until there is work (see [`job_queue`]); under PostgreSQL a
-    /// task of its own listens for the jobs other processes queue. Dropping
-    /// this future stops both, leaving a running job to its lease.
+    /// sleeps until there is work (see [`job_queue`]); under PostgreSQL the
+    /// process listens for the jobs other processes queue. Dropping this
+    /// future stops the loop, leaving a running job to its lease.
     pub async fn run(self) {
         self.run_until(std::future::pending(), Duration::ZERO).await;
     }
@@ -823,7 +823,7 @@ impl BackgroundJobWorker {
     /// later is left to its lease, as when the process is killed.
     pub async fn run_until(self, stop: impl Future<Output = ()>, grace: Duration) {
         #[cfg(feature = "postgres")]
-        let _listener = AbortOnDrop(tokio::spawn(job_queue::listen(self.db.clone())));
+        job_queue::listen(&self.db);
         let stopping = Arc::clone(&self.stopping);
         let work = supervise(move || self.clone().run_loop(), RETRY_PAUSE);
         tokio::pin!(work);
@@ -3308,7 +3308,7 @@ mod tests {
         oxidgene_db::repo::run_migrations(&db)
             .await
             .expect("migrates");
-        let listener = tokio::spawn(job_watch::listen(db.clone()));
+        job_watch::listen(&db);
         let root = tempfile::tempdir().expect("creates media root");
         let media: Arc<dyn MediaStore> = Arc::new(crate::media::store::FsStore::new(root.path()));
         let (tree_id, job_id) = queued_gedcom(viewer, &db, &*media, &families_gedcom(1)).await;
@@ -3368,7 +3368,6 @@ mod tests {
         assert_eq!(ends(&db, queued).await, "completed");
         drop(worker);
 
-        listener.abort();
         oxidgene_db::repo::rollback_migrations(&db)
             .await
             .expect("leaves the database empty");

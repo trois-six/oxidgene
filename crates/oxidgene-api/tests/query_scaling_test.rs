@@ -29,8 +29,8 @@ use axum::http::Method;
 use common::populated::{png, upload_page};
 use common::{all_profiles, app_on, family_blocks_tree, ok, setup_db};
 use serde_json::{Value, json};
-use tracing::Subscriber;
 use tracing::span::{Attributes, Id};
+use tracing::{Instrument as _, Subscriber};
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt as _};
 use tracing_subscriber::util::SubscriberInitExt as _;
 
@@ -694,4 +694,167 @@ async fn an_editors_record_reads_cost_a_fixed_few_statements_more() {
         }
     }
     assert!(grown.is_empty(), "{}", grown.join("\n"));
+}
+
+/// The most statements a request may run at once (docs/architecture.md §4):
+/// each takes a connection of the pool for its time, and four is what the
+/// read pool of a SQLite file holds and what leaves a PostgreSQL pool room
+/// for the requests beside it.
+const MAX_STATEMENTS_AT_ONCE: usize = 4;
+
+/// The span the request under test runs in: only the statements under it
+/// are its own. The purge worker and the other background tasks of the
+/// application run theirs beside it.
+const REQUEST_SPAN: &str = "fan_out.request";
+
+/// The statements of the request under test: when each began and when its
+/// future was last polled, on a clock that ticks at each of those.
+///
+/// A statement is in flight from the creation of its span to the last poll
+/// of its future, on the thread that runs the request — not to the close
+/// of the span, nor to the last time anything left it: SQLite's driver
+/// enters the span on its own thread to run the statement and leaves it,
+/// and lets go of it, after the answer is handed over, a moment that grows
+/// on a busy machine and made the statement before a group of four count
+/// with them.
+struct InFlight {
+    /// The thread the request's futures are polled on: the test's, whose
+    /// runtime has no other.
+    polling: std::thread::ThreadId,
+    clock: std::sync::atomic::AtomicU64,
+    /// Per statement: its first tick, and its last poll's if it was polled.
+    statements: std::sync::Mutex<Vec<(u64, Option<u64>)>>,
+    /// The statement each live span is.
+    spans: std::sync::Mutex<std::collections::HashMap<u64, usize>>,
+}
+
+impl InFlight {
+    fn on_this_thread() -> Self {
+        Self {
+            polling: std::thread::current().id(),
+            clock: std::sync::atomic::AtomicU64::new(0),
+            statements: std::sync::Mutex::default(),
+            spans: std::sync::Mutex::default(),
+        }
+    }
+
+    fn tick(&self) -> u64 {
+        self.clock.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Forget the statements seen so far.
+    fn clear(&self) {
+        self.statements.lock().unwrap().clear();
+        self.spans.lock().unwrap().clear();
+    }
+
+    /// The most statements that were in flight at once.
+    fn most(&self) -> usize {
+        let mut ticks: Vec<(u64, bool)> = self
+            .statements
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|&(began, polled)| polled.map(|ended| [(began, true), (ended, false)]))
+            .flatten()
+            .collect();
+        ticks.sort_unstable();
+        let (mut running, mut most) = (0usize, 0);
+        for (_, begins) in ticks {
+            if begins {
+                running += 1;
+                most = most.max(running);
+            } else {
+                running -= 1;
+            }
+        }
+        most
+    }
+}
+
+struct InFlightLayer(Arc<InFlight>);
+
+impl<S> Layer<S> for InFlightLayer
+where
+    S: Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
+    fn on_new_span(&self, attributes: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let name = attributes.metadata().name();
+        let of_the_request = || {
+            ctx.span(id)
+                .is_some_and(|span| span.scope().any(|above| above.name() == REQUEST_SPAN))
+        };
+        if name.starts_with("sea_orm.")
+            && !matches!(name, "sea_orm.begin" | "sea_orm.commit")
+            && of_the_request()
+        {
+            let mut statements = self.0.statements.lock().unwrap();
+            statements.push((self.0.tick(), None));
+            self.0
+                .spans
+                .lock()
+                .unwrap()
+                .insert(id.into_u64(), statements.len() - 1);
+        }
+    }
+
+    fn on_exit(&self, id: &Id, _ctx: Context<'_, S>) {
+        if std::thread::current().id() != self.0.polling {
+            return;
+        }
+        let Some(statement) = self.0.spans.lock().unwrap().get(&id.into_u64()).copied() else {
+            return;
+        };
+        if let Some(polled) = self.0.statements.lock().unwrap().get_mut(statement) {
+            polled.1 = Some(self.0.tick());
+        }
+    }
+
+    fn on_close(&self, id: Id, _ctx: Context<'_, S>) {
+        // The identifier goes back to the registry, for another span.
+        self.0.spans.lock().unwrap().remove(&id.into_u64());
+    }
+}
+
+/// A request reads side by side, but never more than four statements at a
+/// time: seven at once, as a projection refresh once ran, take seven
+/// connections from a pool the other requests need too.
+#[tokio::test]
+async fn no_request_runs_more_than_four_statements_at_once() {
+    let in_flight = Arc::new(InFlight::on_this_thread());
+    let _guard = tracing_subscriber::registry()
+        .with(InFlightLayer(Arc::clone(&in_flight)))
+        .set_default();
+
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+    let [tree, _] = trees(&app, &db).await;
+
+    let mut over = Vec::new();
+    let mut busiest = 0;
+    for case in cases() {
+        let fill = |s: &str| s.replace("{tree}", &tree.0).replace("{anchor}", &tree.1);
+        let body = case
+            .body
+            .as_ref()
+            .map(|b| serde_json::from_str(&fill(&b.to_string())).unwrap());
+        in_flight.clear();
+        ok(&app, case.method.clone(), &fill(case.uri), body)
+            .instrument(tracing::info_span!("fan_out.request"))
+            .await;
+        let most = in_flight.most();
+        busiest = busiest.max(most);
+        if most > MAX_STATEMENTS_AT_ONCE {
+            over.push(format!("{} {}: {most} at once", case.method, case.uri));
+        }
+    }
+    assert!(
+        busiest > 1,
+        "the statements of the requests were not seen running side by side"
+    );
+    assert!(
+        over.is_empty(),
+        "requests running more than {MAX_STATEMENTS_AT_ONCE} statements at once:\n{}",
+        over.join("\n")
+    );
 }

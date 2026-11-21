@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Messaging and Notifications"
 description: "Communication between the users of a web deployment: in-app notifications and their preferences and email sent through the operator's SMTP relay from a worker-processed outbox, with translated templates, daily digests and one-click unsubscribe, implemented; and, planned, end-to-end encrypted one-to-one and group conversations over Messaging Layer Security with per-device browser keys, a public key directory, passphrase-protected key backup and key verification, delivered by long poll, with blocking, reporting, moderation, rate limits, retention, erasure, API, interface outline, dependencies and tests."
 tags: [oxidgene, specification, messaging, notifications, email, encryption, mls, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:00:00Z }
 ---
 
 # Messaging and Notifications
@@ -402,8 +402,9 @@ own, the wake-up goes through PostgreSQL's notifications, as the job status
 reads' does ([Architecture §6.5](architecture.md#65-waking-the-worker)):
 the transaction writing a notification sends
 `pg_notify('oxidgene_updates', user_id)`, which leaves when it commits, and
-each server listens on that channel with one connection of its own, waking
-every waiter after a lost connection. A deployment with several replicas runs
+each server listens on that channel, on the one connection its process
+keeps for every notification channel beside its pool, waking every waiter
+after a lost connection. A deployment with several replicas runs
 on PostgreSQL in any case — SQLite forces one — so Redis is not needed for
 it. The frontend keeps one such request open while it is shown, and backs
 off after an error.
@@ -582,7 +583,7 @@ in the web build only.
 | Sealing to a device | HPKE as OpenMLS already provides it | Same feature | None more |
 | MLS framing on the server | The public header (group, epoch, content type) parsed with `tls_codec`, which OpenMLS uses; no decryption code | `oxidgene-api` `auth` feature | Small |
 | Mail | `lettre` 0.11 without its defaults: `smtp-transport`, `tokio1-rustls`, `builder`, `aws-lc-rs` (the provider rustls already builds) and `rustls-platform-verifier` (the verifier reqwest already uses); no native TLS, no connection pool, no `hostname` | `oxidgene-api` `auth` feature: server and worker | Measured at its landing: `lettre` and three small crates of its message builder (`email-encoding`, `email_address`, `quoted_printable`), the rest — `mime`, `httpdate`, `fastrand`, `socket2`, `url`, `rustls`, `tokio-rustls`, `rustls-platform-verifier` — already in the graph; no duplicate |
-| Long-poll wake-up across replicas | PostgreSQL's `LISTEN`/`NOTIFY` through the `sqlx` pool SeaORM already holds, as the job status reads do | Server | None more |
+| Long-poll wake-up across replicas | PostgreSQL's `LISTEN`/`NOTIFY` through `sqlx`, which SeaORM already links, on the process's one listening connection, as the job status reads do | Server | None more |
 
 Each crate is weighed against AGENTS.md's dependency discipline when it
 lands: `cargo tree` with the duplicate-crate budget, the binary budgets of

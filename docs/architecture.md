@@ -149,6 +149,17 @@ for that one request, so the poll waits for nothing even on a single
 connection. A cancellation request is answered the same way
 ([§6.3](#63-job-cancellation)).
 
+A request takes little from the pool. It runs at most four statements at
+once — what the read pool of a SQLite file holds, and what leaves a
+PostgreSQL pool room for the requests beside it: a read that needs more
+rows than that at a time runs them in groups of four at most, one after
+the other (a guard of the statement counts fails on five,
+[Development §2.8](development.md#28-guards)). And no connection of the
+pool is kept for anything else than a request: under PostgreSQL, a process
+listens to the notifications of the others on one connection of its own,
+opened beside the pool, for every channel
+([§6.5](#65-waking-the-worker)).
+
 ### 4.1 Tree cache
 
 The durable read models are database tables. What an API process keeps in
@@ -790,10 +801,10 @@ state once, and reads it again only when the channel signals a change.
 - *Other processes (PostgreSQL).* Every write to a job row — progress, a
   cancellation request, its end — sends `pg_notify('oxidgene_job', job_id)`,
   on the job's transaction when it has one, so the notification leaves when
-  the write commits. Each API process listens on that channel with one
-  connection (`PgListener`) and signals the channel of the job named;
-  after a lost connection it listens again and wakes every waiter, since
-  what it missed is unknown.
+  the write commits. Each API process listens on that channel
+  ([§6.5](#65-waking-the-worker), *One listener per process*) and signals
+  the channel of the job named; after a lost connection it listens again
+  and wakes every waiter, since what it missed is unknown.
 
 At most 256 reads wait at once in a process; past them a read answers at
 once, and the client pauses before it asks again. A home page waits on the
@@ -815,10 +826,10 @@ before, and keeps claiming until the queue is empty.
   desktop and a SQLite server need nothing else.
 - *Other processes (PostgreSQL).* The insert sends
   `pg_notify('oxidgene_job_queue', '')` in its transaction, so the
-  notification leaves when the row is visible. Each worker listens on that
-  channel with one connection of its own (`PgListener`) and looks for work at
-  each notification, and whenever it starts listening, at start and after a
-  lost connection, since what it missed is unknown. A cancellation needs no
+  notification leaves when the row is visible. Each worker's process
+  listens on that channel and looks for work at each notification, and
+  whenever it starts listening, at start and after a lost connection, since
+  what it missed is unknown. A cancellation needs no
   signal there: the request writes the database itself, and a running job
   reads it with its next progress report.
 - *Expired leases.* A job whose worker stopped is claimable again once its
@@ -840,10 +851,22 @@ The web build's mail sender and notifications' long poll wake the same way
 ([Messaging and Notifications §3.3, §6](messaging.md#6-delivery-without-polling)):
 a mail queued, or a notification written, wakes its process's sender or its
 user's waiting requests in memory once the transaction commits, and other
-processes through `pg_notify` on `oxidgene_mail` and `oxidgene_updates`,
-each listened to by one connection per process; the idle sender reads when
-its earliest pending mail falls due and a minute after it went to sleep at
-the latest, and a waiting long poll reads nothing until it is woken.
+processes through `pg_notify` on `oxidgene_mail` and `oxidgene_updates`;
+the idle sender reads when its earliest pending mail falls due and a minute
+after it went to sleep at the latest, and a waiting long poll reads nothing
+until it is woken.
+
+**One listener per process.** The four channels — `oxidgene_job`,
+`oxidgene_job_queue`, `oxidgene_updates`, `oxidgene_mail` — are listened
+to by one task per process on one connection
+(`oxidgene_api::service::pg_notifications`, a `PgListener`), opened beside
+the pool with the pool's own connection settings and kept for the life of
+the process: a server and a worker each hold one connection more than
+their pool, and none of the pool's. It listens to all four whatever the
+process runs — a notification for a part that is not running there wakes
+nobody — and each time it starts listening, at start and after a lost
+connection, it wakes every part, since what was notified meanwhile is
+unknown.
 
 ### 6.6 Stopping a worker
 

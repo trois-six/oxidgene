@@ -100,12 +100,14 @@ impl MailSender {
         }
     }
 
-    /// Send mail until the process ends. Under PostgreSQL a task of its own
-    /// listens for the mail other processes queue; dropping this future
-    /// stops both.
+    /// Send mail until the process ends. Under PostgreSQL the process
+    /// listens for the mail other processes queue (see
+    /// [`oxidgene_db::repo::MAIL_CHANNEL`]), which wakes this sender for
+    /// each, and each time listening starts: on the one connection it
+    /// listens to every channel with (`service::pg_notifications`).
     pub async fn run(self) {
         #[cfg(feature = "postgres")]
-        let _listener = AbortOnDrop(tokio::spawn(listen(self.db.clone())));
+        crate::service::pg_notifications::start(&self.db);
         loop {
             match self.send_next().await {
                 Ok(Some(_)) => {}
@@ -215,53 +217,6 @@ impl MailSender {
 fn retry_delay(attempts: i32) -> Duration {
     let index = usize::try_from(attempts.max(1) - 1).unwrap_or(0);
     RETRY_DELAYS[index.min(RETRY_DELAYS.len() - 1)]
-}
-
-/// A task that ends when its handle is dropped.
-#[cfg(feature = "postgres")]
-struct AbortOnDrop(tokio::task::JoinHandle<()>);
-
-#[cfg(feature = "postgres")]
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-/// Listen, under PostgreSQL, to the mail other processes queue (see
-/// [`oxidgene_db::repo::MAIL_CHANNEL`]) and wake this process's sender for
-/// each, and each time listening starts. Does nothing on another database.
-#[cfg(feature = "postgres")]
-async fn listen(db: DatabaseConnection) {
-    if db.get_database_backend() != oxidgene_db::sea_orm::DbBackend::Postgres {
-        return;
-    }
-    let pool = db.get_postgres_connection_pool().clone();
-    loop {
-        if relay_notifications(&pool).await.is_err() {
-            tracing::warn!(
-                error = "mail_queue_listener",
-                "lost the mail queue notifications; listening again"
-            );
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    }
-}
-
-#[cfg(feature = "postgres")]
-async fn relay_notifications(
-    pool: &oxidgene_db::sea_orm::sqlx::PgPool,
-) -> Result<std::convert::Infallible, oxidgene_db::sea_orm::sqlx::Error> {
-    loop {
-        let mut listener =
-            oxidgene_db::sea_orm::sqlx::postgres::PgListener::connect_with(pool).await?;
-        listener.listen(oxidgene_db::repo::MAIL_CHANNEL).await?;
-        // Whatever was queued while nobody listened.
-        wake();
-        while listener.try_recv().await?.is_some() {
-            wake();
-        }
-    }
 }
 
 #[cfg(test)]
