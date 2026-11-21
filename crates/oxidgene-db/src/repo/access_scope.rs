@@ -37,7 +37,7 @@ pub struct AccessScope {
 
 fn into_domain(model: access_scope::Model) -> Result<AccessScope, OxidGeneError> {
     let definition = serde_json::from_str(&model.definition)
-        .map_err(|error| OxidGeneError::Database(format!("unreadable scope: {error}")))?;
+        .map_err(|error| crate::repo::conversion_err(format!("unreadable scope: {error}")))?;
     Ok(AccessScope {
         id: model.id,
         tree_id: model.tree_id,

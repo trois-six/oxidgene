@@ -134,6 +134,10 @@ fn status(error: &OxidGeneError) -> StatusCode {
         OxidGeneError::NotFound { .. } => StatusCode::NOT_FOUND,
         OxidGeneError::Validation(_) | OxidGeneError::Gedcom(_) => StatusCode::BAD_REQUEST,
         OxidGeneError::Conflict(_) => StatusCode::CONFLICT,
+        // A row a constraint of the schema refused (`error_contract`).
+        OxidGeneError::Database(error) if error.kind().is_constraint_violation() => {
+            StatusCode::CONFLICT
+        }
         OxidGeneError::Unauthenticated => StatusCode::UNAUTHORIZED,
         OxidGeneError::Forbidden => StatusCode::FORBIDDEN,
         OxidGeneError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
@@ -170,11 +174,27 @@ mod tests {
 
     #[test]
     fn unexpected_errors_receive_a_request_id() {
-        let contract = classify(&OxidGeneError::Database("private SQL".to_string()));
+        let contract = classify(&OxidGeneError::Database("private SQL".into()));
         let request_id = contract.unexpected.then(Uuid::now_v7);
 
         assert_eq!(contract.code, "database_error");
         assert_eq!(contract.message, "The request could not be completed");
         assert!(request_id.is_some());
+    }
+
+    /// The status follows the code: a row the schema refused answers `409`
+    /// like any other conflict, any other database failure `500`.
+    #[test]
+    fn a_broken_constraint_answers_as_a_conflict() {
+        use oxidgene_core::error::DatabaseErrorKind;
+
+        let refused = OxidGeneError::database(DatabaseErrorKind::UniqueViolation, "private SQL");
+        assert_eq!(status(&refused), StatusCode::CONFLICT);
+        let body = ErrorBody::from_error(&refused);
+        assert_eq!(body.error, "conflict");
+        assert!(body.request_id.is_none());
+
+        let failed = OxidGeneError::database(DatabaseErrorKind::Connection, "private SQL");
+        assert_eq!(status(&failed), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

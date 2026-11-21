@@ -666,7 +666,7 @@ async fn named_persons(
     rows.into_iter()
         .map(|row| {
             let id: String = row.try_get("", "person_id").map_err(db_err)?;
-            Uuid::parse_str(&id).map_err(|e| OxidGeneError::Database(e.to_string()))
+            Uuid::parse_str(&id).map_err(crate::repo::conversion_err)
         })
         .collect()
 }

@@ -9,7 +9,7 @@
 //! `oxidgene-cache` crate: the projection is durable, survives restarts, and
 //! is identical on desktop (SQLite) and web (PostgreSQL).
 
-use oxidgene_core::error::OxidGeneError;
+use oxidgene_core::error::{DatabaseErrorKind, OxidGeneError};
 use oxidgene_core::projection::{PROJECTION_SCHEMA_VERSION, PersonProfile};
 use sea_orm::ExprTrait as _;
 use sea_orm::sea_query::OnConflict;
@@ -416,13 +416,18 @@ const ROW_FIELDS: [&str; 3] = ["person_id", "tree_id", "built_at"];
 
 /// Serialize a projection into its storage row.
 fn encode(person: &PersonProfile) -> Result<ActiveModel, OxidGeneError> {
-    let encode_err =
-        |e: serde_json::Error| OxidGeneError::Database(format!("person_denorm encode: {e}"));
+    let encode_err = |e: serde_json::Error| {
+        OxidGeneError::database(
+            DatabaseErrorKind::ProjectionDecode,
+            format!("person_denorm encode: {e}"),
+        )
+    };
     let mut fields = match serde_json::to_value(person).map_err(encode_err)? {
         serde_json::Value::Object(fields) => fields,
         _ => {
-            return Err(OxidGeneError::Database(
-                "person_denorm encode: not an object".into(),
+            return Err(OxidGeneError::database(
+                DatabaseErrorKind::ProjectionDecode,
+                "person_denorm encode: not an object",
             ));
         }
     };
@@ -498,10 +503,10 @@ impl EncodedProfiles {
 /// columns hold ([`ROW_FIELDS`]).
 fn decode(model: Model) -> Result<PersonProfile, OxidGeneError> {
     let mut person: PersonProfile = serde_json::from_str(&model.payload).map_err(|e| {
-        OxidGeneError::Database(format!(
-            "person_denorm decode for person {}: {e}",
-            model.person_id
-        ))
+        OxidGeneError::database(
+            DatabaseErrorKind::ProjectionDecode,
+            format!("person_denorm decode for person {}: {e}", model.person_id),
+        )
     })?;
     person.person_id = model.person_id;
     person.tree_id = model.tree_id;

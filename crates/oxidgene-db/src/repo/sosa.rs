@@ -141,7 +141,7 @@ impl SosaRepo {
             for ancestor in batch {
                 let number = ancestor
                     .sosa_number
-                    .map(|n| i64::try_from(n).map_err(|e| OxidGeneError::Database(e.to_string())))
+                    .map(|n| i64::try_from(n).map_err(crate::repo::conversion_err))
                     .transpose()?;
                 values.extend([
                     Value::from(ancestor.person_id),
@@ -226,7 +226,7 @@ impl SosaRepo {
         };
         row.try_get::<Option<i64>>("", "sosa_number")
             .map_err(db_err)?
-            .map(|n| u64::try_from(n).map_err(|e| OxidGeneError::Database(e.to_string())))
+            .map(|n| u64::try_from(n).map_err(crate::repo::conversion_err))
             .transpose()
     }
 

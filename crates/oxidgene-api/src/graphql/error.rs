@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn domain_errors_use_the_shared_public_contract() {
-        let mut error = Error::from(OxidGeneError::Database("private SQL".to_string()))
+        let mut error = Error::from(OxidGeneError::Database("private SQL".into()))
             .into_server_error(Pos::default());
 
         sanitize(&mut error);
@@ -108,6 +108,27 @@ mod tests {
         let extensions = error.extensions.expect("error extensions");
         assert_eq!(extensions.get("code"), Some(&"DATABASE_ERROR".into()));
         assert!(extensions.get("requestId").is_some());
+    }
+
+    /// As on REST: a row the schema refused is a conflict, an expected
+    /// answer without a correlation id.
+    #[test]
+    fn a_broken_constraint_is_a_conflict() {
+        let refused = OxidGeneError::database(
+            oxidgene_core::error::DatabaseErrorKind::CheckViolation,
+            "private SQL",
+        );
+        let mut error = Error::from(refused).into_server_error(Pos::default());
+
+        sanitize(&mut error);
+
+        assert_eq!(
+            error.message,
+            "The request conflicts with the current state"
+        );
+        let extensions = error.extensions.expect("error extensions");
+        assert_eq!(extensions.get("code"), Some(&"CONFLICT".into()));
+        assert!(extensions.get("requestId").is_none());
     }
 
     #[test]
@@ -125,9 +146,9 @@ mod tests {
 
     #[tokio::test]
     async fn unexpected_failures_are_logged_with_a_bounded_cause_kind() {
-        let database = Error::from(OxidGeneError::Database(
-            "Execution Error: error returned from database: (code: 5) database is locked"
-                .to_string(),
+        let database = Error::from(OxidGeneError::database(
+            oxidgene_core::error::DatabaseErrorKind::Busy,
+            "error returned from database: (code: 5) database is locked",
         ))
         .into_server_error(Pos::default());
         assert_eq!(cause_kind(&database), "busy");

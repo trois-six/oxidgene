@@ -62,7 +62,7 @@ fn exclusion_of(row: &sea_orm::QueryResult) -> Result<Exclusion, OxidGeneError> 
         id: row.try_get("", "id").map_err(db_err)?,
         tree_id: row.try_get("", "tree_id").map_err(db_err)?,
         kind: ExclusionKind::parse(&kind)
-            .ok_or_else(|| OxidGeneError::Database(format!("unknown exclusion kind {kind}")))?,
+            .ok_or_else(|| crate::repo::conversion_err(format!("unknown exclusion kind {kind}")))?,
         person_id: row.try_get("", "person_id").map_err(db_err)?,
         depth: row.try_get("", "depth").map_err(db_err)?,
         include_root: row.try_get("", "include_root").map_err(db_err)?,

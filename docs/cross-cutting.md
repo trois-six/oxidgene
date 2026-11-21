@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T19:15:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T12:27:41Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -194,7 +194,7 @@ error (a `500`), and names the server log line that records it.
 | 401 | `unauthenticated` | The desktop's embedded server received a request without its launch token (§7.1); with EPIC G, a missing, invalid or expired credential ([Authorization §4.3](authorization.md#43-errors-401-403-and-404)). |
 | 403 | `forbidden` | A browser page on another origin attempted a write, or a request named a host the server does not answer under (§7.1); with EPIC G, a viewer who sees the tree but lacks the permission, or a failed CSRF check. |
 | 404 | `not_found` | Missing or soft-deleted resource. |
-| 409 | `conflict` | State conflicts with an invariant or concurrent change, such as starting an import or export while another runs on the tree. |
+| 409 | `conflict` | State conflicts with an invariant or concurrent change, such as starting an import or export while another runs on the tree, or a write a constraint of the schema refuses: a second link where one may exist, a record that is no longer there, a broken invariant ([Data Model, Integrity constraints](data-model.md#integrity-constraints)). |
 | 413 | `payload_too_large` | Request body exceeds the route's limit, or a file, an archive or what it expands to its size limit ([API Contract, Intake limits](api.md#intake-limits)). |
 | 413 | `quota_exceeded` | A file would take a tree's media past its storage quota. |
 | 429 | `rate_limited` | A client exceeded a rate limit — today the owner's lookups by email or username when sharing ([Authorization §6.1](authorization.md#61-sharing-with-a-user-of-the-instance)); `Retry-After` says when to retry ([Authentication §9.2](authentication.md#92-rate-limits-and-brute-force)). |
@@ -204,7 +204,7 @@ error (a `500`), and names the server log line that records it.
 | 503 | `auth_unavailable` | The web build's identity provider or session store could not be reached where a request needed it ([Authentication §4.6](authentication.md#46-lifetimes-refresh-and-revalidation)). |
 | 502 | `unexpected_response`, `challenged`, `unreachable` | An archive portal answered not as its adapter expects, answered with an anti-bot challenge, or could not be reached. |
 | 504 | `timeout` | An archive portal did not answer in time. |
-| 500 | `database_error` | Persistence failed unexpectedly. |
+| 500 | `database_error` | Persistence failed unexpectedly: any database failure other than a refused constraint. |
 | 500 | `io_error` | Storage or transport I/O failed unexpectedly. |
 | 500 | `internal_error` | Unclassified server failure. |
 
@@ -216,6 +216,20 @@ input.
 
 The [API Contract](api.md) identifies which codes each operation can return and
 documents deviations that still exist in the implementation.
+
+**Database failures.** A database error is classified once, where the
+driver's error is read (`oxidgene_db::repo::db_err`), from SQLite's result
+code or PostgreSQL's SQLSTATE and never from its text, into a kind every
+layer above reads: `unique_violation`, `foreign_key_violation`,
+`check_violation`, `not_null_violation`, `busy`, `serialization_failure`,
+`timeout`, `connection_acquire`, `connection`, `execution`, `query`,
+`record_not_found`, `record_not_written`, `conversion`, `migration`,
+`projection_decode` or `other`. The error carries that kind and, apart, its
+cause; it displays as its kind alone, so the driver's text — SQL, values,
+paths — reaches neither a client nor a log. The first three kinds answer
+`409 conflict`, as the service would have had it seen the conflict first;
+the others answer `500 database_error`, and the kind is the `error.kind` of
+their log line (§5.4).
 
 ### 4.3 GraphQL mapping
 

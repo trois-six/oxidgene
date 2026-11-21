@@ -15,6 +15,7 @@ mod citation;
 mod connection;
 mod descent;
 mod dictionary;
+mod error;
 mod event;
 mod event_spouse_age;
 mod event_witness;
@@ -73,6 +74,8 @@ pub use dictionary::{
     DictionaryRepo, DictionaryValueEntry, FamilyNameParticleUpdate, FamilyNameRename,
     HiddenRecords, OccupationRename, PersonUsageEntry, SOURCE_DRILL_THRESHOLD,
 };
+pub(crate) use error::conversion_err;
+pub use error::{db_err, db_error_kind};
 pub use event::{EventDetails, EventDetailsPatch, EventFilter, EventRepo};
 pub use event_spouse_age::EventSpouseAgeRepo;
 pub use event_witness::EventWitnessRepo;
@@ -155,14 +158,6 @@ pub(crate) fn require_one_target(
     Err(oxidgene_core::OxidGeneError::Validation(format!(
         "a {what} is attached to exactly one of {columns}"
     )))
-}
-
-/// A database error as the domain reports it.
-///
-/// Public so that every layer maps a `DbErr` the same way: the API's services
-/// open and commit transactions and run a few queries of their own.
-pub fn db_err(error: sea_orm::DbErr) -> oxidgene_core::error::OxidGeneError {
-    oxidgene_core::error::OxidGeneError::Database(error.to_string())
 }
 
 /// `column` contains `value`, ignoring case: a list's `search` filter. Both

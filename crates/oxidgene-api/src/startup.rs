@@ -52,8 +52,7 @@ impl FailureKind for OxidGeneError {
 
 impl FailureKind for DbErr {
     fn failure_kind(&self) -> &'static str {
-        // Classified from the rendered error, which is not logged.
-        error_kind(&OxidGeneError::Database(self.to_string()))
+        oxidgene_db::repo::db_error_kind(self).as_str()
     }
 }
 

@@ -1,11 +1,18 @@
 use oxidgene_core::OxidGeneError;
-use oxidgene_core::error::ArchiveFailure;
+use oxidgene_core::error::{ArchiveFailure, DatabaseErrorKind};
 
 pub(crate) struct ErrorContract {
     pub code: &'static str,
     pub message: &'static str,
     pub unexpected: bool,
 }
+
+/// What a client is told of a write the state refuses.
+const CONFLICT: ErrorContract = ErrorContract {
+    code: "conflict",
+    message: "The request conflicts with the current state",
+    unexpected: false,
+};
 
 pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
     match error {
@@ -19,11 +26,7 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
             message: "The request is invalid",
             unexpected: false,
         },
-        OxidGeneError::Conflict(_) => ErrorContract {
-            code: "conflict",
-            message: "The request conflicts with the current state",
-            unexpected: false,
-        },
+        OxidGeneError::Conflict(_) => CONFLICT,
         OxidGeneError::Unauthenticated => ErrorContract {
             code: "unauthenticated",
             message: "Authentication is required",
@@ -49,11 +52,7 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
             message: "The tree's media storage quota is exceeded",
             unexpected: false,
         },
-        OxidGeneError::Database(_) => ErrorContract {
-            code: "database_error",
-            message: "The request could not be completed",
-            unexpected: true,
-        },
+        OxidGeneError::Database(error) => database_contract(error.kind()),
         OxidGeneError::Gedcom(_) => ErrorContract {
             code: "gedcom_error",
             message: "The genealogy data is invalid or unsupported",
@@ -76,6 +75,21 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
             message: archive_message(*failure),
             unexpected: false,
         },
+    }
+}
+
+/// A database failure, by its kind: a row a constraint of the schema
+/// refused — a second link where one may exist, a record that is no longer
+/// there, a broken invariant — is the conflict its service would have
+/// reported had it seen it first, not a server failure.
+fn database_contract(kind: DatabaseErrorKind) -> ErrorContract {
+    if kind.is_constraint_violation() {
+        return CONFLICT;
+    }
+    ErrorContract {
+        code: "database_error",
+        message: "The request could not be completed",
+        unexpected: true,
     }
 }
 
@@ -108,48 +122,11 @@ pub(crate) fn error_kind(error: &OxidGeneError) -> &'static str {
         OxidGeneError::TooLarge(_) => "too_large",
         OxidGeneError::QuotaExceeded => "quota_exceeded",
         OxidGeneError::Gedcom(_) => "gedcom",
-        OxidGeneError::Database(message) => database_kind(message),
+        OxidGeneError::Database(error) => error.kind().as_str(),
         OxidGeneError::Io(error) => io_kind(error.kind()),
         OxidGeneError::Internal(message) => internal_kind(message),
         OxidGeneError::Archive(failure) => failure.code(),
     }
-}
-
-/// Database failures arrive as SeaORM's rendered `DbErr`, whose variant
-/// opens the message; a few driver conditions are worth naming on their own.
-fn database_kind(message: &str) -> &'static str {
-    const CONDITIONS: [(&str, &str); 6] = [
-        ("database is locked", "busy"),
-        ("database table is locked", "busy"),
-        ("UNIQUE constraint failed", "unique_violation"),
-        ("duplicate key value", "unique_violation"),
-        ("FOREIGN KEY constraint failed", "foreign_key_violation"),
-        ("violates foreign key constraint", "foreign_key_violation"),
-    ];
-    const VARIANTS: [(&str, &str); 13] = [
-        ("Failed to acquire connection", "connection_acquire"),
-        ("Connection pool timed out", "connection_acquire"),
-        ("Connection Error", "connection"),
-        ("Connection closed", "connection"),
-        ("Execution Error", "execution"),
-        ("Query Error", "query"),
-        ("RecordNotFound", "record_not_found"),
-        ("None of the records", "record_not_written"),
-        ("Json Error", "conversion"),
-        ("Type Error", "conversion"),
-        ("Error converting", "conversion"),
-        ("Migration Error", "migration"),
-        ("person_denorm decode", "projection_decode"),
-    ];
-    CONDITIONS
-        .iter()
-        .find(|(needle, _)| message.contains(needle))
-        .or_else(|| {
-            VARIANTS
-                .iter()
-                .find(|(prefix, _)| message.starts_with(prefix))
-        })
-        .map_or("other", |(_, kind)| kind)
 }
 
 fn io_kind(kind: std::io::ErrorKind) -> &'static str {
@@ -188,31 +165,43 @@ mod tests {
     #[test]
     fn database_failures_are_named_by_kind_without_their_message() {
         let cases = [
-            (
-                "Execution Error: error returned from database: (code: 5) database is locked",
-                "busy",
-            ),
-            (
-                "Failed to acquire connection from pool: Connection pool timed out",
-                "connection_acquire",
-            ),
-            ("Query Error: no such column: private_value", "query"),
-            (
-                "Execution Error: UNIQUE constraint failed: person.id",
-                "unique_violation",
-            ),
-            (
-                "person_denorm decode for person 00000000-0000-0000-0000-000000000000: EOF",
-                "projection_decode",
-            ),
-            ("something private", "other"),
+            (DatabaseErrorKind::Busy, "busy"),
+            (DatabaseErrorKind::ConnectionAcquire, "connection_acquire"),
+            (DatabaseErrorKind::Query, "query"),
+            (DatabaseErrorKind::UniqueViolation, "unique_violation"),
+            (DatabaseErrorKind::ProjectionDecode, "projection_decode"),
+            (DatabaseErrorKind::Other, "other"),
         ];
-        for (message, kind) in cases {
-            assert_eq!(
-                error_kind(&OxidGeneError::Database(message.to_string())),
-                kind,
-                "{message}"
-            );
+        for (kind, name) in cases {
+            let error = OxidGeneError::database(kind, "private SQL and values");
+            assert_eq!(error_kind(&error), name);
+            assert!(!error.to_string().contains("private"), "{error}");
+        }
+    }
+
+    /// A row the schema refused is the conflict a service would have
+    /// reported: an expected answer, without a correlation id. Any other
+    /// database failure stays an unexpected one.
+    #[test]
+    fn a_broken_constraint_is_a_conflict_and_other_failures_are_unexpected() {
+        for kind in [
+            DatabaseErrorKind::UniqueViolation,
+            DatabaseErrorKind::ForeignKeyViolation,
+            DatabaseErrorKind::CheckViolation,
+        ] {
+            let contract = classify(&OxidGeneError::database(kind, "private"));
+            assert_eq!(contract.code, "conflict", "{kind}");
+            assert!(!contract.unexpected, "{kind}");
+        }
+        for kind in [
+            DatabaseErrorKind::NotNullViolation,
+            DatabaseErrorKind::Connection,
+            DatabaseErrorKind::Execution,
+            DatabaseErrorKind::Other,
+        ] {
+            let contract = classify(&OxidGeneError::database(kind, "private"));
+            assert_eq!(contract.code, "database_error", "{kind}");
+            assert!(contract.unexpected, "{kind}");
         }
     }
 

@@ -727,7 +727,7 @@ impl PersonSearchRepo {
             ],
         )?;
         let parse_uuid = |s: String| -> Result<Uuid, OxidGeneError> {
-            Uuid::parse_str(&s).map_err(|e| OxidGeneError::Database(e.to_string()))
+            Uuid::parse_str(&s).map_err(crate::repo::conversion_err)
         };
 
         Ok(PersonSearchEntry {
