@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: human:maintainer, at: 2026-11-21T11:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T11:58:00Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -675,9 +675,10 @@ is the headless one. The desktop wizard opens a real login window and evaluates
 `script.rs`'s IPC variants inside it, so the ~19 metadata requests and the
 `HEAD` sizing pass — where one runs — are issued by a browser on the user's own
 session — which is
-what §8's Cloudflare note says the honest answer is. The cookie is read out of
-that window afterwards, and only for the downloads in §5, which have no browser
-equivalent that would not push hundreds of megabytes through an IPC channel.
+what §8's Cloudflare note says the honest answer is. The session never
+leaves that window: the application reads no cookie out of it, and the
+downloads of §5 the archives do not cover are fetched by the window itself,
+which writes each one to the working directory and hands over its path.
 
 ## 8. Running it
 

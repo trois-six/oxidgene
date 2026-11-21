@@ -64,23 +64,6 @@ const START_URL: &str = "https://www.geneanet.org/media/manager";
 /// clicks reads as broken, a small panel reads as progress.
 const STATUS_SIZE: LogicalSize<f64> = LogicalSize::new(420.0, 260.0);
 
-/// The origin whose cookies authenticate the download step.
-const COOKIE_ORIGIN: &str = "https://www.geneanet.org";
-
-/// The cookies that authenticate, in the order they are preferred.
-///
-/// Measured against the live API: exactly these two work, and nothing else a
-/// browser sends is read.
-///
-/// `gntsess5` leads on purpose — the remember-me token is valid for months and
-/// can mint fresh sessions on demand, so it is the worse of the two to hand
-/// around. But it cannot be the *only* one taken: the login window pre-ticks
-/// "remember me" precisely so a long collection survives a `gntsess5` expiry,
-/// and after such a refresh the jar may hold no live `gntsess5` at the moment
-/// this runs. Taking only that one then yields no session at all and every
-/// download fails with "there is no Geneanet session to download it with".
-const SESSION_COOKIES: [&str; 2] = ["gntsess5", "REMEMBERME"];
-
 /// One message from the scripts running inside the window.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -333,31 +316,6 @@ impl Session {
                 "could not run the collection script in the login window"
             );
         }
-    }
-
-    /// Reads the session cookie out of the window, for the download step.
-    ///
-    /// Only needed when the archives do not cover every photo. Absent is not
-    /// an error: the import then reports the photos it could not fetch rather
-    /// than failing.
-    fn cookie(&self) -> Option<String> {
-        let cookies = self.webview.cookies_for_url(COOKIE_ORIGIN).ok()?;
-
-        // Both when both are present: the pair is what a browser would send,
-        // and it means a `gntsess5` that expires between here and the download
-        // is re-minted from the remember-me token rather than ending the run.
-        let header = SESSION_COOKIES
-            .iter()
-            .filter_map(|wanted| {
-                cookies
-                    .iter()
-                    .find(|cookie| cookie.name() == *wanted && !cookie.value().is_empty())
-            })
-            .map(|cookie| format!("{}={}", cookie.name(), cookie.value()))
-            .collect::<Vec<_>>()
-            .join("; ");
-
-        (!header.is_empty()).then_some(header)
     }
 }
 
@@ -614,8 +572,6 @@ fn finish(session: &mut Option<Session>, deposit_sizes: HashMap<i64, u64>) -> Op
         photo_count,
         collection,
         deposit_sizes,
-        // Only used if the archives do not cover every photo.
-        cookie: open.cookie(),
         // Geneanet does not put the account name anywhere this flow reads, and
         // scraping the page for it would be the first thing a redesign broke.
         account: None,

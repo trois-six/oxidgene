@@ -117,7 +117,6 @@ struct GwFile {
 struct Collected {
     collection: String,
     deposit_sizes: HashMap<i64, u64>,
-    cookie: Option<String>,
     account: Option<String>,
     /// Media the account holds, pages included — reported by the window, not
     /// inferred from how many deposits could be measured.
@@ -1377,14 +1376,12 @@ async fn follow_login(
             GeneanetEvent::Collected {
                 collection,
                 deposit_sizes,
-                cookie,
                 account,
                 photo_count,
             } => {
                 collected.set(Some(Collected {
                     collection,
                     deposit_sizes,
-                    cookie,
                     account,
                     photo_count,
                     from_file: false,
@@ -2427,9 +2424,6 @@ impl LoadedSession {
             collected: Collected {
                 collection,
                 deposit_sizes,
-                // A saved session carries no cookie and needs none: it is the
-                // collection, not a way back to the account.
-                cookie: None,
                 account,
                 photo_count,
                 from_file: true,

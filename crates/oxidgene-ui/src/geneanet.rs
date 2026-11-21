@@ -46,12 +46,11 @@ pub enum GeneanetEvent {
     /// the archives are matched against.
     Sizing { done: usize, total: usize },
     /// Everything gathered. `collection` is the JSON the server turns into a
-    /// manifest; `deposit_sizes` is stage 2's output; `cookie` is the session
-    /// the download step will need if the archives do not cover every photo.
+    /// manifest; `deposit_sizes` is stage 2's output. The session itself
+    /// stays in the window, which fetches what the archives do not cover.
     Collected {
         collection: String,
         deposit_sizes: HashMap<i64, u64>,
-        cookie: Option<String>,
         account: Option<String>,
         /// How many media the account actually holds — pages included.
         ///
