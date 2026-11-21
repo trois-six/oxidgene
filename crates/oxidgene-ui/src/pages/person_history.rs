@@ -154,6 +154,7 @@ fn HistoryPage(tree_id: String, person_id: String) -> Element {
             tree_id: tree_id.clone(),
             tree_name: page.name(),
             title: i18n.t("history.breadcrumb"),
+            heading: false,
             print_title: format!("{person_name} / {}", i18n.t("history.breadcrumb")),
             subject: person_name.clone(),
             crumbs: rsx! {

@@ -1178,6 +1178,7 @@ fn toolbar(
             }
             div { class: "sr-sort",
                 select {
+                    aria_label: i18n.t("a11y.sort"),
                     value: "{sort():?}",
                     onchange: move |e: Event<FormData>| sort.set(SortOrder::parse(&e.value())),
                     for (order, key) in SortOrder::ALL {

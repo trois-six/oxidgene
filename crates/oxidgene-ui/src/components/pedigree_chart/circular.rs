@@ -753,10 +753,11 @@ fn render_person_segment(
     segment: &Segment,
     entry: &AncestorEntry,
     pid: Uuid,
-    title: String,
+    label: String,
     theme: &PedigreeTheme,
     actions: ChartActions,
 ) -> Element {
+    let title = svg_title(&label);
     let band = mark_colour(&entry.node);
     let mark = card_mark(pid);
     let (dot_x, dot_y) = segment_corner(segment);
@@ -766,7 +767,12 @@ fn render_person_segment(
         g {
             key: "fs-{entry.sosa}",
             class: "{class}",
+            role: "link",
+            tabindex: actions.tab_index(pid),
+            "aria-label": "{label}",
+            "data-chart-item": "true",
             onclick: move |_| actions.navigate(pid),
+            onkeydown: move |evt: Event<KeyboardData>| actions.key(pid, &evt),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
             onpointerdown: move |evt: Event<PointerData>| actions.press_start(pid, &evt),
             path { class: "fan-seg-shape", d: "{segment.path}", dangerous_inner_html: "{title}" }
@@ -780,7 +786,7 @@ fn render_person_segment(
             {mark_dot(mark, dot_x, dot_y, 4.0)}
             if *actions.selected_person_id.read() == pid {
                 ChartMenuButton {
-                    name: title.clone(),
+                    name: label.clone(),
                     x: menu_x,
                     y: menu_y,
                     radius: CHART_MENU_SIZE / 2.0,
@@ -812,10 +818,11 @@ fn segment_corner(segment: &Segment) -> (f64, f64) {
 fn render_union_segment(
     segment: &Segment,
     entry: &AncestorEntry,
-    title: String,
+    label: String,
     theme: &PedigreeTheme,
     actions: ChartActions,
 ) -> Element {
+    let title = svg_title(&label);
     let spouse = entry.node.id;
     let mark = spouse.and_then(card_mark);
     let (dot_x, dot_y) = segment_corner(segment);
@@ -825,9 +832,19 @@ fn render_union_segment(
         g {
             key: "fu-{entry.sosa}",
             class: "{class}",
+            // An unknown spouse only names itself: nothing to activate.
+            role: if spouse.is_some() { "link" } else { "img" },
+            tabindex: spouse.map(|pid| actions.tab_index(pid)),
+            "aria-label": "{label}",
+            "data-chart-item": spouse.map(|_| "true"),
             onclick: move |_| {
                 if let Some(pid) = spouse {
                     actions.navigate(pid);
+                }
+            },
+            onkeydown: move |evt: Event<KeyboardData>| {
+                if let Some(pid) = spouse {
+                    actions.key(pid, &evt);
                 }
             },
             onpointerdown: move |evt: Event<PointerData>| {
@@ -852,7 +869,7 @@ fn render_union_segment(
             {mark_dot(mark, dot_x, dot_y, 4.0)}
             if let Some(pid) = spouse.filter(|pid| *actions.selected_person_id.read() == *pid) {
                 ChartMenuButton {
-                    name: title.clone(),
+                    name: label.clone(),
                     x: menu_x,
                     y: menu_y,
                     radius: CHART_MENU_SIZE / 2.0,
@@ -878,9 +895,10 @@ fn union_tooltip(entry: &AncestorEntry, i18n: &I18n) -> String {
 fn render_empty_segment(
     segment: &Segment,
     entry: &AncestorEntry,
-    title: String,
+    label: String,
     actions: ChartActions,
 ) -> Element {
+    let title = svg_title(&label);
     let on_empty_slot = actions.on_empty_slot;
     let is_father = entry.node.is_father;
     let child = entry.node.child_of;
@@ -899,10 +917,21 @@ fn render_empty_segment(
         g {
             key: "fs-{entry.sosa}",
             class: "fan-slot",
+            role: "button",
+            tabindex: "-1",
+            "aria-label": "{label}",
+            "data-chart-item": "true",
             onclick: move |_| {
                 if let Some(child) = child {
                     on_empty_slot.call((child, is_father));
                 }
+            },
+            onkeydown: move |evt: Event<KeyboardData>| {
+                crate::utils::on_activation_key(&evt, || {
+                    if let Some(child) = child {
+                        on_empty_slot.call((child, is_father));
+                    }
+                });
             },
             path { class: "fan-slot-shape", d: "{segment.path}", dangerous_inner_html: "{title}" }
             if show_plus {
@@ -918,9 +947,10 @@ fn render_empty_segment(
 fn render_root(
     layout: &CircularLayout,
     theme: &PedigreeTheme,
-    title: String,
+    label: String,
     actions: ChartActions,
 ) -> Element {
+    let title = svg_title(&label);
     let Some(entry) = layout.entries.first().filter(|entry| entry.sosa == 1) else {
         return rsx! {};
     };
@@ -938,7 +968,14 @@ fn render_root(
     rsx! {
         g {
             class: "{class}",
+            role: "link",
+            tabindex: actions.tab_index(pid),
+            "aria-label": "{label}",
+            "data-chart-item": "true",
             onclick: move |_| actions.select(pid),
+            onkeydown: move |evt: Event<KeyboardData>| {
+                crate::utils::on_activation_key(&evt, || actions.select(pid));
+            },
             oncontextmenu: pick,
             onpointerdown: move |evt: Event<PointerData>| actions.press_start(pid, &evt),
             path { class: "fan-seg-shape", d: "{layout.root_path}", dangerous_inner_html: "{title}" }
@@ -954,7 +991,7 @@ fn render_root(
             {mark_dot(mark, dot_x, dot_y, 5.0)}
             if *actions.selected_person_id.read() == pid {
                 ChartMenuButton {
-                    name: title.clone(),
+                    name: label.clone(),
                     x: menu_x,
                     y: menu_y,
                     radius: CHART_MENU_SIZE / 2.0,
@@ -982,11 +1019,11 @@ pub(super) fn CircularCanvas(
     // Segments are placed around the centre, the region on the canvas.
     let region = use_culled_region(viewport).translated(-layout.origin_x, -layout.origin_y);
     let i18n = use_i18n();
-    let add_parent = svg_title(&i18n.t("linking.add_parent"));
+    let add_parent = i18n.t("linking.add_parent");
     let root_title = layout
         .entries
         .first()
-        .map(|entry| svg_title(&ancestor_tooltip(entry, layout.root_is_sosa_root, &i18n)))
+        .map(|entry| ancestor_tooltip(entry, layout.root_is_sosa_root, &i18n))
         .unwrap_or_default();
 
     rsx! {
@@ -1007,7 +1044,7 @@ pub(super) fn CircularCanvas(
                                 _ if segment.union => render_union_segment(
                                     segment,
                                     entry,
-                                    svg_title(&union_tooltip(entry, &i18n)),
+                                    union_tooltip(entry, &i18n),
                                     theme,
                                     actions,
                                 ),
@@ -1015,7 +1052,7 @@ pub(super) fn CircularCanvas(
                                     segment,
                                     entry,
                                     pid,
-                                    svg_title(&ancestor_tooltip(entry, layout.root_is_sosa_root, &i18n)),
+                                    ancestor_tooltip(entry, layout.root_is_sosa_root, &i18n),
                                     theme,
                                     actions,
                                 ),

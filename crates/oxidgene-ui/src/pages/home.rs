@@ -458,6 +458,7 @@ fn HomeToolbar(
             }
             select {
                 class: "home-sort-select",
+                aria_label: i18n.t("a11y.sort"),
                 value: "{sort_mode}",
                 onchange: move |e: Event<FormData>| sort_mode.set(e.value()),
                 option { value: "recent", {i18n.t("home.sort_recent")} }
@@ -625,7 +626,12 @@ fn TreesGrid(
                 div {
                     class: "tree-card tree-card-add",
                     "data-create-tree": true,
+                    role: "button",
+                    tabindex: "0",
                     onclick: move |_| on_create.call(()),
+                    onkeydown: move |evt: Event<KeyboardData>| {
+                        crate::utils::on_activation_key(&evt, || on_create.call(()));
+                    },
                     div { class: "tree-card-add-icon", "＋" }
                     div { class: "tree-card-add-text", {i18n.t("home.add_card_title")} }
                     div { class: "tree-card-add-sub",

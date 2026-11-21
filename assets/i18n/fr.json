@@ -6731,6 +6731,13 @@
   },
   "reference_language": "fr",
   "translations": {
+    "a11y.app_nav": "Application",
+    "a11y.breadcrumb": "Fil d’Ariane",
+    "a11y.date_calendar": "Calendrier",
+    "a11y.date_qualifier": "Précision de la date",
+    "a11y.settings_nav": "Sections des paramètres",
+    "a11y.sort": "Ordre de tri",
+    "a11y.tree_nav": "Vues et outils de l’arbre",
     "app_settings.ancestor_levels": "Générations ascendantes",
     "app_settings.ancestor_levels_hint": "Générations affichées au-dessus de la personne centrale.",
     "app_settings.api": "API",

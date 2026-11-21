@@ -8,9 +8,9 @@ use oxidgene_core::types::Event as DomainEvent;
 use uuid::Uuid;
 
 use super::{
-    EVENT_PANEL_AUTO_COLLAPSE_WIDTH, EVENT_PANEL_KEYBOARD_STEP, EVENT_PANEL_MANUAL_STORAGE_KEY,
-    EVENT_PANEL_MAX_RATIO, EVENT_PANEL_MAX_WIDTH, EVENT_PANEL_MIN_WIDTH,
-    EVENT_PANEL_RATIO_STORAGE_KEY, SharedPedigree, VIEWPORT_DEFAULT_W,
+    EVENT_PANEL_AUTO_COLLAPSE_WIDTH, EVENT_PANEL_DEFAULT_WIDTH, EVENT_PANEL_KEYBOARD_STEP,
+    EVENT_PANEL_MANUAL_STORAGE_KEY, EVENT_PANEL_MAX_RATIO, EVENT_PANEL_MAX_WIDTH,
+    EVENT_PANEL_MIN_WIDTH, EVENT_PANEL_RATIO_STORAGE_KEY, SharedPedigree, VIEWPORT_DEFAULT_W,
     WAIT_FOR_EVENT_PANEL_TRANSITION_JS, chart_portrait, format_lifespan,
 };
 use crate::api::CroppedSource;
@@ -148,6 +148,11 @@ fn EventPanelResizeHandle() -> Element {
             role: "separator",
             tabindex: "0",
             "aria-orientation": "vertical",
+            // The panel's width in pixels; the scripts that resize it keep
+            // it current.
+            "aria-valuemin": "{EVENT_PANEL_MIN_WIDTH}",
+            "aria-valuemax": "{EVENT_PANEL_MAX_WIDTH}",
+            "aria-valuenow": "{EVENT_PANEL_DEFAULT_WIDTH}",
             "aria-label": i18n.t("pedigree.resize_events"),
             title: i18n.t("pedigree.resize_events"),
             onpointerdown: move |evt| {
@@ -206,6 +211,7 @@ fn drag_panel_js(start_x: f64) -> String {
                 `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
             );
             localStorage.setItem('{EVENT_PANEL_RATIO_STORAGE_KEY}', String(ratio));
+            document.querySelector('.evp-resize-handle')?.setAttribute('aria-valuenow', String(Math.round(width)));
             document.querySelector('.pedigree-resize-fit-trigger')?.click();
         }};
 
@@ -243,6 +249,7 @@ fn step_panel_js(delta: f64) -> String {
             `calc(${{ratio * 100}}% - ${{ratio * sidebarWidth}}px)`,
         );
         localStorage.setItem('{EVENT_PANEL_RATIO_STORAGE_KEY}', String(ratio));
+        document.querySelector('.evp-resize-handle')?.setAttribute('aria-valuenow', String(Math.round(width)));
         document.querySelector('.pedigree-resize-fit-trigger')?.click();
         "#,
     )
@@ -351,10 +358,23 @@ fn PedigreeEventRow(
     rsx! {
         div {
             class: "{item_class}",
-            onclick: move |_| {
-                nav.push(crate::router::Route::PersonDetail {
-                    tree_id: tree_id.clone(),
-                    person_id: selected.to_string(),
+            role: "link",
+            tabindex: "0",
+            onclick: {
+                let tree_id = tree_id.clone();
+                move |_| {
+                    nav.push(crate::router::Route::PersonDetail {
+                        tree_id: tree_id.clone(),
+                        person_id: selected.to_string(),
+                    });
+                }
+            },
+            onkeydown: move |evt: Event<KeyboardData>| {
+                crate::utils::on_activation_key(&evt, || {
+                    nav.push(crate::router::Route::PersonDetail {
+                        tree_id: tree_id.clone(),
+                        person_id: selected.to_string(),
+                    });
                 });
             },
             EventIcon { event_type: event.event_type }

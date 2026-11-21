@@ -1329,4 +1329,110 @@ mod tests {
             Err(ThemeError::UnknownBase(_))
         ));
     }
+
+    /// WCAG 2 relative luminance of a colour, its alpha left out.
+    fn luminance(color: &Color) -> f64 {
+        let digits = color.rgb_digits();
+        let channel = |at: usize| {
+            let value = f64::from(u8::from_str_radix(&digits[at..at + 2], 16).unwrap()) / 255.0;
+            if value <= 0.040_45 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4)
+    }
+
+    /// WCAG 2 contrast ratio of two colours, from 1 to 21.
+    fn contrast(a: &Color, b: &Color) -> f64 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    #[test]
+    fn contrast_follows_the_wcag_formula() {
+        let color = |raw| Color::parse(raw).unwrap();
+        assert!((contrast(&color("#000"), &color("#fff")) - 21.0).abs() < 1e-9);
+        assert!((contrast(&color("#777777"), &color("#ffffff")) - 4.478).abs() < 1e-3);
+        assert!((contrast(&color("#fff"), &color("#ffffff80")) - 1.0).abs() < 1e-9);
+    }
+
+    /// Text read at length reaches WCAG AA (4.5:1) on every surface it is
+    /// written on, in every shipped theme.
+    const AA: f64 = 4.5;
+    /// What is not read at length keeps WCAG's floor for large or bold text
+    /// and for the outline of a control (3:1): hints, placeholders and
+    /// disabled text (`text-muted`), the short bold label of a button on an
+    /// accent fill (`on-accent`), the accent as a focus ring or an active
+    /// mark, and a card's dates under the pointer. The shipped themes follow
+    /// the palettes they are named after, whose accents are not all dark
+    /// enough to carry small white text at 4.5:1 (docs/ui-common.md §5).
+    const FLOOR: f64 = 3.0;
+
+    /// The pairs of tokens the stylesheet draws one on the other: the text,
+    /// what it is written on, and the ratio it keeps.
+    const CONTRAST_PAIRS: &[(&str, &[&str], f64)] = &[
+        (
+            "text-primary",
+            &[
+                "bg-deep",
+                "bg-panel",
+                "bg-card",
+                "bg-card-hover",
+                "sel-bg",
+                "nav-surface",
+            ],
+            AA,
+        ),
+        ("text-secondary", &["bg-deep", "bg-panel", "bg-card"], AA),
+        ("danger-text", &["bg-deep", "bg-panel", "bg-card"], AA),
+        ("pn-text", &["pn-bg", "pn-spouse-bg", "pn-hover-bg"], AA),
+        ("pn-text-muted", &["pn-bg", "pn-spouse-bg"], AA),
+        ("media-caption", &["media-bg", "media-panel"], AA),
+        ("text-muted", &["bg-deep", "bg-panel", "bg-card"], FLOOR),
+        ("pn-text-muted", &["pn-hover-bg"], FLOOR),
+        ("orange", &["bg-deep", "bg-card"], FLOOR),
+        (
+            "on-accent",
+            &["orange", "danger", "green", "green-accent", "pn-self"],
+            FLOOR,
+        ),
+    ];
+
+    /// A theme's colours by token name, read from what it emits.
+    fn colors_by_token(theme: &Theme) -> BTreeMap<String, Color> {
+        let mut declarations = String::new();
+        theme.colors.write_declarations(&mut declarations);
+        declarations
+            .lines()
+            .filter_map(|line| {
+                line.trim()
+                    .strip_prefix("--")?
+                    .strip_suffix(';')?
+                    .split_once(": ")
+            })
+            .map(|(token, value)| (token.to_owned(), Color::parse(value).unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn every_builtin_theme_keeps_its_text_readable() {
+        let mut failures = Vec::new();
+        for theme in BUILTIN_THEMES.iter() {
+            let colors = colors_by_token(theme);
+            for (text, surfaces, minimum) in CONTRAST_PAIRS {
+                for surface in *surfaces {
+                    let ratio = contrast(&colors[*text], &colors[*surface]);
+                    if ratio < *minimum {
+                        failures.push(format!(
+                            "{}: --{text} on --{surface} is {ratio:.2}:1, under {minimum}:1",
+                            theme.id
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
 }

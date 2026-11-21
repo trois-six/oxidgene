@@ -109,6 +109,7 @@ pub(crate) fn SuggestInput(
         _ => {}
     };
 
+    let list_id = crate::listeners::use_element_id("suggest-list");
     rsx! {
         div { class: "suggest-input",
             TextInput {
@@ -117,8 +118,13 @@ pub(crate) fn SuggestInput(
                 placeholder: placeholder.unwrap_or_default(),
                 disabled,
                 autocomplete: "off",
+                role: "combobox",
                 aria_autocomplete: "list",
                 aria_expanded: "{list_visible}",
+                aria_controls: list_visible.then(|| list_id.clone()),
+                aria_activedescendant: highlight()
+                    .filter(|_| list_visible)
+                    .map(|index| format!("{list_id}-{index}")),
                 on_input: move |text: String| {
                     open.set(true);
                     highlight.set(None);
@@ -135,14 +141,17 @@ pub(crate) fn SuggestInput(
             }
             if list_visible {
                 div {
+                    id: list_id.clone(),
                     class: "suggest-input-list",
                     role: "listbox",
                     onmousedown: move |e: Event<MouseData>| e.prevent_default(),
                     for (index, row) in rows.iter().enumerate() {
                         button {
                             key: "{index}",
+                            id: "{list_id}-{index}",
                             r#type: "button",
                             role: "option",
+                            "aria-selected": if highlight() == Some(index) { "true" } else { "false" },
                             class: if highlight() == Some(index) {
                                 "context-menu-item td-suggest-row suggest-input-row is-active"
                             } else {

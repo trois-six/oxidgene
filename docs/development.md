@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T16:13:30Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:05:00Z }
 ---
 
 # Development Environment and Workflows
@@ -393,7 +393,7 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 |----------|------|---------|--------|------------|
 | Unit | The `#[cfg(test)]` modules of every library and binary, then the documentation examples, which nextest does not run | `just test-unit` | Unit tests | Yes |
 | Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database (on PostgreSQL under `just test-postgres`), repositories, migrations — on an empty database, and on one where every table of the schema, read from the schema itself, holds a row (`populated_migration_test.rs`) — GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
-| Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
+| Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names, the modal dialog's opening, closing and focus, the charts' arrow keys — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Weekly: Scaling and import memory | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Weekly: Scaling and import memory | No |
 | Large trees | The `#[ignore]`d `large_tree_test.rs`: a generated tree of 100,000 persons imported, rebuilt, read, edited and exported, in release mode, against its time and memory budgets (§2.1) | `just scale-large` | Weekly: Large trees | No |
@@ -502,8 +502,10 @@ and its viewer in `crates/oxidgene-archives/src/platform/viewers.json`
 ([Archive Portals §9.1](archives.md#91-live-checks), *Adding an adapter's
 live check*).
 
-**End-to-end suite.** `e2e/` holds a Node.js project whose only dependency is
-a pinned `@playwright/test`. `just e2e` builds the debug web bundle for the
+**End-to-end suite.** `e2e/` holds a Node.js project whose only dependencies
+are a pinned `@playwright/test` and a pinned `@axe-core/playwright`, the
+accessibility checker of `tests/accessibility.spec.ts`
+([Common UI §5](ui-common.md#5-accessibility)). `just e2e` builds the debug web bundle for the
 API on `http://127.0.0.1:18080` and the server, installs the dependencies and
 Chromium when missing, and runs the suite; extra arguments go to Playwright
 (`just e2e --headed`, `just e2e tests/home.spec.ts`). The ports stay clear of

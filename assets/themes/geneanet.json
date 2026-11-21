@@ -11,13 +11,13 @@
 
     "text-primary": "#222222",
     "text-secondary": "#666666",
-    "text-muted": "#988c90",
+    "text-muted": "#92868a",
 
     "orange": "#006ac4",
     "orange-light": "#408fd3",
     "green": "#447a0e",
     "green-light": "#559911",
-    "green-accent": "#95c417",
+    "green-accent": "#7aa113",
     "blue": "#00a6c0",
     "pink": "#ff6699",
     "red": "#cb2d25",

@@ -26,6 +26,7 @@ use oxidgene_core::types::{Media, Vignette};
 use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateVignetteBody};
+use crate::components::modal::Modal;
 use crate::i18n::use_i18n;
 
 /// A rectangle in the source image's pixel space.
@@ -277,15 +278,17 @@ fn CropDraft(
 fn CropUnavailable(on_close: EventHandler<()>) -> Element {
     let i18n = use_i18n();
     rsx! {
-        div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
-            div { class: "cropper-panel", onclick: move |e| e.stop_propagation(),
-                div { class: "cropper-empty", {i18n.t("media.cannot_crop")} }
-                button {
-                    class: "btn btn-outline",
-                    r#type: "button",
-                    onclick: move |_| on_close.call(()),
-                    {i18n.t("common.close")}
-                }
+        Modal {
+            class: "cropper-panel",
+            backdrop_class: "cropper-backdrop",
+            label: i18n.t("media.crop"),
+            on_close: move |_| on_close.call(()),
+            div { class: "cropper-empty", {i18n.t("media.cannot_crop")} }
+            button {
+                class: "btn btn-outline",
+                r#type: "button",
+                onclick: move |_| on_close.call(()),
+                {i18n.t("common.close")}
             }
         }
     }
@@ -392,52 +395,55 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     let s = scale();
 
     rsx! {
-        div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
-            div { class: "cropper-panel", onclick: move |e| e.stop_propagation(),
-                div { class: "cropper-head",
-                    span { class: "cropper-title", "{media.file_name}" }
+        Modal {
+            class: "cropper-panel",
+            backdrop_class: "cropper-backdrop",
+            label: media.file_name.clone(),
+            on_close: move |_| on_close.call(()),
+            div { class: "cropper-head",
+                span { class: "cropper-title", "{media.file_name}" }
+                button {
+                    class: "cropper-close",
+                    r#type: "button",
+                    aria_label: i18n.t("common.close"),
+                    onclick: move |_| on_close.call(()),
+                    "\u{00D7}"
+                }
+            }
+
+            CropStage {
+                image_url,
+                image_element_id,
+                file_name: media.file_name.clone(),
+                existing: props.existing.clone(),
+                scale: s,
+                displayed,
+                drag_rect,
+                measure: record_measured.then_some(measure_script),
+                measured,
+            }
+
+            div { class: "cropper-foot",
+                CropDraft { pending, events: events.clone(), event_id }
+
+                if let Some(err) = error() {
+                    div { class: "error-msg", "{err}" }
+                }
+
+                div { class: "cropper-actions",
                     button {
-                        class: "cropper-close",
+                        class: "btn btn-outline",
                         r#type: "button",
                         onclick: move |_| on_close.call(()),
-                        "\u{00D7}"
+                        {i18n.t("common.close")}
                     }
-                }
-
-                CropStage {
-                    image_url,
-                    image_element_id,
-                    file_name: media.file_name.clone(),
-                    existing: props.existing.clone(),
-                    scale: s,
-                    displayed,
-                    drag_rect,
-                    measure: record_measured.then_some(measure_script),
-                    measured,
-                }
-
-                div { class: "cropper-foot",
-                    CropDraft { pending, events: events.clone(), event_id }
-
-                    if let Some(err) = error() {
-                        div { class: "error-msg", "{err}" }
-                    }
-
-                    div { class: "cropper-actions",
-                        button {
-                            class: "btn btn-outline",
-                            r#type: "button",
-                            onclick: move |_| on_close.call(()),
-                            {i18n.t("common.close")}
-                        }
-                        button {
-                            class: "btn btn-primary",
-                            r#type: "button",
-                            disabled: pending.is_none() || saving(),
-                            onclick: save,
-                            if saving() { {i18n.t("common.saving")} }
-                            else { {i18n.t("media.save_crop")} }
-                        }
+                    button {
+                        class: "btn btn-primary",
+                        r#type: "button",
+                        disabled: pending.is_none() || saving(),
+                        onclick: save,
+                        if saving() { {i18n.t("common.saving")} }
+                        else { {i18n.t("media.save_crop")} }
                     }
                 }
             }

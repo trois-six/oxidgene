@@ -50,6 +50,7 @@ Une carte en pointillés marquée d’un **+** tient la place d’un parent que 
 ## Se déplacer dans l’arbre
 
 - **Changer de personne centrale.** Cliquez sur une carte. Le graphique se recentre sur elle, un bouton **⋮** apparaît sous sa carte et le panneau des événements affiche ses événements.
+- **Utiliser le clavier.** Appuyez sur Tab jusqu’à la carte sélectionnée, puis passez d’une carte à l’autre avec les flèches ; Entrée place la personne ainsi désignée au centre du graphique. Cela vaut pour tous les graphiques, sur les cartes, les cases et les secteurs.
 - **Faire glisser.** Glissez n’importe où sur le canevas, cartes comprises.
 - **Zoomer.** Utilisez la molette ou le pincement pour zoomer autour du pointeur, ou les boutons **Zoom avant** et **Zoom arrière** de la barre latérale gauche. La vue arbre zoome de 0,3× à 4×.
 - **Ajuster.** **Ajuster à l’écran** cadre tout le graphique dans la fenêtre. Si l’arbre est trop grand pour tenir, il est centré sur la personne centrale.

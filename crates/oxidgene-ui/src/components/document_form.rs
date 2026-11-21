@@ -36,6 +36,7 @@ use crate::components::context_menu::{MenuButton, MenuClose};
 use crate::components::date_input::{DateInput, DateParts};
 use crate::components::media_gallery::{MediaClassification, MediaEventsChecklist, MediaOwner};
 use crate::components::media_input::{MediaInput, PickedFile, friendly};
+use crate::components::modal::Modal;
 use crate::components::place_input::{render_place_input, resolve_place};
 use crate::components::text_field::{TextArea, TextInput};
 use crate::i18n::use_i18n;
@@ -330,128 +331,128 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
     let busy = saving();
 
     rsx! {
-        div {
-            class: "cropper-backdrop",
-            onmousedown: move |event| event.stop_propagation(),
-            onclick: move |_| if !busy { on_close.call(()) },
-            div { class: "document-form-modal", onclick: move |event| event.stop_propagation(),
-                div { class: "cropper-head",
-                    span { class: "cropper-title", {i18n.t("media.new_document")} }
-                    button {
-                        class: "cropper-close",
-                        r#type: "button",
-                        title: i18n.t("common.close"),
-                        disabled: busy,
-                        onclick: move |_| on_close.call(()),
-                        "\u{00D7}"
-                    }
+        Modal {
+            class: "document-form-modal",
+            backdrop_class: "cropper-backdrop",
+            label: i18n.t("media.new_document"),
+            busy,
+            on_close: move |_| on_close.call(()),
+            div { class: "cropper-head",
+                span { class: "cropper-title", {i18n.t("media.new_document")} }
+                button {
+                    class: "cropper-close",
+                    r#type: "button",
+                    title: i18n.t("common.close"),
+                    disabled: busy,
+                    onclick: move |_| on_close.call(()),
+                    "\u{00D7}"
                 }
-                div { class: "document-form-body",
-                    div { class: "media-panel is-embedded",
+            }
+            div { class: "document-form-body",
+                div { class: "media-panel is-embedded",
 
-                        div { class: "form-group",
-                            label { {i18n.t("media.title")} }
-                            TextInput {
-                                r#type: "text",
-                                value: "{title}",
-                                disabled: busy,
-                                on_input: move |text: String| {
-                                    title_written.set(true);
-                                    title.set(text);
-                                },
-                            }
-                        }
-                        div { class: "form-group",
-                            label { {i18n.t("media.description")} }
-                            TextArea {
-                                rows: 3,
-                                value: "{description}",
-                                disabled: busy,
-                                on_input: move |text: String| {
-                                    description_written.set(true);
-                                    description.set(text);
-                                },
-                            }
-                        }
-
-                        MediaClassification {
-                            document_category,
-                            source_media_type,
-                            privacy,
+                    div { class: "form-group",
+                        label { {i18n.t("media.title")} }
+                        TextInput {
+                            r#type: "text",
+                            value: "{title}",
                             disabled: busy,
+                            on_input: move |text: String| {
+                                title_written.set(true);
+                                title.set(text);
+                            },
                         }
-
-                        div { class: "form-group",
-                            label { {i18n.t("media.date")} }
-                            DateInput { parts: date_parts, i18n, on_change: move |()| {} }
+                    }
+                    div { class: "form-group",
+                        label { {i18n.t("media.description")} }
+                        TextArea {
+                            rows: 3,
+                            value: "{description}",
+                            disabled: busy,
+                            on_input: move |text: String| {
+                                description_written.set(true);
+                                description.set(text);
+                            },
                         }
-                        {render_place_input(&i18n, tree_id, place_id, &place_options, || {})}
+                    }
 
-                        div { class: "form-group",
-                            label { {i18n.t("media.note")} }
-                            TextArea {
-                                rows: 3,
-                                value: "{note_text}",
-                                placeholder: i18n.t("media.note_placeholder"),
-                                disabled: busy,
-                                on_input: move |text: String| note_text.set(text),
-                            }
+                    MediaClassification {
+                        document_category,
+                        source_media_type,
+                        privacy,
+                        disabled: busy,
+                    }
+
+                    div { class: "form-group",
+                        label { {i18n.t("media.date")} }
+                        DateInput { parts: date_parts, i18n, on_change: move |()| {} }
+                    }
+                    {render_place_input(&i18n, tree_id, place_id, &place_options, || {})}
+
+                    div { class: "form-group",
+                        label { {i18n.t("media.note")} }
+                        TextArea {
+                            rows: 3,
+                            value: "{note_text}",
+                            placeholder: i18n.t("media.note_placeholder"),
+                            disabled: busy,
+                            on_input: move |text: String| note_text.set(text),
                         }
+                    }
 
-                        if !events.is_empty() {
-                            MediaEventsChecklist {
-                                events: events.clone(),
-                                attached: selected_events(),
-                                disabled: busy,
-                                on_toggle: move |(event_id, on): (Uuid, bool)| {
-                                    let mut list = selected_events.write();
-                                    list.retain(|id| *id != event_id);
-                                    if on {
-                                        list.push(event_id);
-                                    }
-                                },
-                            }
-                        }
-
-                        // Pages last, immediately above Save. The fields above
-                        // describe the document; this is the document itself,
-                        // and it is the last thing the user assembles before
-                        // committing.
-                        PendingPagesEditor { tree_id, pages, busy, register: register.clone() }
-
-                        if let Some(err) = error() {
-                            div { class: "error-msg", "{err}" }
-                        }
-
-                        div { class: "media-panel-actions",
-                            if let Some((done, count)) = progress() {
-                                span { class: "pf-ns-hint",
-                                    {i18n.t_args(
-                                        "media.uploading_n_of_m",
-                                        &[("done", &done.to_string()), ("total", &count.to_string())],
-                                    )}
+                    if !events.is_empty() {
+                        MediaEventsChecklist {
+                            events: events.clone(),
+                            attached: selected_events(),
+                            disabled: busy,
+                            on_toggle: move |(event_id, on): (Uuid, bool)| {
+                                let mut list = selected_events.write();
+                                list.retain(|id| *id != event_id);
+                                if on {
+                                    list.push(event_id);
                                 }
-                            }
-                            button {
-                                class: "btn btn-outline",
-                                r#type: "button",
-                                disabled: busy,
-                                onclick: move |_| on_close.call(()),
-                                {i18n.t("common.cancel")}
-                            }
-                            button {
-                                class: "pf-confirm-btn",
-                                r#type: "button",
-                                // A document with no page is the thing this
-                                // form exists to stop being creatable.
-                                disabled: busy || total == 0,
-                                onclick: save,
-                                if busy { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                            },
+                        }
+                    }
+
+                    // Pages last, immediately above Save. The fields above
+                    // describe the document; this is the document itself,
+                    // and it is the last thing the user assembles before
+                    // committing.
+                    PendingPagesEditor { tree_id, pages, busy, register: register.clone() }
+
+                    if let Some(err) = error() {
+                        div { class: "error-msg", "{err}" }
+                    }
+
+                    div { class: "media-panel-actions",
+                        if let Some((done, count)) = progress() {
+                            span { class: "pf-ns-hint",
+                                {i18n.t_args(
+                                    "media.uploading_n_of_m",
+                                    &[("done", &done.to_string()), ("total", &count.to_string())],
+                                )}
                             }
                         }
-                        if total == 0 {
-                            p { class: "pf-ns-hint", {i18n.t("media.new_document_needs_a_page")} }
+                        button {
+                            class: "btn btn-outline",
+                            r#type: "button",
+                            disabled: busy,
+                            onclick: move |_| on_close.call(()),
+                            {i18n.t("common.cancel")}
                         }
+                        button {
+                            class: "pf-confirm-btn",
+                            r#type: "button",
+                            // A document with no page is the thing this
+                            // form exists to stop being creatable.
+                            disabled: busy || total == 0,
+                            onclick: save,
+                            if busy { {i18n.t("common.saving")} } else { {i18n.t("common.save")} }
+                        }
+                    }
+                    if total == 0 {
+                        p { class: "pf-ns-hint", {i18n.t("media.new_document_needs_a_page")} }
                     }
                 }
             }

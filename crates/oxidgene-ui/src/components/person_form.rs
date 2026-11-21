@@ -2173,6 +2173,7 @@ pub(crate) fn render_notes_source_fields(
             label { {i18n.t("person_form.notes")} }
             TextArea {
                 rows: 3,
+                aria_label: i18n.t("person_form.notes"),
                 value: "{notes}",
                 on_input: move |text: String| { notes.set(text); on_edit_notes(); },
             }

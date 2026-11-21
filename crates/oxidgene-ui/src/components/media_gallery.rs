@@ -42,6 +42,7 @@ use crate::components::document_form::DocumentForm;
 use crate::components::image_cropper::ImageCropper;
 use crate::components::media_input::MediaInput;
 use crate::components::media_stage::{MediaStage, StagePicture};
+use crate::components::modal::Modal;
 use crate::components::pager::Pager;
 use crate::components::pdf_viewer::{
     PdfFile, PdfPreview, PdfViewer, opens_in_pdf_viewer, pdf_preview_page,
@@ -955,10 +956,17 @@ fn MediaTile(
             div {
                 class: "media-thumb",
                 role: "button",
+                tabindex: "0",
                 title: i18n.t("media.view"),
                 onclick: {
                     let tile = tile.clone();
                     move |_| on_view.call(tile.clone())
+                },
+                onkeydown: {
+                    let tile = tile.clone();
+                    move |evt: Event<KeyboardData>| {
+                        crate::utils::on_activation_key(&evt, || on_view.call(tile.clone()));
+                    }
                 },
                 // The portrait is set from here even on a profile page, where
                 // the gallery is otherwise read-only: choosing which
@@ -1651,10 +1659,19 @@ fn VignetteTile(
                 // Opening it opens the scan it is a region of: the point of a
                 // crop is the document behind it, and a viewer showing the
                 // crop alone would hide what it is evidence from.
+                tabindex: "0",
                 onclick: move |_| {
                     on_view.call(MediaOpening {
                         media_id: vignette.media_id,
                         link_id: vignette_id,
+                    });
+                },
+                onkeydown: move |evt: Event<KeyboardData>| {
+                    crate::utils::on_activation_key(&evt, || {
+                        on_view.call(MediaOpening {
+                            media_id: vignette.media_id,
+                            link_id: vignette_id,
+                        });
                     });
                 },
                 BundledVignetteImage {
@@ -3501,20 +3518,22 @@ fn draws_page_thumbnail(
 /// it could not load.
 fn viewer_placeholder(i18n: &I18n, message: Element, on_close: EventHandler<()>) -> Element {
     rsx! {
-        div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
-            div { class: "media-viewer", onclick: move |e| e.stop_propagation(),
-                div { class: "cropper-head",
-                    span { class: "cropper-title" }
-                    button {
-                        class: "cropper-close",
-                        r#type: "button",
-                        aria_label: i18n.t("common.close"),
-                        onclick: move |_| on_close.call(()),
-                        "\u{00D7}"
-                    }
+        Modal {
+            class: "media-viewer",
+            backdrop_class: "cropper-backdrop",
+            label: i18n.t("media.section"),
+            on_close: move |_| on_close.call(()),
+            div { class: "cropper-head",
+                span { class: "cropper-title" }
+                button {
+                    class: "cropper-close",
+                    r#type: "button",
+                    aria_label: i18n.t("common.close"),
+                    onclick: move |_| on_close.call(()),
+                    "\u{00D7}"
                 }
-                {message}
             }
+            {message}
         }
     }
 }
@@ -3752,195 +3771,197 @@ fn MediaViewer(
     };
 
     rsx! {
-        div { class: "cropper-backdrop", onclick: move |_| on_close.call(()),
-            div { class: "media-viewer", onclick: move |e| e.stop_propagation(),
-                div { class: "cropper-head",
-                    span { class: "cropper-title", "{caption}" }
-                    {page_count(&i18n, pager_current, pager_total)}
-                    button {
-                        class: "cropper-close",
-                        r#type: "button",
-                        aria_label: i18n.t("common.close"),
-                        onclick: move |_| on_close.call(()),
-                        "\u{00D7}"
-                    }
+        Modal {
+            class: "media-viewer",
+            backdrop_class: "cropper-backdrop",
+            label: caption.clone(),
+            on_close: move |_| on_close.call(()),
+            div { class: "cropper-head",
+                span { class: "cropper-title", "{caption}" }
+                {page_count(&i18n, pager_current, pager_total)}
+                button {
+                    class: "cropper-close",
+                    r#type: "button",
+                    aria_label: i18n.t("common.close"),
+                    onclick: move |_| on_close.call(()),
+                    "\u{00D7}"
                 }
+            }
 
 
-                div { class: "media-viewer-body",
-                aside {
-                    key: "media-viewer-aside-{content_media_id}-{_aside_mode}",
-                    class: "media-viewer-aside",
-                    if editing() {
-                        MediaEditPanel {
-                            key: "edit-{content_media_id}",
-                            tree_id,
-                            tile: current_tile.clone(),
-                            events: events.clone(),
-                            page: shown.cloned(),
-                            page_number: shown.map(|_| current + 1),
-                            embedded: true,
-                            // The panel may have repointed the page at
-                            // another URL, and the page list is what the
-                            // image on screen is read from.
-                            on_changed: changed,
-                            on_close: move |()| editing.set(false),
-                        }
-                    } else if managing_pages() {
-                        div { class: "media-panel is-embedded",
-                            div { class: "media-panel-section",
-                                label { {i18n.t("media.pages")} }
-                                p { class: "pf-ns-hint", {i18n.t("media.pages_hint")} }
-                                DocumentPages {
-                                    tree_id,
-                                    document_id: current_media.id,
-                                    on_changed: changed,
-                                }
-                            }
-                            div { class: "media-panel-actions",
-                                button {
-                                    class: "btn btn-outline",
-                                    r#type: "button",
-                                    onclick: move |_| managing_pages.set(false),
-                                    {i18n.t("common.close")}
-                                }
-                            }
-                        }
-                    } else {
-                        MediaFacts {
-                            key: "facts-{content_media_id}",
-                            tree_id,
-                            media: current_media.clone(),
-                            page: shown.cloned(),
-                            page_number: shown.map(|_| current + 1),
-                            facts: facts.clone(),
-                            events: events.clone(),
-                            on_vignette_hover: move |vignette_id| highlighted_vignette.set(vignette_id),
-                            on_changed: changed,
-                        }
-                        // Not gated on `read_only`. That flag governs the
-                        // *gallery* — uploading, cropping, detaching — which
-                        // is restructuring what a person has. Recording when a
-                        // scan was taken is describing the scan itself, and
-                        // the moment a reader knows that is while looking at
-                        // it. Sending them to the edit modal to type a date
-                        // means leaving the page that prompted them.
-                        div { class: "media-facts-actions",
-                            TagBadges { tree_id: tree_id.to_string(), tags: current_media.tags.clone(), header: true }
-                            if is_document && permissions.can(Permission::Edit) {
-                                button {
-                                    class: "btn btn-outline media-facts-pages",
-                                    r#type: "button",
-                                    onclick: move |_| managing_pages.set(true),
-                                    {i18n.t("media.manage_pages")}
-                                }
-                            }
-                            IfCan { permission: Permission::Edit,
-                                button {
-                                    class: "pf-confirm-btn media-facts-edit",
-                                    r#type: "button",
-                                    onclick: move |_| editing.set(true),
-                                    {i18n.t("media.viewer_edit")}
-                                }
-                            }
-                            IfCan { permission: Permission::Delete,
-                                MediaDeleteButton {
-                                    tree_id,
-                                    media_id: current_media.id,
-                                    link_id: opening.link_id,
-                                    on_deleted: move |()| {
-                                        on_changed.call(());
-                                        on_close.call(());
-                                    },
-                                }
-                            }
-                        }
-                    }
-                }
-
-                div { class: "media-viewer-main",
-                if shows_pdf {
-                    PdfViewer {
-                        key: "pdf-{content_media_id}",
+            div { class: "media-viewer-body",
+            aside {
+                key: "media-viewer-aside-{content_media_id}-{_aside_mode}",
+                class: "media-viewer-aside",
+                if editing() {
+                    MediaEditPanel {
+                        key: "edit-{content_media_id}",
                         tree_id,
-                        file: PdfFile::of(&content_media).unwrap_or(PdfFile {
-                            media_id: content_media_id,
-                            version: String::new(),
-                        }),
-                        position: pdf_position,
-                        goto: pdf_goto,
-                        on_failed: move |()| failed_pdf.set(Some(content_media_id)),
-                        controls: relation_button,
-                        {relation_tools}
+                        tile: current_tile.clone(),
+                        events: events.clone(),
+                        page: shown.cloned(),
+                        page_number: shown.map(|_| current + 1),
+                        embedded: true,
+                        // The panel may have repointed the page at
+                        // another URL, and the page list is what the
+                        // image on screen is read from.
+                        on_changed: changed,
+                        on_close: move |()| editing.set(false),
+                    }
+                } else if managing_pages() {
+                    div { class: "media-panel is-embedded",
+                        div { class: "media-panel-section",
+                            label { {i18n.t("media.pages")} }
+                            p { class: "pf-ns-hint", {i18n.t("media.pages_hint")} }
+                            DocumentPages {
+                                tree_id,
+                                document_id: current_media.id,
+                                on_changed: changed,
+                            }
+                        }
+                        div { class: "media-panel-actions",
+                            button {
+                                class: "btn btn-outline",
+                                r#type: "button",
+                                onclick: move |_| managing_pages.set(false),
+                                {i18n.t("common.close")}
+                            }
+                        }
                     }
                 } else {
-                MediaStage {
-                    key: "{content_media_id}",
-                    stage_key: content_media_id.to_string(),
-                    picture: match (url.clone(), kind) {
-                        (Some(url), MediaKind::Image) => Some(StagePicture { url, alt: caption.clone() }),
-                        _ => None,
-                    },
-                    on_picture_error: move |()| failed_preview.set(Some(content_media_id)),
-                    controls: relation_button,
-                    overlays: rsx! {
-                        VignetteOverlays {
-                            vignettes: facts.vignettes.clone(),
-                            person_names: facts.names.clone(),
-                            highlighted: highlighted_vignette(),
-                            size: (content_width, content_height),
+                    MediaFacts {
+                        key: "facts-{content_media_id}",
+                        tree_id,
+                        media: current_media.clone(),
+                        page: shown.cloned(),
+                        page_number: shown.map(|_| current + 1),
+                        facts: facts.clone(),
+                        events: events.clone(),
+                        on_vignette_hover: move |vignette_id| highlighted_vignette.set(vignette_id),
+                        on_changed: changed,
+                    }
+                    // Not gated on `read_only`. That flag governs the
+                    // *gallery* — uploading, cropping, detaching — which
+                    // is restructuring what a person has. Recording when a
+                    // scan was taken is describing the scan itself, and
+                    // the moment a reader knows that is while looking at
+                    // it. Sending them to the edit modal to type a date
+                    // means leaving the page that prompted them.
+                    div { class: "media-facts-actions",
+                        TagBadges { tree_id: tree_id.to_string(), tags: current_media.tags.clone(), header: true }
+                        if is_document && permissions.can(Permission::Edit) {
+                            button {
+                                class: "btn btn-outline media-facts-pages",
+                                r#type: "button",
+                                onclick: move |_| managing_pages.set(true),
+                                {i18n.t("media.manage_pages")}
+                            }
                         }
-                    },
-                    fallback: stage_fallback(&i18n, tree_id, kind, url.clone(), preview_failed, pdf_failed, &content_media),
-                    {relation_tools}
-                }
-                }
-
-                // The pager, the same as every list's: "the entry is on page
-                // 27" is how a register is actually referenced.
-                Pager {
-                    current: pager_current,
-                    total: pager_total,
-                    disabled: editing(),
-                    class: "media-pager",
-                    // The stage is keyed by the page, so the next one opens
-                    // fitted; a PDF scrolls to its page.
-                    on_select: move |index: usize| turn_page(pdf_paged, index, page, pdf_goto),
-                }
-                }
-                }
-
-                div { class: "cropper-foot",
-                    div { class: "cropper-actions",
-                        ViewerDownloads {
-                            tree_id,
-                            document_id: current_media.id,
-                            page: content_media.clone(),
-                            current,
-                            total_pages,
-                            caption: caption.clone(),
+                        IfCan { permission: Permission::Edit,
+                            button {
+                                class: "pf-confirm-btn media-facts-edit",
+                                r#type: "button",
+                                onclick: move |_| editing.set(true),
+                                {i18n.t("media.viewer_edit")}
+                            }
                         }
-                        button {
-                            class: "btn btn-primary",
-                            r#type: "button",
-                            onclick: move |_| on_close.call(()),
-                            {i18n.t("common.close")}
+                        IfCan { permission: Permission::Delete,
+                            MediaDeleteButton {
+                                tree_id,
+                                media_id: current_media.id,
+                                link_id: opening.link_id,
+                                on_deleted: move |()| {
+                                    on_changed.call(());
+                                    on_close.call(());
+                                },
+                            }
                         }
                     }
                 }
             }
-            if identifying() {
-                IdentificationCropperHost {
+
+            div { class: "media-viewer-main",
+            if shows_pdf {
+                PdfViewer {
+                    key: "pdf-{content_media_id}",
                     tree_id,
-                    media: content_media,
-                    // Identifying somebody on a picture we do not hold
-                    // records its pixel size, and every crop drawn on it is
-                    // placed against that size: the reload brings both.
-                    on_complete: move |_| {
-                        identifying.set(false);
-                        changed.call(());
-                    },
+                    file: PdfFile::of(&content_media).unwrap_or(PdfFile {
+                        media_id: content_media_id,
+                        version: String::new(),
+                    }),
+                    position: pdf_position,
+                    goto: pdf_goto,
+                    on_failed: move |()| failed_pdf.set(Some(content_media_id)),
+                    controls: relation_button,
+                    {relation_tools}
                 }
+            } else {
+            MediaStage {
+                key: "{content_media_id}",
+                stage_key: content_media_id.to_string(),
+                picture: match (url.clone(), kind) {
+                    (Some(url), MediaKind::Image) => Some(StagePicture { url, alt: caption.clone() }),
+                    _ => None,
+                },
+                on_picture_error: move |()| failed_preview.set(Some(content_media_id)),
+                controls: relation_button,
+                overlays: rsx! {
+                    VignetteOverlays {
+                        vignettes: facts.vignettes.clone(),
+                        person_names: facts.names.clone(),
+                        highlighted: highlighted_vignette(),
+                        size: (content_width, content_height),
+                    }
+                },
+                fallback: stage_fallback(&i18n, tree_id, kind, url.clone(), preview_failed, pdf_failed, &content_media),
+                {relation_tools}
+            }
+            }
+
+            // The pager, the same as every list's: "the entry is on page
+            // 27" is how a register is actually referenced.
+            Pager {
+                current: pager_current,
+                total: pager_total,
+                disabled: editing(),
+                class: "media-pager",
+                // The stage is keyed by the page, so the next one opens
+                // fitted; a PDF scrolls to its page.
+                on_select: move |index: usize| turn_page(pdf_paged, index, page, pdf_goto),
+            }
+            }
+            }
+
+            div { class: "cropper-foot",
+                div { class: "cropper-actions",
+                    ViewerDownloads {
+                        tree_id,
+                        document_id: current_media.id,
+                        page: content_media.clone(),
+                        current,
+                        total_pages,
+                        caption: caption.clone(),
+                    }
+                    button {
+                        class: "btn btn-primary",
+                        r#type: "button",
+                        onclick: move |_| on_close.call(()),
+                        {i18n.t("common.close")}
+                    }
+                }
+            }
+        }
+        if identifying() {
+            IdentificationCropperHost {
+                tree_id,
+                media: content_media,
+                // Identifying somebody on a picture we do not hold
+                // records its pixel size, and every crop drawn on it is
+                // placed against that size: the reload brings both.
+                on_complete: move |_| {
+                    identifying.set(false);
+                    changed.call(());
+                },
             }
         }
     }
@@ -4812,44 +4833,48 @@ fn IdentificationCropperHost(
         let vignette_id = vignette.id;
         let api_for_select = api.clone();
         let api_for_cancel = api.clone();
+        // The region was saved before its person was asked for: cancelling
+        // removes it, and a failed removal is said rather than leaving an
+        // anonymous region behind unseen. Escape cancels as the button does.
+        let cancel = move || {
+            let api = api_for_cancel.clone();
+            spawn(async move {
+                match api.delete_vignette(tree_id, vignette_id).await {
+                    Ok(()) => on_complete.call(()),
+                    Err(e) => error.set(Some(e.message(&i18n))),
+                }
+            });
+        };
+        let cancel_for_close = cancel.clone();
         return rsx! {
-            div { class: "cropper-backdrop",
-                div { class: "cropper-panel", onclick: move |event| event.stop_propagation(),
-                    div { class: "cropper-head",
-                        span { class: "cropper-title", {i18n.t("media.identify_person")} }
-                    }
-                    SearchPerson {
-                        tree_id,
-                        on_select: move |person_id| {
-                            let api = api_for_select.clone();
-                            spawn(async move {
-                                let body = UpdateVignetteBody {
-                                    person_id: Some(Some(person_id)),
-                                    ..Default::default()
-                                };
-                                match api.update_vignette(tree_id, vignette_id, &body).await {
-                                    Ok(_) => on_complete.call(()),
-                                    Err(e) => error.set(Some(e.message(&i18n))),
-                                }
-                            });
-                        },
-                        // The region was saved before its person was asked
-                        // for: cancelling removes it, and a failed removal is
-                        // said rather than leaving an anonymous region behind
-                        // unseen.
-                        on_cancel: move |_| {
-                            let api = api_for_cancel.clone();
-                            spawn(async move {
-                                match api.delete_vignette(tree_id, vignette_id).await {
-                                    Ok(()) => on_complete.call(()),
-                                    Err(e) => error.set(Some(e.message(&i18n))),
-                                }
-                            });
-                        },
-                    }
-                    if let Some(message) = error() {
-                        div { class: "error-msg", role: "alert", "{message}" }
-                    }
+            Modal {
+                class: "cropper-panel",
+                backdrop_class: "cropper-backdrop",
+                label: i18n.t("media.identify_person"),
+                close_on_backdrop: false,
+                on_close: move |_| cancel_for_close(),
+                div { class: "cropper-head",
+                    span { class: "cropper-title", {i18n.t("media.identify_person")} }
+                }
+                SearchPerson {
+                    tree_id,
+                    on_select: move |person_id| {
+                        let api = api_for_select.clone();
+                        spawn(async move {
+                            let body = UpdateVignetteBody {
+                                person_id: Some(Some(person_id)),
+                                ..Default::default()
+                            };
+                            match api.update_vignette(tree_id, vignette_id, &body).await {
+                                Ok(_) => on_complete.call(()),
+                                Err(e) => error.set(Some(e.message(&i18n))),
+                            }
+                        });
+                    },
+                    on_cancel: move |_| cancel(),
+                }
+                if let Some(message) = error() {
+                    div { class: "error-msg", role: "alert", "{message}" }
                 }
             }
         };

@@ -6731,6 +6731,13 @@
   },
   "reference_language": "nl",
   "translations": {
+    "a11y.app_nav": "Applicatie",
+    "a11y.breadcrumb": "Kruimelpad",
+    "a11y.date_calendar": "Kalender",
+    "a11y.date_qualifier": "Nauwkeurigheid van de datum",
+    "a11y.settings_nav": "Onderdelen van de instellingen",
+    "a11y.sort": "Sorteervolgorde",
+    "a11y.tree_nav": "Weergaven en hulpmiddelen van de stamboom",
     "app_settings.ancestor_levels": "Generaties voorouders",
     "app_settings.ancestor_levels_hint": "Generaties weergegeven boven de centrale persoon.",
     "app_settings.api": "API",

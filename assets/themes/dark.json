@@ -13,7 +13,7 @@
 
     "text-primary": "#ddd8cc",
     "text-secondary": "#7a8da8",
-    "text-muted": "#404f65",
+    "text-muted": "#5a6879",
 
     "danger-text": "#f87171",
 
@@ -27,7 +27,7 @@
     "pn-bg": "#1e2330",
     "pn-spouse-bg": "#252d3d",
     "pn-text": "#e8dfc8",
-    "pn-text-muted": "#7a8da8",
+    "pn-text-muted": "#8596af",
     "pn-hover-bg": "#2b4364",
     "tag-0": "#ff6b6b",
     "tag-1": "#ff9f43",

@@ -107,6 +107,10 @@ pub fn ToolPageFrame(
     /// What the page is about, as its history entry names it; the tree
     /// unless the page says otherwise.
     subject: Option<String>,
+    /// Whether `title` is the page's heading. A page whose content opens
+    /// with a heading of its own, such as a person's name, says no.
+    #[props(default = true)]
+    heading: bool,
     children: Element,
 ) -> Element {
     use_history_subject(
@@ -120,7 +124,11 @@ pub fn ToolPageFrame(
                     tree_id: tree_id.clone(),
                     tree_name: tree_name.clone(),
                     {crumbs}
-                    span { class: "td-bc-current", "{title}" }
+                    if heading {
+                        h1 { class: "td-bc-current", "{title}" }
+                    } else {
+                        span { class: "td-bc-current", "{title}" }
+                    }
                 }
                 {topbar}
                 if printed {

@@ -52,7 +52,7 @@ pub fn TreeIconSidebar(
     let pedigree_class = button_class(active_view == TreeSidebarView::Pedigree);
 
     rsx! {
-        nav { class: "isb tree-icon-sidebar",
+        nav { class: "isb tree-icon-sidebar", aria_label: i18n.t("a11y.tree_nav"),
             button {
                 class: "{profile_class}",
                 title: "{i18n.t(\"pedigree.profile_view\")}",

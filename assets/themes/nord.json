@@ -13,7 +13,7 @@
 
     "text-primary": "#eceff4",
     "text-secondary": "#d8dee9",
-    "text-muted": "#7b88a1",
+    "text-muted": "#828ea6",
     "on-accent": "#2e3440",
 
     "orange": "#d08770",
@@ -25,7 +25,7 @@
     "pink": "#b48ead",
     "red": "#bf616a",
     "danger": "#bf616a",
-    "danger-text": "#d3808a",
+    "danger-text": "#dd9da5",
 
     "connector": "#4c566a",
 

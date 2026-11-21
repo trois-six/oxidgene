@@ -1330,6 +1330,7 @@ pub fn DateInput(
             div { class: "pf-date-row",
                 select {
                     class: "pf-date-calendar",
+                    aria_label: i18n.t("a11y.date_calendar"),
                     value: calendar_value(p.calendar),
                     onchange: move |e| {
                         // The date already entered is re-expressed, not
@@ -1342,6 +1343,7 @@ pub fn DateInput(
                 }
                 select {
                     class: "pf-date-qualifier-select",
+                    aria_label: i18n.t("a11y.date_qualifier"),
                     value: qualifier_value(p.qualifier),
                     onchange: move |e| {
                         let mut np = parts();

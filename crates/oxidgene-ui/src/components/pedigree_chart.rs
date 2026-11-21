@@ -73,6 +73,8 @@ const EVENT_PANEL_RATIO_STORAGE_KEY: &str = "oxidgene-ev-panel-ratio";
 /// Bounds on the panel's rendered width. Kept in sync with the `clamp()` around
 /// `--evw` in `LAYOUT_STYLES`, which enforces them again once a stored ratio is
 /// re-applied to a window of a different size.
+/// The panel's width until the reader resizes it (`--evw` in the stylesheet).
+const EVENT_PANEL_DEFAULT_WIDTH: f64 = 275.0;
 const EVENT_PANEL_MIN_WIDTH: f64 = 220.0;
 const EVENT_PANEL_MAX_WIDTH: f64 = 640.0;
 /// Never let the panel eat more than this share of the space left of it, so a
@@ -3610,6 +3612,11 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
         }),
         theme,
         i18n,
+        second_root: false,
+    };
+    let desc_card = CardContext {
+        second_root: true,
+        ..card
     };
 
     rsx! {
@@ -3642,7 +3649,7 @@ pub fn MiniPedigree(props: MiniPedigreeProps) -> Element {
                                     transform: "translate({layout.desc_tx},{layout.desc_ty})",
                                     {connector_paths(layout.desc_links.iter().enumerate(), "d", double_ruled)}
                                     for (ni, node) in layout.desc_nodes.iter().enumerate() {
-                                        {render_pedigree_card(node, "dn", ni, &card)}
+                                        {render_pedigree_card(node, "dn", ni, &desc_card)}
                                     }
                                 }
                             }
@@ -4018,6 +4025,23 @@ impl ChartActions {
         }
     }
 
+    /// Where `pid`'s element stands in the keyboard order: the selected
+    /// person's is the chart's one stop for Tab, and the arrow keys reach
+    /// the others from it (`chart_keys.js`).
+    fn tab_index(self, pid: Uuid) -> &'static str {
+        if *self.selected_person_id.read() == pid {
+            "0"
+        } else {
+            "-1"
+        }
+    }
+
+    /// Enter or Space on `pid`'s focused element does what a click on it
+    /// does.
+    fn key(self, pid: Uuid, evt: &Event<KeyboardData>) {
+        crate::utils::on_activation_key(evt, || self.navigate(pid));
+    }
+
     /// Selects `pid` and opens the action picker where `evt` happened.
     fn pick(self, pid: Uuid, evt: &Event<MouseData>) {
         evt.prevent_default();
@@ -4097,6 +4121,10 @@ struct CardContext<'a> {
     mini_tooltip: Option<MiniTooltip>,
     theme: &'a PedigreeTheme,
     i18n: I18n,
+    /// Whether the layer drawn is the descending one, which draws the root
+    /// a second time over the ascending layer's: that second card is a
+    /// drawing only, the first one being the root's control.
+    second_root: bool,
 }
 
 /// What a mini pedigree's card listens to for its tooltip: shown where the
@@ -4147,6 +4175,7 @@ fn render_pedigree_card(
             &geo,
             card.theme,
             card.empty_slots_open.then_some(card.actions.on_empty_slot),
+            card.i18n.t("linking.add_parent"),
         ),
     }
 }
@@ -4166,11 +4195,14 @@ fn render_person_card(
         actions,
         mini_tooltip,
         theme,
+        second_root,
         ..
     } = *card;
     let i18n = &card.i18n;
     let (nx, ny) = (node.x, node.y);
     let is_focus = pid == root_person_id;
+    // The root's second drawing is not a second control.
+    let control = !(second_root && is_focus);
     let mark = card_mark(pid);
     let bg = card_bg(is_focus, node.is_sibling);
     // The lifespan is secondary to the name, and every theme gives it a
@@ -4193,6 +4225,12 @@ fn render_person_card(
     );
     let tooltip_value = card_tooltip(node, i18n);
     let tooltip_name = tooltip_value.name.clone();
+    // Named as the tooltip names the person: the full name, then the years.
+    let label = if tooltip_value.lifespan.is_empty() {
+        tooltip_name.clone()
+    } else {
+        format!("{tooltip_name}, {}", tooltip_value.lifespan)
+    };
     let (menu_x, menu_y) = (geo.trigger_x, geo.trigger_y);
     let CardGeometry {
         gender_line,
@@ -4213,10 +4251,18 @@ fn render_person_card(
             class: "{card_class}",
             transform: "translate({nx},{ny})",
             style: "cursor:pointer",
-            role: mini_tooltip.map(|_| "link"),
-            tabindex: mini_tooltip.map(|_| "0"),
-            "aria-label": mini_tooltip.map(|_| tooltip_name.clone()),
+            // A link: making a person the focus opens the chart's page on
+            // them. A mini fragment's cards are each a stop of the Tab
+            // order; the chart's share one. A link rather than a button
+            // also because the selected card holds its "⋮" trigger, and a
+            // button's content is never interactive.
+            role: control.then_some("link"),
+            tabindex: control.then(|| if mini_tooltip.is_some() { "0" } else { actions.tab_index(pid) }),
+            "aria-label": control.then(|| label.clone()),
+            "aria-hidden": (!control).then_some("true"),
+            "data-chart-item": control.then_some("true"),
             onclick: move |_| actions.navigate(pid),
+            onkeydown: move |evt: Event<KeyboardData>| actions.key(pid, &evt),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
             onpointerdown: move |evt: Event<PointerData>| actions.press_start(pid, &evt),
             ..mini_tooltip.map(|tooltip| tooltip_listeners(tooltip, tooltip_value)).unwrap_or_default(),
@@ -4243,9 +4289,12 @@ fn render_person_card(
                 }
             }
             if node.has_more_relations {
+                // The card's own action, repeated for the pointer: not a
+                // control of its own.
                 g {
                     transform: "translate({more_relations_x},{more_relations_y})",
                     style: "cursor:pointer",
+                    "aria-hidden": "true",
                     onclick: move |evt: Event<MouseData>| {
                         evt.stop_propagation();
                         actions.navigate(pid);
@@ -4407,6 +4456,7 @@ fn render_empty_slot(
     geo: &CardGeometry,
     theme: &PedigreeTheme,
     on_empty_slot: Option<EventHandler<(Uuid, bool)>>,
+    add_parent: String,
 ) -> Element {
     let (nx, ny) = (node.x, node.y);
     let is_father = node.is_father;
@@ -4417,7 +4467,14 @@ fn render_empty_slot(
             if let (Some(on_empty_slot), Some(cid)) = (on_empty_slot, node.child_of) {
                 g {
                     style: "cursor:pointer",
+                    role: "button",
+                    tabindex: "-1",
+                    "aria-label": "{add_parent}",
+                    "data-chart-item": "true",
                     onclick: move |_| on_empty_slot.call((cid, is_father)),
+                    onkeydown: move |evt: Event<KeyboardData>| {
+                        crate::utils::on_activation_key(&evt, || on_empty_slot.call((cid, is_father)));
+                    },
                     {empty_slot_outline(geo, theme, "fill:var(--pn-bg);stroke:var(--pn-border);stroke-width:1;stroke-dasharray:4,4")}
                     text { class: "no-print", x: "{plus_x}", y: "{plus_y}", style: "fill:var(--pn-root-bg);font-size:22px;font-weight:700;text-anchor:middle;font-family:sans-serif", "+" }
                 }
@@ -4739,6 +4796,7 @@ fn PedigreeCard(
         mini_tooltip: None,
         theme,
         i18n,
+        second_root: side == CardSide::Descending,
     };
     render_pedigree_card(&nodes[index], prefix, index, &card)
 }

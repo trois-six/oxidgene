@@ -655,7 +655,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             TreeBreadcrumb {
                 tree_name: tree_name_str.clone(),
                 linked: false,
-                span { class: "td-bc-current", {i18n.t("pedigree.breadcrumb")} }
+                h1 { class: "td-bc-current", {i18n.t("pedigree.breadcrumb")} }
             }
             if root_person_id.is_some() {
                 TopbarSearch { tree_id: tree_id.clone() }

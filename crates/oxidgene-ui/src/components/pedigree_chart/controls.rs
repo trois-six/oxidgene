@@ -353,6 +353,7 @@ pub(super) fn PanZoomViewport(
                 onmounted: move |_| {
                     let id = wheel_id.clone();
                     async move {
+                        attach_chart_keys(&id);
                         crate::listeners::forward_wheel(&id, false, |turn| {
                             wheel_zoom(turn, saver, viewport_rect, animating, max_zoom);
                         })
@@ -378,6 +379,17 @@ pub(super) fn PanZoomViewport(
             }
         }
     }
+}
+
+/// The arrow keys' travel between the chart's elements, read by the page's
+/// own listener on the canvas `id` (docs/ui-common.md §5).
+const CHART_KEYS_JS: &str = include_str!("chart_keys.js");
+
+fn attach_chart_keys(id: &str) {
+    let id = serde_json::to_string(id).unwrap_or_default();
+    document::eval(&format!(
+        "{CHART_KEYS_JS}\nwindow.oxidgeneChartKeys.attach({id});"
+    ));
 }
 
 /// Zooms a step about the cursor, in or out as the wheel turns.

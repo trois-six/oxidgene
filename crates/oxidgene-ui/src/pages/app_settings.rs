@@ -225,13 +225,13 @@ fn SettingsPage(section: Option<String>) -> Element {
         div { class: "sub-page",
             div { class: "td-topbar",
                 TreeBreadcrumb {
-                    span { class: "td-bc-current", {i18n.t("app_settings.title")} }
+                    h1 { class: "td-bc-current", {i18n.t("app_settings.title")} }
                 }
             }
 
             div { class: "sub-page-content",
                 div { class: "settings-layout",
-                    nav { class: "settings-nav",
+                    nav { class: "settings-nav", aria_label: i18n.t("a11y.settings_nav"),
                         div { class: "settings-nav-group",
                             span { class: "settings-nav-group-label",
                                 {i18n.t("app_settings.preferences")}

@@ -12,19 +12,19 @@
 
     "text-primary": "#1e1a14",
     "text-secondary": "#5c5447",
-    "text-muted": "#9e9488",
+    "text-muted": "#8c847a",
     "on-accent": "#ffffff",
 
     "orange": "#e07820",
     "orange-light": "#f5a03a",
     "green": "#4ea832",
     "green-light": "#7ec45f",
-    "green-accent": "#5aab3c",
+    "green-accent": "#57a63a",
     "blue": "#4a90d9",
     "pink": "#c4587a",
     "red": "#e05555",
     "danger": "#e05252",
-    "danger-text": "#dc2626",
+    "danger-text": "#ca2323",
 
     "connector": "#a0937f",
 

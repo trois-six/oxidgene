@@ -284,11 +284,13 @@ fn render_slim_box(
     entry: &AncestorEntry,
     size: BoxSize,
     (centre, box_w): ((f64, f64), f64),
-    title: String,
+    label: String,
     theme: &PedigreeTheme,
     actions: ChartActions,
-    dates: DateStyle,
+    i18n: &I18n,
 ) -> Element {
+    let title = svg_title(&label);
+    let dates = i18n.dates();
     let h = if size == BoxSize::Double {
         DOUBLE_H
     } else {
@@ -298,7 +300,13 @@ fn render_slim_box(
     let node = &entry.node;
     let key = format!("ls-{}", entry.sosa);
     let Some(pid) = node.id else {
-        return render_slim_slot(entry, &key, (x, y, box_w, h), actions);
+        return render_slim_slot(
+            entry,
+            &key,
+            (x, y, box_w, h),
+            actions,
+            i18n.t("linking.add_parent"),
+        );
     };
     let text = slim_text(node, size, (box_w - 26.0) as f32, dates);
     let menu_name = text.name.clone();
@@ -322,7 +330,12 @@ fn render_slim_box(
             key: "{key}",
             class: "{class}",
             style: "cursor:pointer",
+            role: "link",
+            tabindex: actions.tab_index(pid),
+            "aria-label": "{label}",
+            "data-chart-item": "true",
             onclick: move |_| actions.navigate(pid),
+            onkeydown: move |evt: Event<KeyboardData>| actions.key(pid, &evt),
             oncontextmenu: move |evt: Event<MouseData>| actions.pick(pid, &evt),
             onpointerdown: move |evt: Event<PointerData>| actions.press_start(pid, &evt),
             if *actions.selected_person_id.read() == pid {
@@ -375,6 +388,7 @@ fn render_slim_slot(
     key: &str,
     (x, y, w, h): (f64, f64, f64, f64),
     actions: ChartActions,
+    add_parent: String,
 ) -> Element {
     let is_father = entry.node.is_father;
     let child = entry.node.child_of;
@@ -390,10 +404,21 @@ fn render_slim_slot(
         g {
             key: "{key}",
             class: "fan-slot",
+            role: "button",
+            tabindex: "-1",
+            "aria-label": "{add_parent}",
+            "data-chart-item": "true",
             onclick: move |_| {
                 if let Some(child) = child {
                     on_empty_slot.call((child, is_father));
                 }
+            },
+            onkeydown: move |evt: Event<KeyboardData>| {
+                crate::utils::on_activation_key(&evt, || {
+                    if let Some(child) = child {
+                        on_empty_slot.call((child, is_father));
+                    }
+                });
             },
             rect { class: "fan-slot-shape", x: "{x:.2}", y: "{y:.2}", width: "{w:.2}", height: "{h}", rx: "3" }
             text { class: "fan-slot-plus no-print", x: "{x + w / 2.0:.2}", y: "{y + h / 2.0 + 5.0:.2}", "+" }
@@ -440,9 +465,19 @@ fn render_spouse_box(
         g {
             key: "lu-{entry.sosa}",
             class: "{class}",
+            // An unknown spouse only names itself: nothing to activate.
+            role: if spouse.is_some() { "link" } else { "img" },
+            tabindex: spouse.map(|pid| actions.tab_index(pid)),
+            "aria-label": "{title}",
+            "data-chart-item": spouse.map(|_| "true"),
             onclick: move |_| {
                 if let Some(pid) = spouse {
                     actions.navigate(pid);
+                }
+            },
+            onkeydown: move |evt: Event<KeyboardData>| {
+                if let Some(pid) = spouse {
+                    actions.key(pid, &evt);
                 }
             },
             onpointerdown: move |evt: Event<PointerData>| {
@@ -488,6 +523,18 @@ fn render_spouse_box(
     }
 }
 
+/// The bottom right corner of the element that has the focus, in client
+/// coordinates: where a menu asked for from the keyboard opens.
+async fn focused_corner() -> Option<(f64, f64)> {
+    let value = document::eval(
+        "const box = document.activeElement?.getBoundingClientRect();\n\
+         return box ? [box.right, box.bottom] : null;",
+    )
+    .await
+    .ok()?;
+    serde_json::from_value(value).ok()
+}
+
 /// The button beside the root listing its spouses and children.
 fn render_family_button(
     at: (f64, f64),
@@ -500,11 +547,24 @@ fn render_family_button(
             class: "lineage-children no-print",
             transform: "translate({x:.2},{y:.2})",
             role: "button",
+            tabindex: "-1",
             "aria-label": "{label}",
+            "aria-haspopup": "menu",
+            "data-chart-item": "true",
             onclick: move |evt: Event<MouseData>| {
                 evt.stop_propagation();
                 let coords = evt.client_coordinates();
                 on_family_menu.call((coords.x, coords.y));
+            },
+            // From the keyboard the list opens beside the button itself.
+            onkeydown: move |evt: Event<KeyboardData>| {
+                crate::utils::on_activation_key(&evt, || {
+                    spawn(async move {
+                        if let Some(point) = focused_corner().await {
+                            on_family_menu.call(point);
+                        }
+                    });
+                });
             },
             circle { r: "{CHILDREN_BUTTON_R}", dangerous_inner_html: "{svg_title(&label)}" }
             text { x: "-1", y: "5", "\u{2039}" }
@@ -533,6 +593,7 @@ pub(super) fn LineageCanvas(
         mini_tooltip: None,
         theme,
         i18n,
+        second_root: false,
     };
     let ruled = theme.link_style == crate::components::pedigree_theme::LinkStyle::Ruled;
     rsx! {
@@ -574,10 +635,10 @@ pub(super) fn LineageCanvas(
                                     entry,
                                     size,
                                     (layout.centres[i], layout.box_w),
-                                    svg_title(&ancestor_tooltip(entry, numbered, &i18n)),
+                                    ancestor_tooltip(entry, numbered, &i18n),
                                     theme,
                                     actions,
-                                    i18n.dates(),
+                                    &i18n,
                                 ),
                             }
                         }

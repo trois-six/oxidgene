@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T10:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -304,18 +304,18 @@ files rather than being repeated here.
 | `--border` | `#d4ccc0` | `#252d3d` | Borders and dividers |
 | `--text-primary` | `#1e1a14` | `#ddd8cc` | Primary text |
 | `--text-secondary` | `#5c5447` | `#7a8da8` | Secondary text |
-| `--text-muted` | `#9e9488` | `#404f65` | Placeholder and disabled text |
+| `--text-muted` | `#8c847a` | `#5a6879` | Hints, placeholder and disabled text |
 | `--on-accent` | `#ffffff` | `#ffffff` | Text drawn on an accent fill |
 | `--orange` | `#e07820` | `#e07820` | Primary actions and focus |
 | `--orange-light` | `#f5a03a` | `#f5a03a` | Primary hover |
 | `--green` | `#4ea832` | `#4ea832` | Birth and success |
 | `--green-light` | `#7ec45f` | `#7ec45f` | Text on a green wash |
-| `--green-accent` | `#5aab3c` | `#5aab3c` | Green fills and washes |
+| `--green-accent` | `#57a63a` | `#57a63a` | Green fills and washes |
 | `--blue` | `#4a90d9` | `#4a90d9` | Death and information |
 | `--pink` | `#c4587a` | `#c4587a` | Female indicator |
 | `--red` | `#e05555` | `#e05555` | Destructive hover and emphasis |
 | `--danger` | `#e05252` | `#e05252` | Destructive fills |
-| `--danger-text` | `#dc2626` | `#f87171` | Destructive text |
+| `--danger-text` | `#ca2323` | `#f87171` | Destructive text |
 | `--connector` | `#a0937f` | `#2e4a6a` | Pedigree connectors |
 | `--shadow` | `#000000` | `#000000` | Base shadow colour |
 | `--shadow-weak` | `#00000014` | `#00000059` | Resting elevation |
@@ -338,7 +338,7 @@ files rather than being repeated here.
 | `--pn-sosa-root` | `#6da118` | `#6da118` | Sosa badge on the root card |
 | `--pn-self` | `#006ac4` | `#006ac4` | Selected-person marker |
 | `--pn-text` | `#111111` | `#e8dfc8` | Pedigree card text |
-| `--pn-text-muted` | `#555555` | `#7a8da8` | Pedigree card dates |
+| `--pn-text-muted` | `#555555` | `#8596af` | Pedigree card dates |
 | `--pn-hover-bg` | `#cfe3fa` | `#2b4364` | Hovered pedigree segment |
 
 The pedigree chart themes ([Genealogy Tree](ui-genealogy-tree.md#9-themes))
@@ -1034,9 +1034,24 @@ register's, is reached by its number. Pagers do not print.
 ### 4.13 Modal
 
 Every dialog — confirmations, the person and couple forms, the import, the
-merge wizard, the homonym choice, the print choice, the family-name editor and
-the homepage's tree forms — is drawn in one `Modal`: a blurred backdrop and a
-card that is a `dialog` with `aria-modal="true"`, named by its title.
+merge wizard, the homonym choice, the print choice, the family-name editor,
+the homepage's tree forms, and the media overlays (the viewer, the croppers,
+the document form) — is drawn in one `Modal` (`components/modal.rs`): a native
+`dialog` element opened with `showModal()`, named by its title, holding the
+card. The engine itself then keeps the focus inside the dialog, makes
+everything behind it inert — to the pointer, the keyboard and assistive
+technology alike — and draws it in its top layer, above every other overlay,
+so that a confirmation raised from the media viewer is never stacked under
+it. The `dialog` element is the full-window area around the card; the dimmed,
+blurred scrim is its `::backdrop`, which the media overlays replace by their
+own darker one. A menu, a picker or a nested dialog opened from a dialog is
+drawn inside it, since nothing outside an open dialog can be reached.
+
+The element's native side — opening, the refusal of the engine's own
+closing, the focus — is `components/modal.js`, tested under Node
+(`just ui-js`). `showModal()` is supported by every engine the application
+runs in: Chromium and Firefox on the web, WebKitGTK, WKWebView and WebView2
+on the desktop.
 
 - **Escape** and a **press on the backdrop** close it, through the same
   handler as its Cancel or close button, so a form with unsaved changes asks
@@ -1047,9 +1062,17 @@ card that is a `dialog` with `aria-modal="true"`, named by its title.
 - A dialog whose question must be answered, or whose steps a stray press
   would throw away, ignores the backdrop and keeps Escape: the homonym choice
   (Escape is *Decide later*) and the merge wizard.
-- The card takes the focus when it opens unless one of its fields already has
-  it, so Escape works straight away; Escape inside an open list or picker
+- The dialog takes the focus when it opens unless one of its fields already
+  has it, so Escape works straight away; Escape inside an open list or picker
   closes that list first.
+- Closing returns the focus to the element that had it when the dialog was
+  asked for — the button, row or menu trigger that opened it — unless the
+  closing action moved the focus somewhere of its own, or that element is
+  gone. A dialog drawn in another's place (the viewer's loading frame giving
+  way to its content) hands the first one's opener on.
+- Rust alone closes a dialog. The engine's own close request (Escape, a
+  back gesture) is refused and handled as the Escape key above, so a `busy`
+  dialog stays open and an unsaved form still asks.
 
 ### 4.14 Tabs
 
@@ -1087,8 +1110,8 @@ the portal's page with the active theme's custom properties. It is a ring of
 the border colour turning its accent arc, `--spinner-size` scaling ring and
 all (48 pixels by default, 28 on a tree card). A busy button keeps its own
 inline ring in the button's text colour (`.btn-spinner`), which turns with
-the same animation. For a reader who asks for reduced motion it turns three
-times slower.
+the same animation. For a reader who asks for reduced motion both turn three
+times slower: they are the one motion kept ([§5](#5-accessibility)).
 
 ### 4.18 Tags: picker and badges
 
@@ -1227,13 +1250,69 @@ stored media, is a different tool.
 
 - All controls have programmatic labels; icon-only actions have localized
   accessible names and tooltips where needed.
+- **Structure.** The document declares the interface language (`lang` on its
+  root element, following a language switch). Every page has one top-level
+  heading: the last crumb of the contextual topbar, which is the page's
+  title, unless the page's content opens with a heading of its own, as a
+  person's profile does with their name. Each navigation landmark — the
+  navbar, the breadcrumb, the icon sidebar, the settings' section list, a
+  pager — has a name of its own. A drawing that repeats what the text beside
+  it says, such as a donut beside its legend, is hidden from assistive
+  technology rather than named a second time.
+- A field with suggestions ([§4.4](#44-fields-with-suggestions)) is a
+  `combobox` that names its list while the list shows and points at the
+  highlighted row; a select or a field without a visible label of its own —
+  a sort order, the calendar and the precision of a date — is named by an
+  `aria-label`.
 - Keyboard order follows visual order. Focus is visible and restored after a
-  modal, menu, or picker closes.
+  modal ([§4.13](#413-modal)), menu ([§4.8](#48-contextmenu)), or picker
+  closes.
+- **Controls that are not native ones.** An element that answers a click
+  without being a button, a link or a field — a chart's card, a media tile's
+  picture, an event row leading to its person — carries a `role`, an
+  accessible name, a place in the Tab order and the keys of the control it
+  stands for: Enter and Space do what the click does
+  (`utils::on_activation_key`). Where the same destination already has a
+  native control beside it (a tree card's title link, the numbered list under
+  the statistics map), the pointer-only shortcut is left alone.
+- **Charts.** Every person drawn by a chart view — a card, a slim box, a
+  fan or wheel segment, a spouse's band — is a `link` named as its tooltip
+  names it, and an empty parent slot a `button` named *Add Parent*. The chart
+  is one stop of the Tab order, the selected person's element; from it the
+  arrow keys move the focus to the nearest element drawn in that direction,
+  among those in view (`pedigree_chart/chart_keys.js`), and an arrow pressed
+  on the canvas itself enters the chart at that stop. Enter or Space makes
+  the focused person the chart's focus, and the keyboard stays in the chart,
+  on their element, once the chart is drawn again. The focused element shows
+  an orange halo following its shape. The context-menu key and Shift+F10
+  open the focus person's menu, as before ([§4.8](#48-contextmenu)). A mini
+  pedigree's cards are links, each a stop of its own.
 - Errors are linked to their controls and announced without relying on color.
 - Dynamic status uses polite live regions; rapid progress ticks are not each
   announced.
-- Motion respects `prefers-reduced-motion`.
-- Text and controls maintain sufficient contrast in both themes.
+- **Motion** respects `prefers-reduced-motion` through one rule of the
+  stylesheet: every transition and animation ends at once and nothing
+  scrolls smoothly. The two spinners are the exception, turning three times
+  slower ([§4.17](#417-spinner)): a ring that stopped would read as a frozen
+  page. No component adds a reduced-motion rule of its own.
+- **Contrast.** A unit test of `theme.rs` computes the WCAG 2 contrast ratio
+  of the token pairs the stylesheet draws one on the other, for every shipped
+  theme (`CONTRAST_PAIRS`). Text read at length reaches AA, 4.5:1: primary
+  text on every surface, selection and hover included; secondary and
+  destructive text on the page, panels and cards; a pedigree card's name and
+  dates; captions over media. What is not read at length keeps 3:1, WCAG's
+  floor for large or bold text and for the outline of a control: hints,
+  placeholders and disabled text (`--text-muted`), the short bold label of a
+  button on an accent fill (`--on-accent`), the accent as a focus ring or an
+  active mark, and a card's dates while the pointer is on it. The second
+  threshold is a recorded exception, not AA: the shipped themes follow the
+  palettes they are named after, whose accents do not all carry small white
+  text at 4.5:1. A custom theme is not checked.
+- **Checked in a browser.** The end-to-end suite runs axe-core (WCAG 2.1 A
+  and AA, best practices) over the main pages and an open dialog, and drives
+  the dialog's focus trap and the chart's arrow keys
+  (`e2e/tests/accessibility.spec.ts`). Its `color-contrast` rule is off,
+  the unit test above deciding contrast per theme.
 
 ## 6. Responsive behavior
 

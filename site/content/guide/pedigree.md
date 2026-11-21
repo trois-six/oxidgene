@@ -50,6 +50,7 @@ A dashed card with a **+** stands for a parent the tree does not record yet, at 
 ## Move around the tree
 
 - **Change the focus.** Click a card. The chart recentres on that person, a **⋮** button appears under their card, and the events panel shows their events.
+- **Use the keyboard.** Press Tab until the selected card is focused, then use the arrow keys to move from card to card; Enter makes the focused person the focus of the chart. This works in every chart, on cards, boxes and segments alike.
 - **Pan.** Drag anywhere on the canvas, cards included.
 - **Zoom.** Use the mouse wheel or a pinch to zoom around the pointer, or the **Zoom in** and **Zoom out** buttons of the left sidebar. The tree view zooms from 0.3× to 4×.
 - **Fit.** **Fit to screen** frames the whole chart in the window. When the tree is too large to fit, it is centred on the focus person.

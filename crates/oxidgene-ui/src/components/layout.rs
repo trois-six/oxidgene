@@ -69,7 +69,13 @@ pub fn use_init_textarea_resize_clamp() {
 /// the stylesheet is parsed once instead of on every navigation.
 #[component]
 pub fn AppShell() -> Element {
-    let _lang_signal = i18n::use_init_language();
+    let lang_signal = i18n::use_init_language();
+    // The document says which language it is written in, as assistive
+    // technology and the engine's own hyphenation and spelling need.
+    use_effect(move || {
+        let code = serde_json::to_string(lang_signal().code()).unwrap_or_default();
+        document::eval(&format!("document.documentElement.lang = {code};"));
+    });
     // After the language, which an account may choose (web build only).
     crate::account::use_init_account();
     let _sort_particles = crate::prefs::use_init_sort_particles();
@@ -125,13 +131,14 @@ pub fn Layout() -> Element {
         .tree_id()
         .and_then(|tree| tree.parse::<uuid::Uuid>().ok());
     let tree_key = tree_id.map(|tree| tree.to_string()).unwrap_or_default();
+    let app_nav_label = i18n::use_i18n().t("a11y.app_nav");
 
     rsx! {
         // What the viewer may do with the tree on screen, read once for the
         // page and every component in it (docs/authorization.md §11).
         crate::permissions::TreePermissionsProvider { key: "{tree_key}", tree_id,
             if route.shows_navbar() {
-                nav { class: "app-nav",
+                nav { class: "app-nav", aria_label: app_nav_label,
                     div { class: "nav-start",
                         history_nav::HistoryNav {}
                         Link { to: Route::Home {}, class: "nav-logo",
@@ -297,6 +304,7 @@ pub const SPINNER_STYLES: &str = r#"
 
     @media (prefers-reduced-motion: reduce) {
         .spinner { animation-duration: 2.4s; }
+        .btn-spinner { animation-duration: 2.1s; }
     }
 "#;
 
@@ -1772,23 +1780,40 @@ pub const LAYOUT_STYLES: &str = r#"
     }
     /* ── Modal / confirmation dialog ─────────────────────────────── */
 
+    /* A native dialog shown modally: the engine draws it in the top layer,
+       above every other overlay (the media viewer included), so a
+       confirmation raised from within one is never stacked underneath it.
+       The element is the full-window pressable area around the card; it
+       undoes the engine's own dialog box, and its ::backdrop is the scrim.
+       The blur stays on the ::backdrop: on the element it would make it the
+       containing block of the fixed menus opened inside the card. */
     .modal-backdrop {
         position: fixed;
         inset: 0;
-        background: color-mix(in srgb, var(--scrim) 65%, transparent);
+        width: auto;
+        height: auto;
+        max-width: none;
+        max-height: none;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        overflow: visible;
         display: flex;
         align-items: center;
         justify-content: center;
-        /* Above every other overlay (the media viewer's .cropper-backdrop
-           included, at 1200) so a confirmation raised from within one is
-           never stacked underneath it and left unclickable. */
-        z-index: 1300;
+    }
+    /* Rendered but not yet opened: nothing to see until showModal(). */
+    .modal-backdrop:not([open]) { display: none; }
+    .modal-backdrop::backdrop {
+        background: color-mix(in srgb, var(--scrim) 65%, transparent);
         backdrop-filter: blur(4px);
     }
 
-    /* The dialog takes the focus when it opens so Escape reaches it; the
-       card itself is not a control and draws no ring. */
-    .modal-backdrop > [role="dialog"]:focus { outline: none; }
+    /* The dialog takes the focus when it opens so Escape reaches it; it is
+       not a control and draws no ring. */
+    .modal-backdrop:focus { outline: none; }
 
     .modal-card {
         background: var(--bg-panel);
@@ -1868,7 +1893,10 @@ pub const LAYOUT_STYLES: &str = r#"
         white-space: nowrap;
     }
 
+    /* The page's title, and its heading on the pages that have no other. */
     .td-bc-current {
+        margin: 0;
+        font: inherit;
         color: var(--text-primary);
         font-weight: 600;
         min-width: 0;
@@ -2809,6 +2837,21 @@ pub const LAYOUT_STYLES: &str = r#"
     .chart-menu-button[aria-expanded="true"] .chart-menu-disc {
         stroke: var(--orange);
         stroke-width: 2;
+    }
+
+    /* A chart element reached from the keyboard (chart_keys.js): a card, a
+       segment, an empty slot. The halo follows the element's own shape,
+       which an outline does not on every engine for a group of an SVG. */
+    [data-chart-item] { outline: none; }
+    [data-chart-item]:focus-visible {
+        filter: drop-shadow(0 0 1px var(--orange)) drop-shadow(0 0 3px var(--orange));
+    }
+    /* The other elements made controls by a role rather than by their tag. */
+    .ev-item-clickable:focus-visible,
+    .tree-card-add:focus-visible,
+    .media-thumb:focus-visible {
+        outline: 2px solid var(--orange);
+        outline-offset: 2px;
     }
 
     .context-menu-events { width: 250px; }
@@ -5664,15 +5707,15 @@ pub const LAYOUT_STYLES: &str = r#"
 
     /* ── Image cropper ────────────────────────────────────────────── */
 
+    /* The media overlays are the shared modal with a darker scrim of their
+       own, drawn by the dialog itself rather than by its ::backdrop. */
     .cropper-backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: 1200;
-        display: flex;
-        align-items: center;
-        justify-content: center;
         padding: var(--space-12);
         background: color-mix(in srgb, var(--media-panel) 78%, transparent);
+    }
+    .cropper-backdrop::backdrop {
+        background: transparent;
+        backdrop-filter: none;
     }
 
     .cropper-panel {
@@ -9630,6 +9673,24 @@ pub const LAYOUT_STYLES: &str = r#"
     .al-change-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); }
     .al-change-head a.btn { text-decoration: none; }
     .al-change-record { font-weight: 700; color: var(--text-primary); margin-inline-end: auto; }
+
+    /* ── Reduced motion ──────────────────────────────────────────────
+       One rule for the whole application: a reader who asks for reduced
+       motion gets every transition and entrance at once, and no smooth
+       scrolling. The two spinners are the exception: a ring that stopped
+       would read as a frozen page, so they keep turning, slower
+       (SPINNER_STYLES). The declarations are important because they must
+       win over every rule that sets a duration, whatever its selector. */
+    @media (prefers-reduced-motion: reduce) {
+        *:not(.spinner):not(.btn-spinner),
+        *::before,
+        *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+        }
+    }
 "#;
 
 #[cfg(test)]

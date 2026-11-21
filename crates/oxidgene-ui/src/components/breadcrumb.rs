@@ -18,8 +18,9 @@ pub fn TreeBreadcrumb(
     children: Element,
 ) -> Element {
     let route = use_route::<Route>();
+    let i18n = crate::i18n::use_i18n();
     rsx! {
-        nav { class: "td-bc",
+        nav { class: "td-bc", aria_label: i18n.t("a11y.breadcrumb"),
             if !route.shows_navbar() {
                 HistoryNav {}
             }

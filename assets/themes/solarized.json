@@ -11,12 +11,12 @@
     "sel-bg": "#0f4c5c",
     "border": "#0f4a58",
 
-    "text-primary": "#93a1a1",
-    "text-secondary": "#839496",
-    "text-muted": "#586e75",
+    "text-primary": "#aab5b5",
+    "text-secondary": "#8d9d9e",
+    "text-muted": "#6a7e84",
     "on-accent": "#002b36",
 
-    "orange": "#cb4b16",
+    "orange": "#ce5422",
     "orange-light": "#b58900",
     "green": "#859900",
     "green-light": "#a6bb00",
@@ -25,7 +25,7 @@
     "pink": "#d33682",
     "red": "#dc322f",
     "danger": "#dc322f",
-    "danger-text": "#dc322f",
+    "danger-text": "#e87776",
 
     "connector": "#586e75",
 
@@ -48,7 +48,7 @@
     "pn-sosa-root": "#6b7a00",
     "pn-self": "#268bd2",
     "pn-text": "#eee8d5",
-    "pn-text-muted": "#839496",
+    "pn-text-muted": "#a0aeae",
     "pn-hover-bg": "#0f4c5c"
   },
   "style": {

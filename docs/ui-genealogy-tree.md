@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:40:00Z }
 ---
 
 
@@ -567,6 +567,9 @@ Appears to the right of the button on hover. No text, no Apply button. Changes a
 | Click on a card | New focus + ⋮ under the card + events sidebar updated |
 | Right-click on a card | Opens the same action picker at the pointer |
 | Context-menu key or Shift+F10, with the canvas focused | Opens the action picker of the selected element, as its ⋮ does, beside its trigger |
+| Tab into the chart | Focuses the selected person's element, the chart's one stop in the Tab order ([Common UI §5](ui-common.md#5-accessibility)) |
+| Arrow keys, with an element focused | Move the focus to the nearest element drawn that way, among those in view; on the canvas itself, enter the chart at the selected element |
+| Enter or Space on a focused element | What a click on it does: a person becomes the focus, an empty slot opens the add-parent form, the lineage's family button its list |
 | Long press on an element (touch) | Opens the same action picker at the touch point; a move of the canvas before it ends cancels the press |
 | Click on placeholder `+` | Opens add-parent form |
 | Drag on canvas | Free pan — starting on a card, a segment or the root disc as well: a press that moves more than 5 px before its release pans and is not a click, in every view |

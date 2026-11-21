@@ -82,7 +82,8 @@ test("an occupation is renamed on every event recording it, from its ⋮", async
     await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
 
     const dialog = page.getByRole("dialog", { name: "Edit occupation" });
-    await dialog.getByRole("textbox").fill("Fictitious hand weaver");
+    // The field suggests the tree's occupations: a combobox, not a plain box.
+    await dialog.getByRole("combobox").fill("Fictitious hand weaver");
     await expect(dialog.getByText(/Renames the occupation of/)).toBeVisible();
     await dialog.getByRole("button", { name: "Rename", exact: true }).click();
     await expect(dialog).toBeHidden();

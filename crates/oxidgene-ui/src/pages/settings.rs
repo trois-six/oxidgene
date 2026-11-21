@@ -795,7 +795,7 @@ fn SettingsNav(
     let i18n = use_i18n();
     let mut active_section = active_section;
     rsx! {
-        nav { class: "settings-nav",
+        nav { class: "settings-nav", aria_label: i18n.t("a11y.settings_nav"),
             for (group, entries) in SETTINGS_NAV {
                 if entries.iter().any(|(section, _)| offered.contains(section)) || (manages && group == "settings.breadcrumb") {
                     div { class: "settings-nav-group",

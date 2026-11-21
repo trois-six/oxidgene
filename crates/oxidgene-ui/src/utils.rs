@@ -20,6 +20,30 @@ pub fn use_synced<T: PartialEq + Clone + 'static>(value: T) -> dioxus::prelude::
     signal
 }
 
+/// Whether a key press activates the focused control as a click would:
+/// Enter or Space, the keys a native button answers. What an element that
+/// is not a native control listens for beside its click
+/// (docs/ui-common.md §5).
+pub fn is_activation_key(event: &dioxus::prelude::Event<dioxus::prelude::KeyboardData>) -> bool {
+    use dioxus::prelude::Key;
+    let key = event.key();
+    key == Key::Enter || key == Key::Character(" ".to_string())
+}
+
+/// Runs `action` when `event` is an activation key (see
+/// [`is_activation_key`]), keeping the key from scrolling the page or
+/// reaching an enclosing control.
+pub fn on_activation_key(
+    event: &dioxus::prelude::Event<dioxus::prelude::KeyboardData>,
+    action: impl FnOnce(),
+) {
+    if is_activation_key(event) {
+        event.prevent_default();
+        event.stop_propagation();
+        action();
+    }
+}
+
 pub async fn sleep_ms(milliseconds: u32) {
     #[cfg(target_arch = "wasm32")]
     gloo_timers::future::TimeoutFuture::new(milliseconds).await;

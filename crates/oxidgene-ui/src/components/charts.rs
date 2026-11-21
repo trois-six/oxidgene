@@ -74,7 +74,7 @@ pub fn DonutChart(items: Vec<(String, i64)>) -> Element {
         .collect();
     rsx! {
         div { class: "stats-donut",
-            svg { "viewBox": "-110 -110 220 220", class: "stats-donut-svg", role: "img",
+            svg { "viewBox": "-110 -110 220 220", class: "stats-donut-svg", "aria-hidden": "true",
                 for (index, (path, color)) in arcs.iter().enumerate() {
                     path { key: "{index}", d: "{path}", style: "fill: {color}" }
                 }

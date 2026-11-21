@@ -6731,6 +6731,13 @@
   },
   "reference_language": "es",
   "translations": {
+    "a11y.app_nav": "Aplicación",
+    "a11y.breadcrumb": "Ruta de navegación",
+    "a11y.date_calendar": "Calendario",
+    "a11y.date_qualifier": "Precisión de la fecha",
+    "a11y.settings_nav": "Secciones de los ajustes",
+    "a11y.sort": "Orden",
+    "a11y.tree_nav": "Vistas y herramientas del árbol",
     "app_settings.ancestor_levels": "Generaciones de ascendientes",
     "app_settings.ancestor_levels_hint": "Generaciones mostradas por encima de la persona central.",
     "app_settings.api": "API",
