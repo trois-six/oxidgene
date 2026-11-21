@@ -1,9 +1,9 @@
 ---
 type: "Security Specification"
 title: "Privacy and Contemporary Persons"
-description: "Planned enforcement of privacy for the viewers of a shared tree: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
+description: "Enforcement of privacy for the viewers of a shared tree, in the web build: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-18T15:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -13,7 +13,9 @@ generated: { by: human:maintainer, at: 2026-11-18T15:00:00Z }
 > [Tree Settings §8](ui-settings.md#8-section-privacy) · [Data Model](data-model.md) ·
 > [API Contract](api.md) · [Cross-cutting Rules](cross-cutting.md)
 
-**Status: partly built.** Records default to public (§3.1); the
+**Status: built, messaging aside.** Messaging, the one enforcement point
+of §7 still to come, is planned with its conversations
+([Messaging and Notifications](messaging.md)). Records default to public (§3.1); the
 contemporary rule (§4) is derived and, in the web build, materialized in
 `person_visibility`; the exclusions (§6) are stored and materialized in the
 web build; the tree settings (§9) and the export options (§8) work. Every

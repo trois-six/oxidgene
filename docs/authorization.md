@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-03T19:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Authorization and Sharing
@@ -25,7 +25,7 @@ access scopes materialized and kept current, and a scoped Editor's write
 rules. Every read goes through the redaction of
 [Privacy §7](privacy.md#7-enforcement-points), which limits a scoped
 viewer to their scope and draws its *Not shared* boundary; API clients and MCP over
-HTTP are planned; [Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
+HTTP are planned; [Roadmap §8](roadmap.md#8-security-release-and-deployment)
 tracks the phases. Like everything of EPIC G, this is compiled and active
 only in the web build — server, worker and web frontend; the desktop keeps
 its single local user with full access and changes nothing

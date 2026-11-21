@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-18T15:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 
@@ -112,8 +112,9 @@ browser's OAuth client (Backend-for-Frontend) and keeps the tokens. The
 feature's code lives in `oxidgene-api::auth` (configuration, provider,
 token validation, session store, the layer and the `/auth/*` routes), the
 account workflows in `service::account` and `service::avatar`, and their
-REST and GraphQL handlers beside the others; until the `ViewerContext`
-ships, the layer hands each request a `Principal`.
+REST and GraphQL handlers beside the others. The layer resolves each
+request's `Principal`; REST, GraphQL and MCP build the request's
+`ViewerContext` (`oxidgene-core::access`) from it.
 
 API endpoints are documented in [API Contract](api.md).
 

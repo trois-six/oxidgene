@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "General — Vision, Users & Features"
 description: "Product vision, target users, feature scope, and MVP boundaries for OxidGene."
 tags: [oxidgene, specification, product, mvp]
-generated: { by: human:maintainer, at: 2026-11-03T15:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 
@@ -70,12 +70,11 @@ OxidGene is a genealogy platform enabling users to create, view, edit, and share
 - Professional or advanced users.
 - Paid subscribers (future phases).
 
-### 2.2 Planned User Roles (per tree)
+### 2.2 User Roles (per tree)
 
-These roles describe the authorization target for EPIC G, in the web
-deployment only. They are not implemented in the current MVP, which has no
-authentication or viewer-aware access control; the desktop keeps a single
-local user with full access.
+These roles are the authorization model of the web deployment (EPIC G),
+where the server enforces them on every request. The desktop has no
+accounts and keeps a single local user with full access.
 
 - **Owner**: the account the tree belongs to; manages its sharing, exclusions and settings.
 - **Editor**: adds, modifies and deletes data.
@@ -86,14 +85,17 @@ local user with full access.
 
 ### 2.3 Access Control
 
-- Target behavior: trees can be private, visible to the site's signed-in
-    users, or public on the web, shared with users or by link, whole or as a
-    subtree, with persons and subtrees the owner excludes from every share.
-    → see [Authorization](authorization.md)
-- Current behavior: privacy values record the user's intent but do not restrict
-    any API query, search, export, media download, or UI view.
-- Authentication, authorization, and privacy enforcement are deferred to EPIC
-    G (not in MVP). → see [Roadmap](roadmap.md)
+- In the web deployment, trees can be private, visible to the site's
+    signed-in users, or public on the web, shared with users or by link, whole
+    or as a subtree, with persons and subtrees the owner excludes from every
+    share; every API query, search, export, media download and UI view is
+    limited to what its viewer may see. → see [Authorization](authorization.md)
+- On the desktop, and in a web deployment run without authentication
+    (`OXIDGENE_AUTH_MODE=none`), there is one user, who sees everything:
+    privacy values record the user's intent and take effect in the export
+    options only.
+- API clients, assistant access over HTTP and messaging are the part of EPIC
+    G still planned. → see [Roadmap](roadmap.md)
 
 ---
 
@@ -208,22 +210,25 @@ local user with full access.
 
 ## 4. Security & Privacy
 
-Privacy metadata is persisted now, but it is **not a security boundary in the
-current MVP**. Marking a tree, person, family, or media item private does not
-hide it from reads, searches, exports, media downloads, or the UI.
+Privacy is a security boundary in the web deployment, enforced on the
+server for every viewer but the tree's members, who hold `read_private`. It
+is none on the desktop, which has one local user who sees everything, nor in
+a web deployment run without authentication: there, marking a tree, person,
+family, or media item private hides it from nobody.
 
-The following behavior is planned for EPIC G:
+The web deployment (EPIC G) provides:
 
-- Mask contemporary individuals (no recorded death, and not provably born at least an age threshold ago, 100 years by default) from visitors. → see [Privacy](privacy.md)
+- Contemporary individuals (no recorded death, and not provably born at least an age threshold ago, 100 years by default) masked from visitors. → see [Privacy](privacy.md)
 - A display mode for hidden persons: a *Private* placeholder, initials, or absent.
 - Exclusions of persons and subtrees from every share.
 - Authentication against any OpenID Connect provider, OxidGene storing no password. → see [Authentication](authentication.md)
 - Per-tree authorization and sharing. → see [Authorization](authorization.md)
 - Privacy enforcement across REST, GraphQL, MCP, exports, media, and UI views.
 - The author of every change, and an access log.
-- End-to-end encrypted messaging between users. → see [Messaging and Notifications](messaging.md)
+- Notifications in the application and by email. → see [Messaging and Notifications](messaging.md)
 
-All of it applies to the web deployment; the desktop has one local user.
+Still planned there: API clients, assistant access over HTTP, and end-to-end
+encrypted messaging between users.
 
 See [Roadmap](roadmap.md) for delivery status.
 
@@ -266,7 +271,7 @@ The MVP covers EPICs A through D (see [Roadmap](roadmap.md)):
 - REST + GraphQL API. → [API Contract](api.md)
 - Desktop and web deployment. → [Architecture](architecture.md)
 
-**Not in MVP**: authentication, access control, collaborative editing, tree matching. Imports and exports already run as durable background jobs ([Architecture §6](architecture.md)).
+**Beyond the MVP**: authentication, access control and sharing are delivered since, for the web deployment (§4); collaborative editing and tree matching are not. Imports and exports already run as durable background jobs ([Architecture §6](architecture.md)).
 
 ---
 

@@ -129,7 +129,7 @@ opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 oxidged = { version = "0.3.2", features = ["gedzip", "calendar"] }
 geneweb = "0.6.0"
 
-# Unicode folding (Geneanet media keys are unaccented — see oxidgene-cli::geneanet::key)
+# Unicode folding (Geneanet media keys are unaccented — see oxidgene-geneanet's `key` module)
 unicode-normalization = "0.1"
 
 # ZIP reader (Geneanet serves multi-page deposits as an archive)
@@ -140,8 +140,8 @@ base64 = "0.23"
 
 # Media storage (Sprint F.1)
 # Content addressing: the SHA-256 of a file is both its store key and its ETag.
-# 0.10, the release sqlx-core and wry depend on, so the desktop links one;
-# move with them.
+# 0.11, the release sqlx and rmcp depend on, so every binary links one; move
+# with them.
 sha2 = "0.11"
 # S3-compatible storage for the standalone web server. Kept optional in the API
 # crate so desktop builds retain their filesystem-only dependency graph.

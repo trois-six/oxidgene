@@ -136,37 +136,11 @@ All specifications live in `docs/`. Start with
 
 ## Workspace and Dependency Flow
 
-```text
-crates/
-  oxidgene-core/          Domain types, enums, errors, and projections
-  oxidgene-db/            SeaORM entities, migrations, and repositories
-  oxidgene-gedcom/        GEDCOM and GeneWeb conversion into the domain
-  oxidgene-geneanet/      Geneanet join, key folding, archive indexing, and hashing
-  oxidgene-archives/      Archive catalogue, citation parsing, and portal adapters
-  oxidgene-observability/ Shared OpenTelemetry initialization
-  oxidgene-api/           Axum REST, GraphQL, MCP, services, media, and profiles
-  oxidgene-ui/            Dioxus components and pages
-  oxidgene-guards/        Repository guards: tests that read the sources (no product code)
-apps/
-  oxidgene-server/        Web server binary
-  oxidgene-worker/        Web background-job worker
-  oxidgene-web/           Browser frontend (WASM)
-  oxidgene-desktop/       Desktop binary with embedded Axum, SQLite, and WebView
-  oxidgene-place-dictionary/ Place dictionary generator (development tool)
-```
-
-Dependency direction (`architecture.md` §9.2 has the full graph):
-
-```text
-core <- db <- api <- server <- worker
-core <- gedcom <- api
-core <- geneanet <- api/desktop
-core <- archives <- api/ui/desktop
-api <- desktop
-core <- ui <- web/desktop
-core <- place-dictionary
-observability <- db/api (feature), server/worker/desktop
-```
+The workspace's layout — the library crates under `crates/`, the binaries
+under `apps/`, what each one holds — and the dependency graph between them
+are specified once, in `docs/architecture.md` §9 (§9.1 the layout, §9.2 the
+graph). A guard keeps both naming exactly the workspace's members. Read it
+before adding a crate or a dependency between crates.
 
 ### Architecture invariants
 
@@ -208,7 +182,11 @@ observability <- db/api (feature), server/worker/desktop
   such as offset-paged person search, are listed in `api.md` (Pagination).
 - Domain records use soft deletion and are excluded by default.
 - Persons exist independently; families connect spouses and children.
-- Authentication is not part of the current MVP.
+- Authentication, per-tree roles, sharing and privacy enforcement exist in
+  the web build only: the `auth` feature of `oxidgene-api`, which the server
+  and the worker enable, and the capabilities the web frontend injects. The
+  desktop has one local user and none of it; a guard keeps the feature out
+  of its dependency graph (`authentication.md` §7).
 - A year displayed alone must retain its precision. Use
   `Event::qualified_year()`, not `Event::year()`. Birth may fall back to baptism
   and death to burial when the primary event has no date.

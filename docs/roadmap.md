@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-21T11:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -31,10 +31,10 @@ generated: { by: human:maintainer, at: 2026-11-21T11:00:00Z }
 | D | Shared UX, themes, languages, runtime settings, printing | Complete | [Common UI](ui-common.md), [Cross-cutting Rules](cross-cutting.md), [App Settings](ui-app-settings.md), [Settings](ui-settings.md) |
 | E | Read projections, search, dictionary | Complete | [Data](data-model.md), [Search](ui-search-results.md), [Dictionary](ui-dictionary.md) |
 | F | Media and Geneanet recovery | In progress | [Data](data-model.md), [API](api.md), [Import](ui-import.md), [Geneanet Pipeline](geneanet-media-import.md) |
-| G | Security, privacy enforcement, sharing, messaging, deployment (web only) | Planned (§8) | [Authentication](authentication.md), [Authorization](authorization.md), [Privacy](privacy.md), [Messaging](messaging.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
+| G | Security, privacy enforcement, sharing, messaging, deployment (web only) | In progress: identity and sessions, roles, privacy enforcement, notifications and email, sharing and the Rauthy mode delivered; API clients, MCP over HTTP and messaging planned (§8) | [Authentication](authentication.md), [Authorization](authorization.md), [Privacy](privacy.md), [Messaging](messaging.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Durable import and export jobs delivered; the rest post-MVP (§12) | [Architecture](architecture.md), [API](api.md) |
 | I | Assistant access through MCP | First delivery complete; later phases planned | [Assistant Access](mcp.md), [App Settings](ui-app-settings.md) |
-| J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; entries record no author until EPIC G | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#9-section-history), [Homepage](ui-home.md) |
+| J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; every entry names its author — the user and client application in the web build, `local` on the desktop | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#9-section-history), [Homepage](ui-home.md) |
 
 ## 3. Active: media completion
 
@@ -240,7 +240,7 @@ Delivered since:
   classical subtractive Latin forms, Hebrew and Republican dates written
   out.
 
-## 6b. Planned: upstream GEDCOM fixes
+## 6b. Upstream GEDCOM fixes
 
 OxidGene reads and writes GEDCOM through `oxidged` (a lenient, lossless reader
 and a conformant writer) and `geneweb` ported to it, both used from their
@@ -276,12 +276,13 @@ family-names tab beside its alphabetical list ([Dictionary
   pointers to the rest, as `oxidged`'s `Dataset::subset` does, applied to the
   records the exporter takes ([Tags §2.3](tags.md#23-exporting-part-of-the-tree)).
 
-## 8. Planned: security, release, and deployment
+## 8. Security, release, and deployment
 
 EPIC G is specified in [Authentication](authentication.md),
 [Authorization](authorization.md), [Privacy](privacy.md) and
-[Messaging and Notifications](messaging.md). All of it is built for the web
-deployment only — server, worker and web frontend — behind the `auth`
+[Messaging and Notifications](messaging.md). Phases 1 to 5 and the Rauthy
+mode are delivered; API clients, MCP over HTTP and messaging remain. All of
+it is built for the web deployment only — server, worker and web frontend — behind the `auth`
 feature and UI capabilities the desktop does not enable; the desktop keeps
 its single local user and its loopback guards, unchanged. Each phase ships
 its REST and GraphQL operations together, with their tests, every user-visible
@@ -470,7 +471,7 @@ Releases:
 Privacy fields hide nothing from the members of a tree, who all hold
 `read_private`: they take effect for Visitors and share links' holders.
 
-## 9. Planned: assistant access (MCP)
+## 9. Assistant access (MCP)
 
 First delivery: read-only, stdio, desktop, with a required `tree_id` on every
 tool but `list_trees`.

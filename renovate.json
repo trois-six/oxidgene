@@ -87,7 +87,7 @@
       "automerge": false
     },
     {
-      "description": "Hold crates aligned with a framework's version until it moves, so the graph gains no duplicate (scripts/budgets.json): getrandom with rand, gloo-timers with dioxus-web, sha2 with sqlx-core and wry, dirs with wry and tray-icon",
+      "description": "Hold crates aligned with a framework's version until it moves, so the graph gains no duplicate (scripts/budgets.json): getrandom with rand, gloo-timers with dioxus-web, sha2 with sqlx and rmcp, dirs with wry and tray-icon",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["getrandom", "gloo-timers", "sha2", "dirs"],
       "groupName": "Framework-aligned crates",

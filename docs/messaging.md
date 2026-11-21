@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Messaging and Notifications"
 description: "Communication between the users of a web deployment: in-app notifications and their preferences and email sent through the operator's SMTP relay from a worker-processed outbox, with translated templates, daily digests and one-click unsubscribe, implemented; and, planned, end-to-end encrypted one-to-one and group conversations over Messaging Layer Security with per-device browser keys, a public key directory, passphrase-protected key backup and key verification, delivered by long poll, with blocking, reporting, moderation, rate limits, retention, erasure, API, interface outline, dependencies and tests."
 tags: [oxidgene, specification, messaging, notifications, email, encryption, mls, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Messaging and Notifications
@@ -15,7 +15,7 @@ generated: { by: human:maintainer, at: 2026-11-03T14:30:00Z }
 
 **Status: notifications and email (§2, §3, §6) are implemented; the
 conversations, their encryption and moderation (§4 to §9) are planned.**
-[Roadmap §8](roadmap.md#8-planned-security-release-and-deployment)
+[Roadmap §8](roadmap.md#8-security-release-and-deployment)
 tracks the phases. Notifications, email and messaging exist only between the
 users of a web deployment, so they are compiled and active only in the web
 build — server, worker and web frontend. The desktop has one user, sends no
@@ -67,7 +67,7 @@ reads *A tree is no longer shared with you*, without its name.
 
 The first seven exist (`oxidgene_api::service::notification`); `messages`
 and `report_resolved` arrive with the conversations, `api_client_expiring`
-with the API clients ([Roadmap §8](roadmap.md#8-planned-security-release-and-deployment),
+with the API clients ([Roadmap §8](roadmap.md#8-security-release-and-deployment),
 phases 7 and 6). A notification is written in the transaction of the change
 that causes it — the share, the member update or removal, the acceptance,
 the transfer, the maintenance pass that deletes an expired membership, the

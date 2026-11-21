@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "Features — What OxidGene Does Today"
 description: "The complete list of what OxidGene does today, grouped by area, each feature in one line linked to the specification that defines it, with screenshots of the fictitious demonstration tree."
 tags: [oxidgene, specification, product, features]
-generated: { by: human:maintainer, at: 2026-11-03T15:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Features — What OxidGene Does Today
@@ -188,10 +188,16 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - Pedigree chart, theme and depth preferences, and name display ([App Settings](ui-app-settings.md)).
 - A responsive layout from phones to wide screens ([Common UI §6](ui-common.md#6-responsive-behavior)).
 
-## 16. Privacy
+## 16. Privacy, accounts and sharing
 
-- A tree-wide default privacy and per-person, per-couple and per-media privacy, recorded ([Tree Settings §8](ui-settings.md#8-section-privacy)).
-- **Planned:** enforcing privacy, hiding contemporary persons and authentication; today privacy is recorded and hides nothing ([General §4](general.md#4-security--privacy)).
+- A tree-wide default privacy and per-person, per-couple and per-media privacy ([Tree Settings §8](ui-settings.md#8-section-privacy)), and an export option that leaves out contemporary and private persons, on the desktop and the web ([Privacy §8](privacy.md#8-exports)).
+- In the web deployment, sign-in against any OpenID Connect provider, OxidGene holding no password, with a profile, its avatar and its sessions ([Authentication §4](authentication.md#4-browser-sessions-backend-for-frontend)).
+- In the web deployment, the Owner, Editor and Guest roles of each tree, and Visitors of a tree made visible or opened through a share link, enforced on the server by REST and GraphQL alike ([Authorization §5](authorization.md#5-memberships-and-ownership)).
+- In the web deployment, sharing with users of the instance, by email invitation or by link, the whole tree or a subtree ([Authorization §6](authorization.md#6-sharing)).
+- In the web deployment, contemporary and private persons hidden from Visitors — a *Private* placeholder, initials or nothing — confidential notes, and the persons and subtrees the owner excludes from every share, redacted on the server in every read, search, count, export and media download ([Privacy §7](privacy.md#7-enforcement-points)).
+- In the web deployment, in-app notifications and email through the operator's SMTP relay ([Messaging and Notifications §3](messaging.md#3-email)), the author of every change and an access log ([Authorization §9](authorization.md#9-audit)).
+- The desktop has one local user, who sees everything and signs in nowhere ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)).
+- **Planned:** API clients, the assistant access over HTTP and end-to-end encrypted messaging ([Roadmap §8](roadmap.md#8-security-release-and-deployment)).
 
 ## 17. Desktop and web
 

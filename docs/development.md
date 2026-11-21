@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -670,6 +670,7 @@ failing).
 | Web-only features | 1 | `just test` (`oxidgene-guards`) | Repository guards | The desktop's resolved dependency graph enables neither `oxidgene-api`'s `auth` nor its `graphql` feature, and links neither `jsonwebtoken` nor `redis` ([Authentication §7](authentication.md#7-web-build-only-the-desktop-is-unchanged)) |
 | Lint discipline | 1 | `just test` (`oxidgene-guards`), `just clippy` | Repository guards, Clippy | Every crate takes the workspace lints; no `#[allow]` (Clippy's `allow_attributes`), no crate-wide allow or cap; every `#[ignore]` names an existing `just` recipe |
 | Specification format | 1 | `just test` (`oxidgene-guards`) | Repository guards | `docs/` is a conformant OKF bundle; every link, `#anchor` and `§N` resolves; on a pull request, an edited specification carries a new `generated.at` |
+| Delivery status | 1 | `just test` (`oxidgene-guards`) | Repository guards | A specification is described as planned, in its frontmatter and so in the index, exactly while its `**Status:` line says so; the roadmap's status table and section titles call planned only what has delivered nothing, and complete nothing whose specification is planned; [Architecture §9](architecture.md#9-project-structure) and the root manifest name exactly the workspace's crates |
 | Dead CSS | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every class of the `*_STYLES` sheets is produced by the markup; every `var(--x)` is defined |
 | Select styling | 1 | `just test` (`oxidgene-guards`) | Repository guards | One global rule draws every select without its native appearance; no rule restyling a select erases its arrow (`background` shorthand) or takes back the arrow's room (`padding`) |
 | Raw HTML | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every `dangerous_inner_html` is declared with its sanitizer |

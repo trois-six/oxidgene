@@ -20,12 +20,13 @@ use std::path::Path;
 
 use oxidgene_guards::{files, root};
 
-struct Doc {
-    name: String,
-    text: String,
+pub(crate) struct Doc {
+    pub(crate) name: String,
+    pub(crate) text: String,
 }
 
-fn docs() -> Vec<Doc> {
+/// Every specification of `docs/`, the index included.
+pub(crate) fn docs() -> Vec<Doc> {
     files("docs", "md")
         .into_iter()
         .filter(|path| path.parent() == Some(&root().join("docs")))
@@ -37,7 +38,7 @@ fn docs() -> Vec<Doc> {
 }
 
 /// The frontmatter's `key: value` lines.
-fn frontmatter(text: &str) -> Option<BTreeMap<String, String>> {
+pub(crate) fn frontmatter(text: &str) -> Option<BTreeMap<String, String>> {
     let body = text.strip_prefix("---\n")?;
     let end = body.find("\n---\n")?;
     Some(

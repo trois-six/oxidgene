@@ -16,6 +16,7 @@ mod menu_buttons;
 mod migration_policy;
 mod select_style;
 mod specs;
+mod status;
 mod test_targets;
 mod typed_text;
 mod ui_tracing;
