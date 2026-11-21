@@ -365,7 +365,7 @@ The OxidGene backend and frontend runtime images use Debian Trixie variants.
 | `auth.idp.rauthy.*` | Rauthy's replicas, host, Ingress, Secret, administrator, database and mail. |
 | `ingress.exposeApiWithoutAuth` | With `auth.idp.mode=none`, `false`: rendering refuses an enabled Ingress until this acknowledges that its host is restricted to trusted users. |
 | `frontend.otlpEndpoint` | Public OTLP/HTTP base URL injected into the browser runtime; empty disables browser trace export. Its origin is added to the page's Content-Security-Policy `connect-src`. |
-| `frontend.extraConnectSrc` | Further origins the page may connect to (`connect-src`), such as an API on another origin. |
+| `frontend.extraConnectSrc` | Further origins the page may connect to and draw pictures from (`connect-src`, `img-src`, `media-src`), such as an API on another origin. |
 | `backend.allowedHosts` | Further host names the API answers under besides loopback and the `corsOrigin` host; any other `Host` is refused. |
 | `limits.gedcomMax`, `limits.mediaQuota`, `limits.archiveEntries` | What an import may read and a tree may hold, on the backend and the worker alike: the largest genealogy text (`350M`), the media of a tree (`10G`, `"0"` for none) and the files of an archive (`100000`). |
 | `backend.database.*`, `worker.database.*` | Each process's PostgreSQL pool and session limits: `maxConnections` (`10`) and `acquireTimeoutSeconds` (`30`), and `statementTimeoutSeconds`, `lockTimeoutSeconds`, `idleInTransactionTimeoutSeconds`, where `null` leaves the process its default and `0` sets none. Size the pools of every replica against the PostgreSQL server's `max_connections`. |

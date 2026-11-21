@@ -14,6 +14,7 @@ pub mod notification;
 pub mod privacy;
 pub mod projection;
 pub mod redaction;
+pub mod remote_media;
 pub mod resources;
 pub mod search;
 pub mod sharing;

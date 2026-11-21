@@ -5806,3 +5806,223 @@ async fn graphql_weighs_a_paginated_field_by_the_rows_of_its_page() {
         assert_eq!(!refused(&response), accepted, "limit {limit}: {response}");
     }
 }
+
+/// The GraphQL twin of `media_test.rs`'s
+/// `trusted_media_hosts_are_a_tree_setting_set_whole_or_one_at_a_time` and
+/// `an_address_somebody_adds_is_trusted_and_one_a_file_brings_is_not`.
+#[tokio::test]
+async fn trusted_media_hosts_over_graphql() {
+    let (app, _root) = setup_app_with_media().await;
+    let tree_id = tree_id_for(&app).await;
+    let hosts = |app: axum::Router, tree_id: String| async move {
+        let resp = graphql(
+            app,
+            &format!(r#"{{ tree(id: "{tree_id}") {{ trustedMediaHosts }} }}"#),
+            None,
+        )
+        .await;
+        data(&resp)["tree"]["trustedMediaHosts"].clone()
+    };
+    assert_eq!(hosts(app.clone(), tree_id.clone()).await, json!([]));
+
+    let resp = graphql(
+        app.clone(),
+        r#"mutation($tree: ID!, $hosts: [String!]) {
+            updateTree(id: $tree, input: { trustedMediaHosts: $hosts }) { trustedMediaHosts }
+        }"#,
+        Some(json!({ "tree": tree_id, "hosts": [
+            "Media.Example.org",
+            "https://archives.example.org/scan/42.jpg",
+            "archives.example.org"
+        ] })),
+    )
+    .await;
+    assert_eq!(
+        data(&resp)["updateTree"]["trustedMediaHosts"],
+        json!(["archives.example.org", "media.example.org"])
+    );
+
+    let trust = r#"mutation($tree: ID!, $host: String!) {
+        trustMediaHost(treeId: $tree, host: $host) { trustedMediaHosts }
+    }"#;
+    let all = json!([
+        "archives.example.org",
+        "media.example.org",
+        "photos.example.net"
+    ]);
+    for host in [
+        "Photos.Example.net",
+        "https://photos.example.net/album/3.jpg",
+    ] {
+        let resp = graphql(
+            app.clone(),
+            trust,
+            Some(json!({ "tree": tree_id, "host": host })),
+        )
+        .await;
+        assert_eq!(
+            data(&resp)["trustMediaHost"]["trustedMediaHosts"],
+            all,
+            "{host}"
+        );
+    }
+    for refused in [
+        "",
+        "not a host",
+        "localhost",
+        "nas.local",
+        "192.168.1.10",
+        "0x7f.1",
+        "[::1]",
+    ] {
+        let resp = graphql(
+            app.clone(),
+            trust,
+            Some(json!({ "tree": tree_id, "host": refused })),
+        )
+        .await;
+        assert_eq!(
+            resp["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+            "{refused}: {resp}"
+        );
+        let resp = graphql(
+            app.clone(),
+            r#"mutation($tree: ID!, $hosts: [String!]) {
+                updateTree(id: $tree, input: { trustedMediaHosts: $hosts }) { id }
+            }"#,
+            Some(json!({ "tree": tree_id, "hosts": ["archives.example.org", refused] })),
+        )
+        .await;
+        assert_eq!(
+            resp["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+            "{refused}: {resp}"
+        );
+    }
+    assert_eq!(hosts(app.clone(), tree_id.clone()).await, all);
+
+    // More hosts than a list holds.
+    let set_hosts = r#"mutation($tree: ID!, $hosts: [String!]) {
+        updateTree(id: $tree, input: { trustedMediaHosts: $hosts }) { trustedMediaHosts }
+    }"#;
+    let many: Vec<String> = (0..257)
+        .map(|index| format!("host{index}.example.org"))
+        .collect();
+    let resp = graphql(
+        app.clone(),
+        set_hosts,
+        Some(json!({ "tree": tree_id, "hosts": many })),
+    )
+    .await;
+    assert_eq!(
+        resp["errors"][0]["extensions"]["code"], "VALIDATION_ERROR",
+        "{resp}"
+    );
+
+    // The owner removes a host by sending the list without it.
+    let resp = graphql(
+        app.clone(),
+        set_hosts,
+        Some(json!({ "tree": tree_id, "hosts": ["archives.example.org", "media.example.org"] })),
+    )
+    .await;
+    assert_eq!(
+        data(&resp)["updateTree"]["trustedMediaHosts"],
+        json!(["archives.example.org", "media.example.org"])
+    );
+    let resp = graphql(
+        app.clone(),
+        set_hosts,
+        Some(json!({ "tree": tree_id, "hosts": all })),
+    )
+    .await;
+    assert_eq!(data(&resp)["updateTree"]["trustedMediaHosts"], all);
+
+    // A page somebody adds as an address, and one repointed, trust their
+    // hosts; a private address trusts nothing.
+    let document_id = document_id_for(&app, &tree_id).await;
+    let add = r#"mutation($tree: ID!, $doc: String!, $url: String!, $thumbnail: String) {
+        uploadMedia(treeId: $tree, input: {
+            documentId: $doc, fileName: "7.jpg", mimeType: "image/jpeg",
+            filePath: $url, fileSize: 0, thumbnailUrl: $thumbnail
+        }) { id }
+    }"#;
+    let resp = graphql(
+        app.clone(),
+        add,
+        Some(json!({
+            "tree": tree_id,
+            "doc": document_id,
+            "url": "https://Registers.Example.org/view/7.jpg",
+            "thumbnail": "https://thumbs.example.org/view/7.jpg"
+        })),
+    )
+    .await;
+    let page_id = data(&resp)["uploadMedia"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let resp = graphql(
+        app.clone(),
+        add,
+        Some(json!({
+            "tree": tree_id,
+            "doc": document_id,
+            "url": "http://192.168.1.10/camera.jpg",
+            "thumbnail": null
+        })),
+    )
+    .await;
+    assert!(data(&resp)["uploadMedia"]["id"].is_string(), "{resp}");
+    let update_media = r#"mutation($tree: ID!, $id: ID!, $input: UpdateMediaInput!) {
+        updateMedia(treeId: $tree, id: $id, input: $input) { id }
+    }"#;
+    let resp = graphql(
+        app.clone(),
+        update_media,
+        Some(json!({
+            "tree": tree_id,
+            "id": page_id,
+            "input": { "filePath": "https://scans.example.net/7.jpg" }
+        })),
+    )
+    .await;
+    assert!(data(&resp)["updateMedia"]["id"].is_string(), "{resp}");
+    assert_eq!(
+        hosts(app.clone(), tree_id.clone()).await,
+        json!([
+            "archives.example.org",
+            "media.example.org",
+            "photos.example.net",
+            "registers.example.org",
+            "scans.example.net",
+            "thumbs.example.org"
+        ])
+    );
+
+    // Only what an update gives is vouched for: once the owner removed
+    // every host, a thumbnail address given trusts its own host, and the
+    // page's address left as it was, or sent again unchanged, trusts none.
+    let resp = graphql(
+        app.clone(),
+        set_hosts,
+        Some(json!({ "tree": tree_id, "hosts": [] })),
+    )
+    .await;
+    assert_eq!(data(&resp)["updateTree"]["trustedMediaHosts"], json!([]));
+    for input in [
+        json!({ "thumbnailUrl": "https://covers.example.net/7.jpg" }),
+        json!({
+            "filePath": "https://scans.example.net/7.jpg",
+            "thumbnailUrl": "https://covers.example.net/7.jpg"
+        }),
+    ] {
+        let resp = graphql(
+            app.clone(),
+            update_media,
+            Some(json!({ "tree": tree_id, "id": page_id, "input": input })),
+        )
+        .await;
+        assert!(data(&resp)["updateMedia"]["id"].is_string(), "{resp}");
+    }
+    assert_eq!(hosts(app, tree_id).await, json!(["covers.example.net"]));
+}

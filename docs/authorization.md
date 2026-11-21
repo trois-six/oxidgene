@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-21T14:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
 ---
 
 # Authorization and Sharing
@@ -152,6 +152,7 @@ permission open, the declaration settles it:
 |---|---|
 | The bulk target's preview (`tags/target`, `tagTarget`), which only bulk tagging uses | `merge` |
 | Marking persons distinct, putting a tag on a record and taking it off | `edit` |
+| Trusting one more media host (`trusted-media-hosts`, `trustMediaHost`): whoever may add a page held as an address vouches for its host. Replacing the list, and so removing a host, is the tree update's `settings_manage` ([Cross-cutting §7.2](cross-cutting.md#72-remote-media)) | `edit` |
 | Dropping and rebuilding the projections (`profiles`, `profiles/rebuild`) | `settings_manage` |
 | The import wizard's preparatory steps, which write nothing to the tree — inspecting the `.gw`, indexing the archives, reading, decoding, saving and releasing a saved session, the preview and the plan ([API, Geneanet import](api.md#geneanet-import)) | `import` on the tree the modal was opened from, as the import they prepare: they parse, spool and inflate what the user sends for it, and the tree is checked before a byte of it is read |
 | An import or export job's status, cancellation and download | The job's `import` or `export`; an export's, and the latest downloadable one, its author's alone (`404` to anyone else): its archive holds what its author sees ([Privacy §8](privacy.md#8-exports)) |

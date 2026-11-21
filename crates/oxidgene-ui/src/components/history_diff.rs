@@ -760,6 +760,9 @@ fn tree_section(
         ("history.field.submitter_address", |t| {
             t.submitter_address.clone()
         }),
+        ("history.field.trusted_media_hosts", |t| {
+            (!t.trusted_media_hosts.is_empty()).then(|| t.trusted_media_hosts.join(", "))
+        }),
     ] {
         group.row(i18n.t(key), before.and_then(get), get(after));
     }

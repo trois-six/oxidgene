@@ -972,6 +972,9 @@ pub struct GqlTree {
     pub submitter_address: Option<String>,
     /// The thresholds the tree's anomaly rules apply.
     pub anomaly_thresholds: GqlAnomalyThresholds,
+    /// The hosts whose pictures the tree's readers load without being
+    /// asked.
+    pub trusted_media_hosts: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     /// The import running into the tree, when the tree list already knows it:
@@ -1109,6 +1112,7 @@ impl From<oxidgene_core::types::Tree> for GqlTree {
             submitter_email: t.submitter_email,
             submitter_address: t.submitter_address,
             anomaly_thresholds: t.anomaly_thresholds.into(),
+            trusted_media_hosts: t.trusted_media_hosts,
             created_at: t.created_at,
             updated_at: t.updated_at,
             import_job: None,

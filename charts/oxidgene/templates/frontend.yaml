@@ -15,8 +15,8 @@ data:
   {{- range .Values.frontend.extraConnectSrc }}
   {{- $connect = append $connect . }}
   {{- end }}
-  # Origins the page may connect to besides its own, read by the
-  # Content-Security-Policy of nginx's security-headers.conf.
+  # Origins the page may connect to and draw pictures from besides its own,
+  # read by the Content-Security-Policy of nginx's security-headers.conf.
   csp-connect-src.conf: |
     set $csp_connect_src {{ join " " (compact $connect) | quote }};
 ---

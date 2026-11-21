@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-11-21T15:24:42Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
 ---
 
 # OxidGene Quickstart
@@ -849,7 +849,7 @@ repeat the warning.
 | `frontend.service.type` | `ClusterIP` | Frontend Service type. |
 | `frontend.service.port` | `80` | Frontend Service port. |
 | `frontend.otlpEndpoint` | `""` | Public OTLP/HTTP base URL injected into the browser runtime; empty disables browser trace export. Its origin is added to the page's Content-Security-Policy `connect-src`. |
-| `frontend.extraConnectSrc` | `[]` | Further origins the page may connect to, such as an API served from another origin than the frontend. |
+| `frontend.extraConnectSrc` | `[]` | Further origins the page may connect to and draw pictures from, such as an API served from another origin than the frontend. |
 | `frontend.resources` | See `values.yaml` | CPU and memory requests and limits. |
 | `frontend.podAnnotations` | `{}` | Additional Pod annotations. |
 | `frontend.podLabels` | `{}` | Additional Pod labels. |

@@ -75,6 +75,38 @@ impl TreeCache {
         t.set(Some(tree));
     }
 
+    /// Whether tree `tid`, when it is the one held, trusts the pictures of
+    /// `host` (`docs/cross-cutting.md` §7.2).
+    pub fn trusts_media_host(&self, tid: Uuid, host: &str) -> bool {
+        *self.tree_tid.read() == Some(tid)
+            && self.tree.read().as_ref().is_some_and(|tree| {
+                tree.trusted_media_hosts
+                    .iter()
+                    .any(|trusted| trusted == host)
+            })
+    }
+
+    /// Record that tree `tid`, when it is the one held, now trusts `host`:
+    /// what the server does when somebody adds an address of it themselves.
+    pub fn add_trusted_media_host(&self, tid: Uuid, host: String) {
+        if *self.tree_tid.peek() != Some(tid) || self.trusts_media_host_untracked(&host) {
+            return;
+        }
+        let mut tree = self.tree;
+        if let Some(tree) = tree.write().as_mut() {
+            tree.trusted_media_hosts.push(host);
+            tree.trusted_media_hosts.sort();
+        }
+    }
+
+    fn trusts_media_host_untracked(&self, host: &str) -> bool {
+        self.tree.peek().as_ref().is_some_and(|tree| {
+            tree.trusted_media_hosts
+                .iter()
+                .any(|trusted| trusted == host)
+        })
+    }
+
     /// Drop the cached metadata for `tid` if it is the one held, e.g. once the
     /// tree is deleted. Leaves another tree's entry in place.
     pub fn forget(&self, tid: Uuid) {

@@ -35,6 +35,10 @@ pub struct Model {
     /// defaults.
     #[sea_orm(column_type = "Text")]
     pub anomaly_thresholds: Option<String>,
+    /// The hosts whose pictures the tree's readers load without being
+    /// asked, as a JSON array; `None` for none.
+    #[sea_orm(column_type = "Text")]
+    pub trusted_media_hosts: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

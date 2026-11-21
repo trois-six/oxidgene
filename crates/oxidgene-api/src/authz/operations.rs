@@ -99,6 +99,12 @@ const REST: &[(&str, &str, Requirement)] = &[
     ("PUT", "/trees/{tree_id}", Tree(P::SettingsManage)),
     ("DELETE", "/trees/{tree_id}", Tree(P::TreeDelete)),
     ("POST", "/trees/{tree_id}/duplicate", Tree(P::TreeDuplicate)),
+    // Whoever may add a page held as an address may trust its host.
+    (
+        "POST",
+        "/trees/{tree_id}/trusted-media-hosts",
+        Tree(P::Edit),
+    ),
     // Tools.
     (
         "GET",
@@ -823,6 +829,7 @@ const GRAPHQL: &[(&str, Requirement)] = &[
     ("updateTree", Tree(P::SettingsManage)),
     ("deleteTree", Tree(P::TreeDelete)),
     ("duplicateTree", Tree(P::TreeDuplicate)),
+    ("trustMediaHost", Tree(P::Edit)),
     ("ancestryCompleteness", Tree(P::Tools)),
     ("treeAnomalies", Tree(P::Tools)),
     ("potentialDuplicates", Tree(P::Tools)),

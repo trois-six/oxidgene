@@ -568,3 +568,37 @@ fn the_viewer_of_a_target_is_its_collection_s() {
     );
     assert!(registry.viewer_at(&citation, "not an address").is_none());
 }
+
+#[test]
+fn the_catalogue_trusts_the_hosts_its_portals_answer_on() {
+    use oxidgene_core::remote_media::{HostTrust, RemoteAddress};
+
+    let registry = ArchiveRegistry::embedded();
+    let mut plain = Vec::new();
+    for archive in registry.archives() {
+        for collection in &archive.collections {
+            let Some(endpoint) = registry
+                .platform(&collection.platform)
+                .and_then(|platform| platform.endpoint(collection))
+            else {
+                continue;
+            };
+            for origin in endpoint.origins() {
+                let host = RemoteAddress::parse(origin).expect("an origin").host;
+                match registry.host_trust(&host) {
+                    HostTrust::Unknown => panic!("{origin} of {} is not trusted", archive.id),
+                    HostTrust::TrustedPlainHttp => plain.push(archive.id.as_str()),
+                    HostTrust::Trusted => {}
+                }
+            }
+        }
+    }
+    // Plain `http` for the exceptions the catalogue names, and only them.
+    plain.sort_unstable();
+    plain.dedup();
+    assert_eq!(plain, catalog::PLAIN_HTTP_ARCHIVES);
+    assert_eq!(registry.host_trust("gaia.orne.fr"), HostTrust::Trusted);
+    for host in ["archives.example.org", "orne.fr", "x.gaia.orne.fr", ""] {
+        assert_eq!(registry.host_trust(host), HostTrust::Unknown, "{host}");
+    }
+}

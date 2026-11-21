@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 use std::sync::LazyLock;
 
-use crate::components::{account_nav, history_nav, resource_view, toast, tree_cache};
+use crate::components::{account_nav, history_nav, remote_media, resource_view, toast, tree_cache};
 use crate::i18n;
 use crate::router::Route;
 
@@ -97,6 +97,7 @@ pub fn AppShell() -> Element {
     history_nav::use_init_history_list();
     toast::use_init_toasts();
     resource_view::use_init_connectivity();
+    remote_media::use_init_remote_media();
 
     // The palette is a block of custom properties, so it can be recomputed
     // and swapped on its own: the stylesheet below never changes, and
@@ -143,6 +144,9 @@ pub fn Layout() -> Element {
         // What the viewer may do with the tree on screen, read once for the
         // page and every component in it (docs/authorization.md §11).
         crate::permissions::TreePermissionsProvider { key: "{tree_key}", tree_id,
+          // Which tree's pictures the page draws, for the remote gate
+          // (docs/cross-cutting.md §7.2).
+          remote_media::RemoteMediaScope { tree_id,
             if route.shows_navbar() {
                 nav { class: "app-nav", aria_label: app_nav_label,
                     div { class: "nav-start",
@@ -168,6 +172,7 @@ pub fn Layout() -> Element {
                     crate::account::Gate::SignIn => rsx! { account_nav::SignInRequired {} },
                 }
             }
+          }
         }
         account_nav::AccountPrompts {}
     }
@@ -6009,6 +6014,82 @@ pub const LAYOUT_STYLES: &str = r#"
         opacity: 0.85;
         text-shadow: 0 1px 3px color-mix(in srgb, var(--scrim) 60%, transparent);
         pointer-events: none;
+    }
+
+    /* A picture somebody else serves, not loaded (ui-common.md §4.5): in
+       the picture's place, the host it would come from and the controls
+       that load it. */
+    .remote-gate {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+        box-sizing: border-box;
+        width: 100%;
+        height: 100%;
+        padding: var(--space-3);
+        color: var(--text-muted);
+        font-size: var(--text-80);
+        text-align: center;
+        cursor: default;
+    }
+
+    /* Its mark keeps its size inside a tile, whose pictures fill it. */
+    .remote-gate .remote-gate-glyph {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+    }
+
+    .remote-gate-host {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-secondary);
+    }
+
+    .remote-gate-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: var(--space-2);
+    }
+
+    .remote-gate-note { margin: 0; max-width: 46ch; }
+
+    .remote-gate.is-glyph {
+        display: inline-flex;
+        width: auto;
+        height: auto;
+        padding: 0;
+    }
+
+    .remote-gate.is-thumb {
+        border: 0;
+        background: none;
+        padding: 0;
+        cursor: pointer;
+    }
+    .remote-gate.is-thumb:hover,
+    .remote-gate.is-thumb:focus-visible { color: var(--orange); }
+
+    .remote-gate.is-stage {
+        gap: var(--space-5);
+        padding: var(--space-16);
+        font-size: var(--text-85);
+    }
+    .remote-gate.is-stage .remote-gate-glyph { width: 40px; height: 40px; }
+
+    /* A tile too small for the controls: its whole surface loads. */
+    .media-grid-compact .remote-gate.is-tile { padding: 0; }
+    .media-grid-compact .remote-gate-host,
+    .media-grid-compact .remote-gate-always { display: none; }
+    .media-grid-compact .remote-gate-load {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
     }
 
     .media-events {

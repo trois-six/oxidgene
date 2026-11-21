@@ -11,7 +11,7 @@ use super::authorize::Viewer;
 use super::dto::{DuplicateTreeRequest, PaginationQuery};
 use super::error::ApiError;
 use super::state::AppState;
-use crate::service::tree::{self, NewTree, TreeListItem, TreePatch, TreeView};
+use crate::service::tree::{self, NewTree, TreeListItem, TreePatch, TreeView, TrustedMediaHost};
 
 /// GET /api/v1/trees
 pub async fn list_trees(
@@ -58,6 +58,21 @@ pub async fn update_tree(
 ) -> Result<Json<Tree>, ApiError> {
     Ok(Json(
         tree::update_tree(&viewer, &state.db, state.profiles.cache(), tree_id, body).await?,
+    ))
+}
+
+/// POST /api/v1/trees/:tree_id/trusted-media-hosts
+///
+/// Add a host to those whose pictures the tree's readers load without
+/// being asked.
+pub async fn trust_media_host(
+    State(state): State<AppState>,
+    viewer: Viewer,
+    Path(tree_id): Path<Uuid>,
+    Json(body): Json<TrustedMediaHost>,
+) -> Result<Json<Tree>, ApiError> {
+    Ok(Json(
+        tree::trust_media_host(&viewer, &state.db, tree_id, &body.host).await?,
     ))
 }
 

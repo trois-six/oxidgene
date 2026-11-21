@@ -700,6 +700,8 @@ pub struct TreeSnapshot {
     pub submitter_address: Option<String>,
     #[serde(default)]
     pub anomaly_thresholds: crate::types::AnomalyThresholds,
+    #[serde(default)]
+    pub trusted_media_hosts: Vec<String>,
 }
 
 /// A snapshot item that keeps its identity across versions.

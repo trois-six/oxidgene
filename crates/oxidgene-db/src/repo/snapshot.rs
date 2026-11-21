@@ -306,6 +306,9 @@ impl SnapshotRepo {
                 anomaly_thresholds: crate::repo::tree::thresholds_of(
                     row.anomaly_thresholds.as_deref(),
                 ),
+                trusted_media_hosts: crate::repo::tree::trusted_hosts_of(
+                    row.trusted_media_hosts.as_deref(),
+                ),
             }),
             labels,
         }])
@@ -508,6 +511,9 @@ impl SnapshotRepo {
         active.submitter_address = Set(snapshot.submitter_address.clone());
         active.anomaly_thresholds = Set(crate::repo::tree::thresholds_column(
             &snapshot.anomaly_thresholds,
+        ));
+        active.trusted_media_hosts = Set(crate::repo::tree::trusted_hosts_column(
+            &snapshot.trusted_media_hosts,
         ));
         active.sosa_root_person_id =
             Set(snapshot.sosa_root_person_id.filter(|id| live.contains(id)));

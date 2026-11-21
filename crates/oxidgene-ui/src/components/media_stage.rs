@@ -47,6 +47,8 @@ enum ZoomAnchor {
 /// The picture a stage draws.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct StagePicture {
+    /// Its address: our own, or somebody else's once the remote gate let it
+    /// through (`components/remote_media.rs`).
     pub url: String,
     pub alt: String,
 }
@@ -408,6 +410,7 @@ pub(crate) fn MediaStage(
                                 class: "media-viewer-image media-viewer-static-image",
                                 src: "{picture.url}",
                                 alt: "{picture.alt}",
+                                "referrerpolicy": "no-referrer",
                                 draggable: "false",
                                 style: image_style((zoom.level)(), (zoom.fitted)()),
                                 onload: move |_| fit.call(()),

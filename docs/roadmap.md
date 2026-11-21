@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-21T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -70,6 +70,9 @@ generated: { by: human:maintainer, at: 2026-11-21T19:00:00Z }
 - [x] Add per-media progress and cancellation to the final Geneanet write pass:
   every import is one transaction a cancellation rolls back
   ([Architecture §6.3](architecture.md)).
+- [x] Load a picture held only as an address when the tree trusts its host
+  or the reader asks for it, and never from a private or local address
+  ([Cross-cutting §7.2](cross-cutting.md#72-remote-media)).
 - [ ] Test large media libraries and close media-specific error-state gaps.
 - [ ] Run the complete Geneanet flow against an authorized test account using
   anonymized captures and committing no session or genealogy data.

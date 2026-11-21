@@ -43,6 +43,11 @@ pub struct Tree {
     /// The thresholds the anomaly rules of this tree apply.
     #[serde(default)]
     pub anomaly_thresholds: AnomalyThresholds,
+    /// The hosts whose pictures every reader of the tree loads without
+    /// being asked (`docs/cross-cutting.md` §7.2): sorted, each once, as
+    /// [`crate::remote_media::trusted_hosts`] stores them.
+    #[serde(default)]
+    pub trusted_media_hosts: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,

@@ -67,6 +67,26 @@ Cliquez sur n’importe quelle vignette pour ouvrir le document dans la visionne
 - **Gérer les pages** (documents de plusieurs pages) : **Ajouter des pages**, déplacer des pages, ou supprimer une page avec sa transcription et ses liens.
 - **Télécharger le fichier** enregistre le fichier ; pour un document de plusieurs pages, **Télécharger la page** enregistre la page affichée et **Toutes les pages (ZIP)** le document entier. Une page hébergée ailleurs propose à la place **Ouvrir le lien d’origine**.
 
+## Images hébergées par d’autres sites
+
+Une page peut être l’adresse d’une image conservée sur un autre site : une adresse que vous avez liée vous-même, ou qu’un fichier GEDCOM importé mentionne. Afficher une telle image, c’est la demander à ce site, qui apprend ainsi que vous la consultez, et quand. Un fichier reçu de quelqu’un d’autre pourrait s’en servir pour suivre qui consulte votre arbre. OxidGene ne charge donc pas ces images de lui-même.
+
+À leur place, une vignette affiche le nom du site, avec deux boutons :
+
+- **Charger** affiche les images de ce site, pour vous, jusqu’à la fermeture ou au rechargement de l’application.
+- **Toujours** ajoute le site aux hôtes de confiance de l’arbre : ses images sont alors affichées sans demande, pour toutes les personnes qui consultent l’arbre. Ce bouton est proposé à ceux qui peuvent modifier l’arbre.
+
+La visionneuse propose le même choix à la place de l’image. Un portrait conservé sur un site non chargé est remplacé par la silhouette. **Ouvrir le lien d’origine** ouvre toujours l’adresse dans votre navigateur, quel que soit votre choix.
+
+Certaines images sont affichées sans demande :
+
+- celles d’une page dont vous avez saisi l’adresse ou que vous avez jointe vous-même depuis un portail d’archives : l’enregistrer fait confiance à son site pour l’arbre ;
+- celles des portails d’archives qu’OxidGene connaît.
+
+D’autres ne sont jamais affichées : les adresses de votre propre ordinateur ou de votre réseau domestique, qu’un fichier n’a aucune raison de mentionner. Les images sont demandées par une connexion sécurisée (`https`) ; un site qui n’en propose pas ne peut pas être affiché ici, et son lien s’ouvre toujours.
+
+Pour voir ou modifier les sites de confiance d’un arbre, ouvrez ses paramètres ; voir [Paramètres](@/guide/settings.fr.md).
+
 ## La médiathèque
 
 {{ <screenshot name="media-library" alt="Médiathèque de l’arbre Landrevel avec son nuage d’étiquettes" lang={lang} /> }}

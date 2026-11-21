@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Enforcement of privacy for the viewers of a shared tree, in the web build: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T20:30:00Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -509,6 +509,12 @@ through the existing tree update on both surfaces:
 | `contemporary_photos` | on, off | off | Web |
 | `guests_may_export` | on, off | off | Web |
 | `visibility`, visitor scope | [Authorization §6.4](authorization.md#64-tree-visibility) | `private`, none | Web |
+| `trusted_media_hosts` | Up to 256 public host names ([Cross-cutting §7.2](cross-cutting.md#72-remote-media)) | none | Both |
+
+The trusted media hosts are about the tree's readers, not its persons:
+whose sites learn that a reader looked at a picture held only as an
+address. Whoever may edit the tree adds a host; the owner alone removes
+one.
 
 Turning the contemporary rule off shows contemporaries to Visitors; the page
 asks for confirmation and says that living people become visible to whoever

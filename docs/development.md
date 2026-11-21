@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T22:05:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
 ---
 
 # Development Environment and Workflows
@@ -709,6 +709,7 @@ failing).
 | Versioned assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file the web bundle serves under a stable name is the page or the deployment's configuration: the rest are `dx`'s hashed files and the files of `assets/public/` under a release directory; nginx answers those immutable and the page `no-cache`; every picture the UI addresses carries its version ([Architecture §4.3](architecture.md#43-versioned-assets)) |
 | Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |
 | Typed text | 1 | `just test` (`oxidgene-guards`) | Repository guards | No `input` or `textarea` of the markup is bound to its text by `value` while listening to `oninput`: typed fields are `TextInput` and `TextArea` ([Common UI §6.6](ui-common.md)) |
+| Remote pictures | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every `img`, SVG `image`, `video` and `audio` of the interface is written by a component that asks the remote gate, is handed the address a gate let through, or draws an address of the application's own, each file declared with its count; the web's and the desktop's Content-Security-Policy allow plain `http` pictures from the archive catalogue's plain-`http` portals and no other ([Cross-cutting §7.2](cross-cutting.md#72-remote-media)) |
 | Conditional hooks | 1 | `just test` (`oxidgene-guards`) | Repository guards | No interface hook (`use_…`) is called on the right of `&&` or `\|\|`, where a render could skip it and shift the hooks after it |
 | Test targets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every crate builds at most one integration test binary, whose root declares every file of `tests/` (§2.7) |
 | Workflows | 1 | `just test` (`oxidgene-guards`) | Repository guards | No workflow step runs cargo, npm, uv, Helm's or Docker's checks or a script of `scripts/` itself: it calls `just <recipe>`, a recipe that exists; every action installs, caches, builds an image or publishes, and is pinned to a commit (§5.10); the jobs of `ci.yml` run exactly what `just check` runs; the CI image and the runners install the same `just` (§2.9) |

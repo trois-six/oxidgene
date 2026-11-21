@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T19:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:15:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -696,7 +696,9 @@ error only: it is English and may hold identifiers.
   enforced when a note is written ([Data Model §Note](data-model.md#note)).
   The web fonts ship with the application rather than coming from a font
   service, and GraphiQL, whose page loads from a CDN, is served only where a
-  deployment enables it and nobody signs in.
+  deployment enables it and nobody signs in. A medium held only as an
+  address is loaded as [§7.2](#72-remote-media) says, never merely because a
+  file named it.
 - An archive portal is contacted only when the reader opens a cited register,
   one lookup per click, never ahead of it. It receives what its search needs —
   locality, document kind, year, call number — never the citation text. A
@@ -776,7 +778,8 @@ reads alike ([Authentication](authentication.md),
   the frontend's own origin (`worker-src` falls back to `script-src`), its
   WebAssembly decoders compile under `'wasm-unsafe-eval'` and are fetched
   from that origin, and its gallery previews are `blob:` images. The desktop
-  window loads no plugin and honours no `<base>`;
+  window loads no plugin and honours no `<base>`. Both policies bound where
+  images and media come from ([§7.2](#72-remote-media));
 - stored files are served with `X-Content-Type-Options: nosniff` and, except
   for PDFs, `Content-Security-Policy: sandbox`, so a file cannot run as a page
   of the origin that serves it; the type of a held file is the one sniffed from
@@ -823,6 +826,97 @@ web build's authentication, authorization and privacy enforcement that lift
 it are specified in [Authentication](authentication.md),
 [Authorization](authorization.md) and [Privacy](privacy.md); once they ship,
 only the `oidc` mode may face an untrusted network.
+
+### 7.2 Remote media
+
+A medium may be an address instead of a file the application holds — a
+GEDCOM `OBJE.FILE` is routinely a URL — and the reader's engine is what
+fetches it: OxidGene never does
+([Common UI §4.5](ui-common.md#45-mediainput-mediagallery-and-documentform)).
+A file received from somebody else would therefore make every reader's
+engine call the addresses its author chose: a site learning who looks at
+the tree and when, or a blind request to a device of the reader's own
+network. So an address is handed to the engine — as a picture's source, a
+region's, a player's — only when one rule,
+`oxidgene_core::remote_media::remote_load`, says so:
+
+| The address's host | What happens |
+|---|---|
+| The application's own: a path of its origin, the API's address, an inline or in-memory picture | Drawn: not a remote address |
+| A portal of the archive catalogue, an origin an adapter declares ([Archive Portals §3.1](archives.md#31-catalogue)) | Loaded |
+| A host the tree trusts (`tree.trusted_media_hosts`) | Loaded, for every reader of the tree |
+| A host whose pictures the reader asked for | Loaded for that reader, in that tree, until the window closes or reloads; stored nowhere |
+| Any other public host | Not loaded: a placeholder names the host and offers to load its pictures ([Common UI §4.5](ui-common.md#remote-pictures)) |
+| A private, loopback, link-local or otherwise local host | Never loaded, whatever a list says |
+| Anything that is not an `http(s)` address with a host | Never loaded |
+
+**Trust.** A tree's list gains a host by the act of somebody who may edit
+the tree, never by an import:
+
+- a page they add as an address, typed or attached from an archive's
+  portal, and the address or thumbnail address they give a page
+  afterwards: the server records the host with the write, in its
+  transaction;
+- **Always** on a placeholder
+  (`POST /trees/{tree_id}/trusted-media-hosts`, the `edit` permission);
+- the list of the tree settings
+  ([Tree Settings §8](ui-settings.md#8-section-privacy)), whose owner alone
+  replaces it, and so alone removes a host (`settings_manage`).
+
+The list holds at most 256 hosts, lowercase, each compared whole — a host,
+not a domain with its subdomains — and whatever the port. A Guest or a
+Visitor changes no list: what they ask for is theirs alone. An import, a
+GEDZIP and a tree's duplicate bring no list and an export writes none: a
+file never says what it is to be trusted with. Each change is a version of
+the tree's settings ([Data Model §5](data-model.md#5-change-history)).
+
+**Scheme.** A loaded address is requested over `https`: an `http` one is
+drawn from its `https` spelling — same host, path and query, a port `80`
+left out — so that neither the request nor what it names is readable on
+the way. A host that serves no `https` shows what a picture the browser
+refuses shows, the link to the original address included. The one
+exception is a portal the catalogue lists as answering over plain `http`
+only.
+
+**Local hosts.** Never loaded: the IPv4 addresses of 0/8, 10/8, 100.64/10,
+127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.168/16, 198.18/15 and 224/3,
+in every spelling a browser reads as one — decimal, octal or hexadecimal
+numbers, fewer than four of them; the IPv6 addresses `::`, `::1`, fc00::/7,
+fe80::/10, fec0::/10, ff00::/8 and the rest of the reserved ::/16 (the
+IPv4-translated form among it), and the forms that carry one of those IPv4
+addresses (mapped, compatible, NAT64, 6to4); `localhost` and the names
+ending in `.localhost`, `.local`, `.internal`, `.lan` or `.home.arpa`; and
+a name of a single label. The host judged is the one a browser resolves:
+what follows any credentials, up to a slash or a backslash, once the tabs
+and line breaks a browser drops are dropped; a path of the application's
+own origin is one that starts with a single slash, not `//` or `/\`, which
+name another host. A host outside
+ASCII or holding a percent escape is refused, not normalised — a browser
+maps both before it resolves, full-width digits to an IPv4 address among
+others — and a name in another script is given in its `xn--` form.
+
+**Limits.** A public name that resolves to a private address is not
+detected: resolution is the engine's, after the decision, and nothing in a
+page can see it. A loaded picture is requested without a referrer
+(`Referrer-Policy: no-referrer` on the web, the same `meta` on the desktop,
+and `referrerpolicy="no-referrer"` on the image) but not in CORS mode,
+which most hosts do not allow and without which the picture would not
+draw: the engine sends that host the cookies it holds for it, as its own
+third-party rules decide. A redirect is followed by the engine: a host trusted
+or asked for answers for where it sends the request, and the policies stop
+a redirect to plain `http`, not one to an `https` address of the reader's
+own network. Following the link to a remote page's address is the reader's
+own navigation, outside this rule.
+
+**Policies.** Each shell backs the rule with a Content-Security-Policy. It
+cannot name the trusted hosts, which are each tree's, and forbids what no
+tree needs: images and media come from the application's own origin — and
+the API's in the web build —, from `data:` and `blob:`, and from `https:`
+origins; plain `http` images from the catalogue's plain-`http` portal
+alone. The `remote_pictures` guard ([Development §2.8](development.md))
+fails when an element of the interface draws an address outside the
+components that ask the rule, and when the policies' plain-`http` hosts
+and the catalogue's differ.
 
 ## 8. Verification
 

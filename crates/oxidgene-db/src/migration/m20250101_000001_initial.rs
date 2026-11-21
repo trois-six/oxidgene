@@ -516,6 +516,7 @@ enum Tree {
     SubmitterEmail,
     SubmitterAddress,
     AnomalyThresholds,
+    TrustedMediaHosts,
     CreatedAt,
     UpdatedAt,
     DeletedAt,
@@ -1030,6 +1031,10 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 // The anomaly thresholds the tree sets, as JSON; none, the
                 // defaults (`AnomalyThresholds`).
                 .col(text_null(Tree::AnomalyThresholds))
+                // The hosts whose pictures the tree's readers load without
+                // being asked, as a JSON array; none, no host
+                // (docs/cross-cutting.md §7.2).
+                .col(text_null(Tree::TrustedMediaHosts))
                 .col(timestamp_with_time_zone(Tree::CreatedAt))
                 .col(timestamp_with_time_zone(Tree::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Tree::DeletedAt))

@@ -3948,6 +3948,11 @@ type GqlTree {
 	The thresholds the tree's anomaly rules apply.
 	"""
 	anomalyThresholds: GqlAnomalyThresholds!
+	"""
+	The hosts whose pictures the tree's readers load without being
+	asked.
+	"""
+	trustedMediaHosts: [String!]!
 	createdAt: DateTime!
 	updatedAt: DateTime!
 	"""
@@ -4113,6 +4118,7 @@ type GqlTreeSnapshot {
 	submitterEmail: String
 	submitterAddress: String
 	anomalyThresholds: GqlAnomalyThresholds!
+	trustedMediaHosts: [String!]!
 }
 
 """
@@ -4472,6 +4478,11 @@ type MutationRoot {
 	own record from another tree is not found.
 	"""
 	updateTree(id: ID!, input: UpdateTreeInput!): GqlTree!
+	"""
+	Add a host to those whose pictures the tree's readers load without
+	being asked. Mirrors `POST /trees/:tree_id/trusted-media-hosts`.
+	"""
+	trustMediaHost(treeId: ID!, host: String!): GqlTree!
 	"""
 	Delete a tree.
 	
@@ -6327,6 +6338,11 @@ input UpdateTreeInput {
 	The thresholds of the anomaly rules.
 	"""
 	anomalyThresholds: AnomalyThresholdsInput
+	"""
+	The hosts whose pictures the tree's readers load without being
+	asked, all at once.
+	"""
+	trustedMediaHosts: [String!]
 }
 
 """

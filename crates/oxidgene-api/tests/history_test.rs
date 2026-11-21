@@ -1680,3 +1680,75 @@ async fn anomaly_thresholds_are_versioned_and_reverted() {
     );
     assert_no_duplicated_state(&db).await;
 }
+
+/// The trusted media hosts are a tree setting: each change of the list,
+/// whichever operation made it, is a version of the tree, and a revert
+/// brings an earlier list back.
+#[tokio::test]
+async fn trusted_media_hosts_are_versioned_and_reverted() {
+    let (db, app) = setup().await;
+    let tree = create_tree(&app).await;
+    ok(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree}"),
+        Some(json!({ "trusted_media_hosts": ["archives.example.org"] })),
+    )
+    .await;
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/trusted-media-hosts"),
+        Some(json!({ "host": "media.example.org" })),
+    )
+    .await;
+    // Already trusted: no version.
+    let data = graphql(
+        &app,
+        "mutation($t: ID!) {
+            trustMediaHost(treeId: $t, host: \"media.example.org\") { trustedMediaHosts }
+        }",
+        json!({ "t": tree }),
+    )
+    .await;
+    assert_eq!(
+        data["trustMediaHost"]["trustedMediaHosts"],
+        json!(["archives.example.org", "media.example.org"])
+    );
+
+    let tree_versions = versions(&app, &tree, "tree", &tree).await;
+    assert_eq!(tree_versions.len(), 3);
+    let hosts = |version: usize| tree_versions[version]["snapshot"]["trusted_media_hosts"].clone();
+    assert_eq!(
+        hosts(0),
+        json!(["archives.example.org", "media.example.org"])
+    );
+    assert_eq!(hosts(1), json!(["archives.example.org"]));
+    assert_eq!(hosts(2), json!([]));
+    let data = graphql(
+        &app,
+        "query($t: ID!) {
+            recordVersions(treeId: $t, recordType: TREE, recordId: $t) {
+                edges { node { snapshot { tree { trustedMediaHosts } } } }
+            }
+        }",
+        json!({ "t": tree }),
+    )
+    .await;
+    assert_eq!(
+        data["recordVersions"]["edges"][1]["node"]["snapshot"]["tree"]["trustedMediaHosts"],
+        json!(["archives.example.org"])
+    );
+
+    // Restoring the first version empties the list.
+    ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/history/tree/{tree}/revert"),
+        Some(json!({ "version": 1 })),
+    )
+    .await;
+    let restored = ok(&app, Method::GET, &format!("/api/v1/trees/{tree}"), None).await;
+    assert_eq!(restored["trusted_media_hosts"], json!([]));
+    assert_no_duplicated_state(&db).await;
+}

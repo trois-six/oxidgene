@@ -621,18 +621,34 @@ fn shutdown_telemetry(telemetry: &Mutex<Option<TelemetryGuard>>) {
     }
 }
 
+/// The Content-Security-Policy of the main window's page.
+///
+/// It loads no plugin and resolves no URL against a `<base>` some markup
+/// could slip in. Scripts and styles stay as the Dioxus runtime needs them:
+/// it evaluates scripts and writes styles at run time. Images and media
+/// come from the application's own origin — `dioxus:` on WebKit,
+/// `http://dioxus.index.html` on WebView2 —, from `data:` and `blob:`
+/// (inline pictures, the gallery's PDF previews) and from `https:` origins:
+/// a medium held only as a URL is drawn from its own, which the interface
+/// lets through host by host and never for a private or local address
+/// (`docs/cross-cutting.md` §7.2). Plain `http:` is refused but for images
+/// of the one archive portal the catalogue lists as answering over `http`
+/// only; the `remote_pictures` guard keeps that list and the catalogue's
+/// the same.
+const WINDOW_POLICY: &str = "object-src 'none'; base-uri 'none'; \
+     img-src 'self' dioxus: http://dioxus.index.html data: blob: https: \
+     http://anom.archivesnationales.culture.gouv.fr; \
+     media-src 'self' dioxus: http://dioxus.index.html data: blob: https:";
+
 /// The main window's configuration: its title, size and icon, and the
 /// webview's data directory, `webview_dir`.
 fn window_config(webview_dir: &std::path::Path) -> Config {
     let mut cfg = Config::new()
-        // The window's page loads no plugin and resolves no URL against a
-        // `<base>` some markup could slip in. Scripts and styles stay as the
-        // Dioxus runtime needs them: it evaluates scripts and writes styles
-        // at run time.
-        .with_custom_head(
-            r#"<meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'">"#
-                .to_string(),
-        )
+        // The policy above, and no referrer for what the page requests:
+        // a remote picture's host is not told which page drew it.
+        .with_custom_head(format!(
+            r#"<meta http-equiv="Content-Security-Policy" content="{WINDOW_POLICY}"><meta name="referrer" content="no-referrer">"#
+        ))
         .with_data_directory(webview_dir)
         .with_menu(None::<dioxus::desktop::muda::Menu>)
         .with_window(

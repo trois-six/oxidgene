@@ -40,6 +40,7 @@ pub mod person_profile;
 pub mod place_input;
 pub mod print;
 pub mod reference_tooltip;
+pub mod remote_media;
 pub mod resource_view;
 pub mod search_person;
 pub mod source_forms;

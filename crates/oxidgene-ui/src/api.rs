@@ -838,6 +838,10 @@ pub struct UpdateTreeBody {
     /// The thresholds of the anomaly rules, all at once.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anomaly_thresholds: Option<AnomalyThresholds>,
+    /// The hosts whose pictures the tree's readers load without being
+    /// asked, all at once.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trusted_media_hosts: Option<Vec<String>>,
 }
 
 /// An exclusion from sharing, as the tree's list shows it
@@ -3407,6 +3411,18 @@ impl ApiClient {
         format!("{}{}", self.base_url, path)
     }
 
+    /// What the address of a held picture starts with when it is drawn
+    /// from the API ([`Self::asset_url`]): the API's address, or nothing
+    /// where a shell serves the pictures from its own origin.
+    #[must_use]
+    pub fn picture_base(&self) -> &str {
+        if self.image_host.is_some() {
+            ""
+        } else {
+            &self.base_url
+        }
+    }
+
     /// The REST base every `/api/v1/…` route hangs from.
     pub fn rest_url(&self) -> String {
         self.url("/api/v1")
@@ -3913,6 +3929,17 @@ impl ApiClient {
 
     pub async fn update_tree(&self, id: Uuid, body: &UpdateTreeBody) -> Result<Tree, ApiError> {
         let result = self.put(&format!("/api/v1/trees/{id}"), body).await?;
+        self.cache.invalidate_prefix("/api/v1/trees");
+        Ok(result)
+    }
+
+    /// Add `host` to the hosts whose pictures the readers of tree `id` load
+    /// without being asked; the tree as it is now.
+    pub async fn trust_media_host(&self, id: Uuid, host: &str) -> Result<Tree, ApiError> {
+        let body = serde_json::json!({ "host": host });
+        let result = self
+            .post(&format!("/api/v1/trees/{id}/trusted-media-hosts"), &body)
+            .await?;
         self.cache.invalidate_prefix("/api/v1/trees");
         Ok(result)
     }

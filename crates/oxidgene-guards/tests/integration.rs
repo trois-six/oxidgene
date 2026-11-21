@@ -14,6 +14,7 @@ mod layering;
 mod lint_discipline;
 mod menu_buttons;
 mod migration_policy;
+mod remote_pictures;
 mod select_style;
 mod specs;
 mod status;

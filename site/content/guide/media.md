@@ -67,6 +67,26 @@ Click any tile to open the document in the viewer. It fills the window and shows
 - **Manage pages** (multi-page documents): **Add pages**, move pages, or delete one page with its transcript and links.
 - **Download file** saves the file; for a multi-page document, **Download page** saves the page shown and **All pages (ZIP)** saves the whole document. A page held elsewhere offers **Open the original link** instead.
 
+## Pictures held by other sites
+
+A page can be the address of a picture kept on another website: one you linked yourself, or one a GEDCOM file you imported names. Showing such a picture means asking that site for it, which tells it that you are looking at it, and when. A file received from somebody else could use this to follow who consults your tree. So OxidGene does not load these pictures on its own.
+
+In their place, a tile shows the name of the site, with two buttons:
+
+- **Load** shows the pictures of that site, for you, until you close or reload the application.
+- **Always** adds the site to the tree's trusted hosts: its pictures are then shown without asking, to everyone who views the tree. This button is offered to those who may edit the tree.
+
+The viewer shows the same choice in place of the picture. A portrait kept on a site that is not loaded shows the silhouette instead. **Open the original link** always opens the address in your browser, whatever you chose.
+
+Some pictures are shown without asking:
+
+- those of a page whose address you typed or attached from an archive portal yourself: saving it trusts its site for the tree;
+- those of the archive portals OxidGene knows.
+
+Some are never shown: addresses of your own computer or home network, which a file has no reason to name. Pictures are requested over a secure connection (`https`); a site that offers none cannot be shown here, and its link still opens.
+
+To see or change the trusted sites of a tree, open its settings; see [Settings](@/guide/settings.md).
+
 ## The media library
 
 {{ <screenshot name="media-library" alt="Media library of the Landrevel tree with its tag cloud" lang={lang} /> }}

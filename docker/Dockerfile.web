@@ -51,7 +51,8 @@ RUN find target/dx/oxidgene-web/release/web/public -type f -size +1k \
         -exec brotli -q 11 -k {} +
 
 # The Content-Security-Policy lets the page connect to its own origin and to
-# the origins of the API and OTLP endpoint baked into this bundle.
+# the origins of the API and OTLP endpoint baked into this bundle, and draw
+# pictures from them: a held picture comes from the API.
 RUN connect=""; \
     for url in "${OXIDGENE_API_URL}" "${OTEL_EXPORTER_OTLP_ENDPOINT}"; do \
         origin=$(printf '%s' "$url" | sed -nE 's#^(https?://[^/]+).*#\1#p'); \

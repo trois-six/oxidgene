@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T20:30:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -676,7 +676,8 @@ offering the same action the footer carries. Turning the page tries afresh: the
 refusal is remembered per page, not for the document. A portrait drawn from a
 remote address falls back to the silhouette on the same refusal, on every
 surface that draws one — pedigree card, search result, person header — rather
-than to a broken-image glyph.
+than to a broken-image glyph, and shows it too while that address is not
+loaded ([Remote pictures](#remote-pictures)).
 
 A remote page is offered as a link to its own address, opened in a new tab,
 never as a download button: the bytes are somebody else's, fetching them from
@@ -738,9 +739,46 @@ and cropping are not offered on a PDF.
 
 The viewer and the edit panel describe the **page** on screen, not the document
 above it: its format, dimensions, size, and whether the file is stored, remote,
-or held by nobody. A remote page is rendered from its URL exactly as a stored
-one is rendered from our copy, and the panel's URL field edits that page's
-address. Only a row that names a file offers the field; a document names none.
+or held by nobody. A remote page whose address is loaded is rendered from
+its URL exactly as a stored one is rendered from our copy, and the panel's
+URL field edits that page's address. Only a row that names a file offers
+the field; a document names none.
+
+#### Remote pictures
+
+A picture held only as an address is loaded when
+[Cross-cutting §7.2](cross-cutting.md#72-remote-media) says so, and one
+decision serves every surface. `components/remote_media.rs` holds the gate
+(`RemoteGate::picture`), the placeholder (`RemotePlaceholder`) and the
+plain picture that asks the gate (`GatedImage`); the shared portrait and
+crop components (`components/cropped_image.rs`) ask it too; the viewer's
+stage, its video and audio players and the cropper are handed the address
+the gate let through. No other element of the interface draws an address.
+
+Where the address is not loaded:
+
+| Surface | What is drawn |
+|---|---|
+| A gallery or library tile: a remote page, a document whose previews include one, a region of one | In the picture's place, the host's name, **Load** and, for whom may edit the tree, **Always**. One placeholder for the tile, not one per page of its mosaic; in the compact grid of an event's evidence the mark alone, the whole tile loading |
+| The viewer's stage and players, and the cropper | The same, larger, with a line saying that loading tells that site that the reader is looking at the picture, and when |
+| A page of a document's page list, in the viewer and in `DocumentForm` | A small control that loads, named after the host |
+| The square beside an attachment | A mark saying that a picture is not loaded, naming the host |
+| A portrait: pedigree card, events panel, search result, person header, picker, kinship path, merge | The silhouette of the person's sex, as for a picture the browser refuses: a card has no room for a control |
+
+**Load** loads every picture of that host in the tree, for this reader,
+until the window closes or reloads. **Always** adds the host to the tree's
+list, for every reader, and says so in a toast ([§4.21](#421-toasts)). A
+click or a key on either stays in the placeholder and does not open the
+tile. An address that is never loaded — a private or local one — shows the
+mark and says why, with no control. The remote badge, the link to the
+original address and every other action stay as they are: only the request
+waits.
+
+An address the reader gives themselves is loaded at once: the pages of a
+`DocumentForm`, typed or prefilled from an archive's portal, and the
+address typed in a page's edit panel, whose hosts the server trusts when
+the write is saved. The home page judges each card's portraits by that
+card's tree.
 
 #### Adding a document
 

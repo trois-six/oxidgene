@@ -55,7 +55,7 @@ function deployedHeaders() {
     const conf = readFileSync(join(repository, "docker", "security-headers.conf"), "utf8");
     const headers = {};
     for (const [, name, value] of conf.matchAll(/^add_header\s+(\S+)\s+"([^"]*)"\s+always;/gm)) {
-        headers[name.toLowerCase()] = value.replace("$csp_connect_src", apiOrigin);
+        headers[name.toLowerCase()] = value.replaceAll("$csp_connect_src", apiOrigin);
     }
     return headers;
 }

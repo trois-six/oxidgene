@@ -107,7 +107,11 @@ pub fn build_router(state: AppState) -> Router {
                 .put(tree::update_tree)
                 .delete(tree::delete_tree),
         )
-        .route("/{tree_id}/duplicate", post(tree::duplicate_tree));
+        .route("/{tree_id}/duplicate", post(tree::duplicate_tree))
+        .route(
+            "/{tree_id}/trusted-media-hosts",
+            post(tree::trust_media_host),
+        );
 
     let person_routes = Router::new()
         .route(

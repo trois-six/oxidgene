@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Archive Portals — Resolving a Cited Source to Its Image"
 description: "The oxidgene-archives crate, which resolves a cited source to the archive portal page showing its image: the per-country catalogue of national, regional, departmental, cantonal and municipal archives, one adapter per portal platform shared by every archive running it, citation recognition in any convention — the normalized form, the words of the source and citation read with vocabularies kept as data per language, repository records, the cited event and portal addresses — for acts, tables and other series (censuses, military registers, conscription lists, succession tables), the cited person's surname sent only to an index of persons searched by name, the "Find in the archives" dialog completing a partial citation, the resolution contract, display in the portal's own viewer for every archive — a desktop archive window or a web tab —, attaching cited views over IIIF as a remote multi-page document that can be cropped, built but not offered until the archives can be browsed freely, caching, access etiquette, testing, delivery phases, and a survey of the platforms behind French departmental portals."
 tags: [oxidgene, specification, archives, sources, integration]
-generated: { by: human:maintainer, at: 2026-11-21T10:50:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T20:30:00Z }
 sources:
   - id: arkotheque
     title: "Arkothèque, publishing software for archive services (1 égal 2)"
@@ -220,6 +220,16 @@ catalogue refuses `insecure_http` for any other (`PLAIN_HTTP_ARCHIVES` in
 
 A collection marked `insecure_http` gives its endpoint the mark (§4.2), and
 the transports reach plain `http` for that endpoint alone.
+
+**Pictures.** The hosts of the origins the catalogued portals answer on
+are trusted for the pictures a tree holds as addresses
+([Cross-cutting §7.2](cross-cutting.md#72-remote-media)): an attached view
+is drawn without the reader being asked, in every tree
+(`ArchiveRegistry::host_trust`). They are loaded over `https`, but for the
+portals above, whose pictures keep their plain `http` — the one host both
+shells' policies allow it for. A view served from another host than its
+portal's is trusted by the tree it is attached to, when it is attached
+(§6.4).
 
 `display: "iiif"` is set only for an archive whose terms allow reuse with
 attribution and whose images load across origins; the decision is recorded
@@ -2854,7 +2864,10 @@ written before the reader saves it:
 The saved document is an ordinary media record: it appears among the
 documents of its event, on the profiles and couple pages that show the
 event, and every viewer action applies to it. Its tiles draw each page's
-thumbnail address, never the full view.
+thumbnail address, never the full view. Saving it records the hosts of its
+views and of their thumbnails among the tree's trusted media hosts, as for
+any address a reader adds themselves (§3.1): its pictures are drawn for
+every reader of the tree without their being asked.
 
 Keeping only the act out of a double page or a crowded view is done with the
 existing region tool of the gallery ([Data Model](data-model.md#vignette)): a

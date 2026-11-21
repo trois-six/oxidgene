@@ -1138,6 +1138,11 @@ const PARITY: &[(&str, &str, Twin)] = &[
         Gql(&["Query.valueSuggestions"]),
     ),
     (
+        "POST",
+        "/api/v1/trees/{tree_id}/trusted-media-hosts",
+        Gql(&["Mutation.trustMediaHost"]),
+    ),
+    (
         "GET",
         "/api/v1/trees/{tree_id}/unlocated-places",
         Gql(&["Query.unlocatedPlaces"]),

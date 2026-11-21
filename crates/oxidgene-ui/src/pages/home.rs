@@ -314,6 +314,9 @@ struct TreeSummary {
     /// The viewer's role on the tree, and what it lets them do.
     role: TreeRole,
     permissions: Vec<Permission>,
+    /// The hosts whose pictures the tree's readers load without being
+    /// asked: its card draws portraits.
+    trusted_media_hosts: Vec<String>,
 }
 
 impl TreeSummary {
@@ -330,6 +333,7 @@ impl TreeSummary {
             import_job: tree.import_job_id,
             role: tree.viewer_access.role,
             permissions: tree.viewer_access.permissions.clone(),
+            trusted_media_hosts: tree.trusted_media_hosts.clone(),
         }
     }
 }
@@ -601,6 +605,7 @@ fn TreesGrid(
                     import_job: tree.import_job,
                     role: tree.role,
                     permissions: tree.permissions.clone(),
+                    trusted_media_hosts: tree.trusted_media_hosts.clone(),
                     on_import_over,
                     on_rename: {
                         let tree = (tree.id, tree.name.clone());
@@ -864,6 +869,7 @@ fn TreeCard(
     /// The viewer's role, and what it lets them do: the menu offers that.
     role: TreeRole,
     permissions: Vec<Permission>,
+    trusted_media_hosts: Vec<String>,
     on_import_over: EventHandler<()>,
     on_rename: EventHandler<()>,
     on_duplicate: EventHandler<()>,
@@ -985,7 +991,13 @@ fn TreeCard(
                 // An importing tree is still being written: its persons are
                 // read once the import is over, when this block mounts.
                 if let (false, Ok(id)) = (importing, Uuid::parse_str(&tree_id)) {
-                    RecentPersons { tree_id: id }
+                    // The portraits are this tree's, and so is the trust.
+                    crate::components::remote_media::TrustedMediaHosts {
+                        key: "{id}",
+                        tree_id: id,
+                        hosts: trusted_media_hosts.clone(),
+                        RecentPersons { tree_id: id }
+                    }
                 }
                 div { class: "tree-card-footer",
                     div { class: "tree-card-footer-left",
@@ -1771,6 +1783,7 @@ mod tests {
             import_job: None,
             role: TreeRole::Owner,
             permissions: Vec::new(),
+            trusted_media_hosts: Vec::new(),
         }
     }
 

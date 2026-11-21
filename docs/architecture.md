@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T16:13:30Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
 ---
 
 
@@ -1134,7 +1134,9 @@ JSON, read by an injected desktop source rather than by `oxidgene-ui`.
 - The frontend image's nginx sends the security headers of
     `docker/security-headers.conf` with every page and asset. Its
     Content-Security-Policy lets the page connect to its own origin and to
-    `$csp_connect_src`, which `/etc/nginx/csp-connect-src.conf` sets: the image
+    `$csp_connect_src`, and draw pictures from both
+    ([Cross-cutting §7.2](cross-cutting.md#72-remote-media)), which
+    `/etc/nginx/csp-connect-src.conf` sets: the image
     writes it from its `OXIDGENE_API_URL` and `OTEL_EXPORTER_OTLP_ENDPOINT`
     build arguments, and the Helm chart replaces it with the origin of
     `frontend.otlpEndpoint` and `frontend.extraConnectSrc`. The e2e static

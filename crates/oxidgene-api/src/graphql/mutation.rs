@@ -159,6 +159,24 @@ impl TreeMutation {
         .await
     }
 
+    /// Add a host to those whose pictures the tree's readers load without
+    /// being asked. Mirrors `POST /trees/:tree_id/trusted-media-hosts`.
+    async fn trust_media_host(
+        &self,
+        ctx: &Context<'_>,
+        tree_id: ID,
+        host: String,
+    ) -> Result<GqlTree> {
+        boxed(async move {
+            let tree_id = live_tree(ctx, &tree_id).await?;
+            let tree =
+                tree::trust_media_host(viewer_from_ctx(ctx), db_from_ctx(ctx), tree_id, &host)
+                    .await?;
+            Ok(tree.into())
+        })
+        .await
+    }
+
     /// Delete a tree.
     ///
     /// Flags it as deleted and returns straight away; the rows it owns and its

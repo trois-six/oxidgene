@@ -45,6 +45,10 @@ Ces réglages sont ceux qu’applique l’option d’export **Écarter les perso
 
 Sur un serveur web partagé avec d’autres personnes, vous pouvez garder pour vous des personnes et des branches entières : ouvrez le menu d’une personne dans l’arbre, choisissez **Exclure du partage**, puis **Exclure cette personne**, **Exclure ses ascendants** ou **Exclure ses descendants**, et confirmez. Personne d’autre que vous ne les verra, quoi que vous partagiez. La carte **Exclusions du partage** des réglages de Confidentialité les liste, avec le nombre de personnes que couvre chacune, et **Retirer** en retire une. Un enfant ajouté plus tard sous une branche exclue est exclu lui aussi. L’application de bureau, utilisée par vous seul, n’a pas d’exclusions.
 
+### Images hébergées par d’autres sites
+
+Une image conservée sur un autre site n’est affichée que sur demande, car l’afficher indique à ce site que vous la consultez ; voir [Photos et documents](@/guide/media.fr.md). La carte **Images hébergées par d’autres sites** liste les sites dont l’arbre affiche les images sans demande, pour toutes les personnes qui le consultent. Le × d’une ligne retire la confiance accordée à ce site. Pour en ajouter un, saisissez son nom, ou collez l’adresse d’une de ses images, puis cliquez sur **Faire confiance à un hôte**. Des sites sont aussi ajoutés quand vous choisissez **Toujours** sur une image, et quand vous liez vous-même une adresse.
+
 ## Seuils des anomalies
 
 {{ <screenshot name="tree-settings-anomalies" alt="Section Seuils des anomalies des paramètres de l’arbre, ses seuils en quatre cartes : dates, filiation, unions et lieux" lang={lang} /> }}

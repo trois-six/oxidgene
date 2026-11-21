@@ -27,6 +27,9 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, CreateVignetteBody};
 use crate::components::modal::Modal;
+use crate::components::remote_media::{
+    Picture, PlaceholderSize, RemotePlaceholder, use_remote_gate,
+};
 use crate::i18n::use_i18n;
 
 /// A rectangle in the source image's pixel space.
@@ -191,6 +194,7 @@ fn CropStage(
                         class: "cropper-image",
                         src: "{image_url}",
                         alt: "{file_name}",
+                        "referrerpolicy": "no-referrer",
                         // The browser would otherwise start its own drag of the
                         // image, which cancels ours halfway through.
                         draggable: "false",
@@ -299,6 +303,7 @@ fn CropUnavailable(on_close: EventHandler<()>) -> Element {
 pub fn ImageCropper(props: ImageCropperProps) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let gate = use_remote_gate();
 
     // Where the image actually sits on screen, in CSS pixels. Zero until the
     // element mounts; the drag maths is skipped while it is.
@@ -322,6 +327,12 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     let image_url = remote_url
         .clone()
         .or_else(|| api.media_file_url(tree_id, &media));
+    // Somebody else's address is drawn once the remote gate lets it
+    // through; its placeholder stands on the stage until then.
+    let gated = image_url.as_deref().map(|address| gate.picture(address));
+    let held_back = gated.as_ref().and_then(Picture::blocked);
+    let no_file = image_url.is_none();
+    let image_url = gated.and_then(Picture::drawn);
 
     // The size the crop is measured in. Our own files were decoded on upload;
     // a remote one has never been opened here, so the browser that just drew
@@ -346,7 +357,6 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
     // Nothing to draw a rectangle on: a file that is not a picture, or a
     // record naming a file nobody ever uploaded and that names no address
     // either. Saying so beats showing a canvas where dragging does nothing.
-    let no_file = image_url.is_none();
     if !oxidgene_core::types::is_image_mime(&media.mime_type) || no_file {
         return rsx! { CropUnavailable { on_close } };
     }
@@ -411,6 +421,9 @@ pub fn ImageCropper(props: ImageCropperProps) -> Element {
                 }
             }
 
+            if let Some(blocked) = held_back {
+                RemotePlaceholder { blocked, size: PlaceholderSize::Stage }
+            }
             CropStage {
                 image_url,
                 image_element_id,

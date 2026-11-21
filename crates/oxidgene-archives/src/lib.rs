@@ -27,8 +27,9 @@ pub mod vocabulary;
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, OnceLock};
 
+use oxidgene_core::remote_media::{HostTrust, RemoteAddress};
 use serde::{Deserialize, Serialize};
 
 pub use catalog::{Archive, CatalogError, Collection, Display, Level, Period};
@@ -192,6 +193,10 @@ pub struct ArchiveRegistry {
     platforms: Vec<Box<dyn Platform>>,
     /// The words citations are written with, every language's.
     vocabularies: Vec<Vocabulary>,
+    /// The hosts the catalogued portals answer on, each with whether it
+    /// answers over plain `http`: read from the catalogue on the first
+    /// [`Self::host_trust`], and as fixed as the catalogue is.
+    portal_hosts: OnceLock<HashMap<String, bool>>,
 }
 
 static EMBEDDED: LazyLock<ArchiveRegistry> = LazyLock::new(|| {
@@ -218,6 +223,7 @@ impl ArchiveRegistry {
             archives,
             platforms,
             vocabularies: vocabulary::embedded(),
+            portal_hosts: OnceLock::new(),
         })
     }
 
@@ -238,6 +244,35 @@ impl ArchiveRegistry {
     /// Every archive, in catalogue order: by country, then by file name.
     pub fn archives(&self) -> &[Archive] {
         &self.archives
+    }
+
+    /// What the catalogue says of the pictures of `host`, a host as
+    /// [`RemoteAddress`] reads it: trusted when a catalogued portal answers
+    /// on it — the origins its adapter declares — and over plain `http`
+    /// too for a portal the catalogue marks `insecure_http`
+    /// (Archive Portals §3.1).
+    pub fn host_trust(&self, host: &str) -> HostTrust {
+        let hosts = self.portal_hosts.get_or_init(|| {
+            let mut hosts = HashMap::new();
+            let endpoints = self.archives.iter().flat_map(|archive| {
+                archive.collections.iter().filter_map(|collection| {
+                    self.platform(&collection.platform)?.endpoint(collection)
+                })
+            });
+            for endpoint in endpoints {
+                for origin in endpoint.origins() {
+                    if let Some(address) = RemoteAddress::parse(origin) {
+                        *hosts.entry(address.host).or_default() |= !address.secure;
+                    }
+                }
+            }
+            hosts
+        });
+        match hosts.get(host) {
+            Some(true) => HostTrust::TrustedPlainHttp,
+            Some(false) => HostTrust::Trusted,
+            None => HostTrust::Unknown,
+        }
     }
 
     /// The archive citations starting with `code` belong to.

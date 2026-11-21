@@ -1,5 +1,6 @@
 //! The Privacy section of the tree settings (`docs/ui-settings.md` §8): the
-//! default privacy, the contemporary rule and how hidden persons appear.
+//! default privacy, the contemporary rule, how hidden persons appear, and
+//! the hosts whose pictures are loaded without asking.
 //!
 //! Every control saves as soon as it changes, with a local override so it
 //! answers the click rather than the refetch. The settings that only matter
@@ -128,6 +129,104 @@ pub fn PrivacySection(tree_id: String, tree_resource: TreeResource) -> Element {
                 if sharing {
                     ExclusionsCard { key: "exclusions-{tree.id}", tree_id: tree.id }
                 }
+                MediaHostsCard { tree_id: tree.id, hosts: tree.trusted_media_hosts.clone() }
+            }
+        }
+    }
+}
+
+/// The hosts whose pictures the tree's readers load without being asked
+/// (`docs/cross-cutting.md` §7.2): listed, each with its removal, and a
+/// field adding one by its name or by an address of it.
+#[component]
+fn MediaHostsCard(tree_id: Uuid, hosts: Vec<String>) -> Element {
+    let i18n = use_i18n();
+    let api = use_context::<ApiClient>();
+    let tree_cache = use_tree_cache();
+    let mut entry = use_signal(String::new);
+    let mut error = use_signal(|| None::<String>);
+    let mut adding = use_signal(|| false);
+
+    let add = {
+        let api = api.clone();
+        move |_| {
+            let Ok(host) = oxidgene_core::remote_media::trusted_host(&entry()) else {
+                error.set(Some(i18n.t("settings.media_hosts_invalid")));
+                return;
+            };
+            let api = api.clone();
+            adding.set(true);
+            spawn(async move {
+                match api.trust_media_host(tree_id, &host).await {
+                    Ok(_) => {
+                        entry.set(String::new());
+                        error.set(None);
+                        tree_cache.invalidate();
+                    }
+                    Err(e) => error.set(Some(e.message(&i18n))),
+                }
+                adding.set(false);
+            });
+        }
+    };
+
+    rsx! {
+        div { class: "card settings-card",
+            h3 { class: "settings-card-title", {i18n.t("settings.media_hosts")} }
+            p { class: "settings-card-desc", {i18n.t("settings.media_hosts_desc")} }
+            if hosts.is_empty() {
+                p { class: "settings-card-desc", {i18n.t("settings.media_hosts_empty")} }
+            } else {
+                ul { class: "settings-hosts",
+                    for host in hosts.iter() {
+                        li { key: "{host}", class: "settings-host",
+                            span { class: "settings-host-name", "{host}" }
+                            button {
+                                class: "pf-row-btn",
+                                r#type: "button",
+                                title: i18n.t_args("settings.media_hosts_remove", &[("host", host.as_str())]),
+                                aria_label: i18n.t_args("settings.media_hosts_remove", &[("host", host.as_str())]),
+                                onclick: {
+                                    let api = api.clone();
+                                    let kept: Vec<String> =
+                                        hosts.iter().filter(|other| *other != host).cloned().collect();
+                                    move |_| {
+                                        save(
+                                            &api,
+                                            i18n,
+                                            tree_cache,
+                                            error,
+                                            Some(tree_id),
+                                            UpdateTreeBody {
+                                                trusted_media_hosts: Some(kept.clone()),
+                                                ..Default::default()
+                                            },
+                                        );
+                                    }
+                                },
+                                "\u{00D7}"
+                            }
+                        }
+                    }
+                }
+            }
+            div { class: "settings-tree-name-form",
+                TextInput {
+                    r#type: "text",
+                    value: "{entry}",
+                    aria_label: i18n.t("settings.media_hosts_name"),
+                    on_input: move |text: String| entry.set(text),
+                }
+                button {
+                    class: "btn btn-primary",
+                    r#type: "button",
+                    disabled: adding() || entry().trim().is_empty(),
+                    onclick: add,
+                    {i18n.t("settings.media_hosts_add")}
+                }
+            }
+            if let Some(err) = error() {
+                div { class: "error-msg settings-feedback", "{err}" }
             }
         }
     }

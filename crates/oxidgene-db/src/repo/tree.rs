@@ -42,6 +42,9 @@ pub struct TreeChanges {
     pub submitter_email: Option<Option<String>>,
     pub submitter_address: Option<Option<String>>,
     pub anomaly_thresholds: Option<oxidgene_core::types::AnomalyThresholds>,
+    /// The whole list, as `oxidgene_core::remote_media::trusted_hosts`
+    /// stores it.
+    pub trusted_media_hosts: Option<Vec<String>>,
 }
 
 /// The stored form of `thresholds`: none for the defaults, so that a tree
@@ -55,6 +58,20 @@ pub fn thresholds_column(thresholds: &oxidgene_core::types::AnomalyThresholds) -
 /// The thresholds a stored value holds: the defaults for none, and for each
 /// threshold it leaves out.
 pub fn thresholds_of(column: Option<&str>) -> oxidgene_core::types::AnomalyThresholds {
+    column
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default()
+}
+
+/// The stored form of a trust list: none for an empty one.
+pub fn trusted_hosts_column(hosts: &[String]) -> Option<String> {
+    (!hosts.is_empty())
+        .then(|| serde_json::to_string(hosts).ok())
+        .flatten()
+}
+
+/// The trust list a stored value holds: empty for none.
+pub fn trusted_hosts_of(column: Option<&str>) -> Vec<String> {
     column
         .and_then(|json| serde_json::from_str(json).ok())
         .unwrap_or_default()
@@ -91,6 +108,12 @@ impl TreeChanges {
         set(
             &mut active.anomaly_thresholds,
             self.anomaly_thresholds.as_ref().map(thresholds_column),
+        );
+        set(
+            &mut active.trusted_media_hosts,
+            self.trusted_media_hosts
+                .as_deref()
+                .map(trusted_hosts_column),
         );
     }
 }
@@ -190,6 +213,7 @@ impl TreeRepo {
             submitter_email: Set(None),
             submitter_address: Set(None),
             anomaly_thresholds: Set(None),
+            trusted_media_hosts: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -352,6 +376,7 @@ fn into_domain(m: tree::Model) -> Tree {
         submitter_email: m.submitter_email,
         submitter_address: m.submitter_address,
         anomaly_thresholds: thresholds_of(m.anomaly_thresholds.as_deref()),
+        trusted_media_hosts: trusted_hosts_of(m.trusted_media_hosts.as_deref()),
         created_at: m.created_at,
         updated_at: m.updated_at,
         deleted_at: m.deleted_at,

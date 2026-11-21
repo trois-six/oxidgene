@@ -357,7 +357,8 @@ impl ImageCrop {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ImageSource {
     /// An address outside our control, which the reader's engine fetches for
-    /// itself. We never proxy somebody else's bandwidth.
+    /// itself, when [`crate::remote_media::remote_load`] lets it. We never
+    /// proxy somebody else's bandwidth.
     Remote { url: String },
     /// The thumbnail this backend generated for a media it holds.
     Thumbnail { media_id: Uuid, version: String },
@@ -459,7 +460,8 @@ pub fn is_image_mime(mime_type: &str) -> bool {
 /// those are worth recording even though the bytes are somebody else's. Such a
 /// record has no `storage_key` and never will; the browser fetches it directly
 /// from the URL, which also means we never become a proxy for someone else's
-/// bandwidth.
+/// bandwidth. Whether the browser is handed the URL at all is
+/// [`crate::remote_media::remote_load`]'s to say.
 pub fn is_remote_url(file_path: &str) -> bool {
     let path = file_path.trim();
     path.starts_with("http://") || path.starts_with("https://")

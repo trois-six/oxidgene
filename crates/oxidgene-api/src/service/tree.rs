@@ -11,6 +11,7 @@ use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{Principal, TreeAccess, TreeRole, ViewerAccess, ViewerContext};
 use oxidgene_core::enums::{HiddenDisplay, TreeDefaultPrivacy};
 use oxidgene_core::history::AuditEntity;
+use oxidgene_core::remote_media;
 use oxidgene_core::types::{AnomalyThresholds, Connection, Tree, check_contemporary_years};
 use oxidgene_db::repo::{
     BackgroundJobRepo, MembershipRepo, PaginationParams, TreeChanges, TreeRepo,
@@ -138,6 +139,16 @@ pub struct TreePatch {
     /// The thresholds of the anomaly rules, all at once: a threshold left
     /// out takes its default.
     pub anomaly_thresholds: Option<AnomalyThresholds>,
+    /// The hosts whose pictures the tree's readers load without being
+    /// asked, all at once (`docs/cross-cutting.md` §7.2).
+    pub trusted_media_hosts: Option<Vec<String>>,
+}
+
+/// A host to add to a tree's trusted media hosts.
+#[derive(Debug, Deserialize)]
+pub struct TrustedMediaHost {
+    /// A host name, or an address whose host is taken.
+    pub host: String,
 }
 
 /// The viewer's trees, a page at a time, each with the import running into
@@ -280,16 +291,11 @@ pub async fn create_tree(
     Ok(tree)
 }
 
-/// Update tree `tree_id`. A blank name is refused, so are anomaly thresholds
-/// and a contemporary threshold out of their ranges, and a SOSA root or own record from another tree is
-/// not found.
-pub async fn update_tree(
-    viewer: &ViewerContext,
-    db: &DatabaseConnection,
-    cache: &TreeCache,
-    tree_id: Uuid,
-    patch: TreePatch,
-) -> Result<Tree, OxidGeneError> {
+/// What `patch` is refused for before anything is read: a blank name,
+/// anomaly thresholds or a contemporary threshold out of their ranges, a
+/// trusted media host that is none or is never loaded. The trusted media
+/// hosts it sets, as they are stored.
+fn checked(patch: &TreePatch) -> Result<Option<Vec<String>>, OxidGeneError> {
     if let Some(name) = &patch.name {
         require_name(name)?;
     }
@@ -299,6 +305,26 @@ pub async fn update_tree(
     if let Some(years) = patch.contemporary_years {
         check_contemporary_years(years).map_err(OxidGeneError::Validation)?;
     }
+    patch
+        .trusted_media_hosts
+        .as_deref()
+        .map(remote_media::trusted_hosts)
+        .transpose()
+        .map_err(OxidGeneError::Validation)
+}
+
+/// Update tree `tree_id`. A blank name is refused, so are anomaly thresholds
+/// and a contemporary threshold out of their ranges and a trusted media host
+/// that is none or is never loaded, and a SOSA root or own record from
+/// another tree is not found.
+pub async fn update_tree(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    cache: &TreeCache,
+    tree_id: Uuid,
+    patch: TreePatch,
+) -> Result<Tree, OxidGeneError> {
+    let trusted_media_hosts = checked(&patch)?;
     let txn = begin_tree_write(db, tree_id).await?;
     for person_id in [patch.sosa_root_person_id, patch.self_person_id]
         .into_iter()
@@ -332,6 +358,7 @@ pub async fn update_tree(
             submitter_email: patch.submitter_email.map(blank_to_none),
             submitter_address: patch.submitter_address.map(blank_to_none),
             anomaly_thresholds: patch.anomaly_thresholds,
+            trusted_media_hosts,
             ..TreeChanges::default()
         },
     )
@@ -346,6 +373,81 @@ pub async fn update_tree(
     // (docs/architecture.md §4.1).
     cache.forget_redactions(tree_id);
     Ok(tree)
+}
+
+/// Add `host` to the hosts whose pictures the readers of tree `tree_id`
+/// load without being asked (`docs/cross-cutting.md` §7.2): what whoever
+/// may edit the tree asks for from a picture not loaded yet. A host that is
+/// none, or one that is never loaded, is refused, and so is one more than
+/// the list holds; one already trusted changes nothing.
+pub async fn trust_media_host(
+    viewer: &ViewerContext,
+    db: &DatabaseConnection,
+    tree_id: Uuid,
+    host: &str,
+) -> Result<Tree, OxidGeneError> {
+    let host = remote_media::trusted_host(host).map_err(OxidGeneError::Validation)?;
+    let txn = begin_tree_write(db, tree_id).await?;
+    let Some(tree) = trust_media_host_in(viewer, &txn, tree_id, host).await? else {
+        return Err(OxidGeneError::Validation(format!(
+            "a tree trusts at most {} media hosts",
+            remote_media::MAX_TRUSTED_HOSTS
+        )));
+    };
+    commit_tx(txn).await?;
+    Ok(tree)
+}
+
+/// Trust the host of `address` in tree `tree_id`, in `txn`: the address of
+/// a page somebody who may edit the tree added themselves, typed or taken
+/// from an archive's portal — never one a file brought. An address of no
+/// public host, and a full list, change nothing: the page is written all
+/// the same.
+pub(crate) async fn trust_media_address_in(
+    viewer: &ViewerContext,
+    txn: &oxidgene_db::sea_orm::DatabaseTransaction,
+    tree_id: Uuid,
+    address: &str,
+) -> Result<(), OxidGeneError> {
+    if let Some(host) = remote_media::trustable_host(address) {
+        trust_media_host_in(viewer, txn, tree_id, host).await?;
+    }
+    Ok(())
+}
+
+/// Add `host`, as [`remote_media::trusted_host`] gives it, to the trusted
+/// media hosts of tree `tree_id`, in `txn`, with its history. The tree as
+/// it is now, or `None` when its list is full.
+async fn trust_media_host_in(
+    viewer: &ViewerContext,
+    txn: &oxidgene_db::sea_orm::DatabaseTransaction,
+    tree_id: Uuid,
+    host: String,
+) -> Result<Option<Tree>, OxidGeneError> {
+    let tree = TreeRepo::get(txn, tree_id).await?;
+    if tree.trusted_media_hosts.contains(&host) {
+        return Ok(Some(tree));
+    }
+    let mut hosts = tree.trusted_media_hosts;
+    hosts.push(host);
+    let Ok(hosts) = remote_media::trusted_hosts(&hosts) else {
+        return Ok(None);
+    };
+    let pending = Change::update(viewer, tree_id, AuditEntity::Tree, tree_id)
+        .tree_settings()
+        .prepare(txn)
+        .await?;
+    let tree = TreeRepo::update(
+        txn,
+        tree_id,
+        TreeChanges {
+            trusted_media_hosts: Some(hosts),
+            ..TreeChanges::default()
+        },
+    )
+    .await?;
+    pending.record(txn).await?;
+    Ok(Some(tree))
 }
 
 /// Apply what a tree update changes of who the tree is visible to

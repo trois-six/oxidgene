@@ -31,6 +31,7 @@ use crate::service::event_date;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
 use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
+use crate::service::tree::trust_media_address_in;
 
 /// A page that names a file without holding its bytes — a URL an archive
 /// serves, or a path a GEDCOM mentioned.
@@ -188,8 +189,26 @@ pub async fn create_page(
         .media(new.document_id)
         .record_unversioned(&txn)
         .await?;
+    trust_page_hosts(viewer, &txn, tree_id, &page).await?;
     commit_tx(txn).await?;
     Ok(page)
+}
+
+/// Trust the hosts `page` is drawn from, its own address's and its
+/// thumbnail's, for the readers of `tree_id`
+/// (`docs/cross-cutting.md` §7.2): whoever writes an address themselves
+/// vouches for it, which a file that brought one never does.
+async fn trust_page_hosts(
+    viewer: &ViewerContext,
+    txn: &oxidgene_db::sea_orm::DatabaseTransaction,
+    tree_id: Uuid,
+    page: &Media,
+) -> Result<(), OxidGeneError> {
+    let addresses = [Some(page.file_path.as_str()), page.thumbnail_url.as_deref()];
+    for address in addresses.into_iter().flatten() {
+        trust_media_address_in(viewer, txn, tree_id, address).await?;
+    }
+    Ok(())
 }
 
 /// Store uploaded bytes in `tree_id`, as a new page or into an existing one.
@@ -375,7 +394,11 @@ pub async fn update_media(
     }
     let stored = MediaRepo::get(&txn, id).await?;
     let patch = media_patch(&stored, update)?;
+    let given = given_addresses(&stored, &patch);
     let updated = MediaRepo::update(&txn, id, patch).await?;
+    for address in &given {
+        trust_media_address_in(viewer, &txn, tree_id, address).await?;
+    }
     // The title, path and type are what a card draws from.
     refresh_showing(&txn, profiles, tree_id, id).await?;
     Change::update(viewer, tree_id, AuditEntity::Media, id)
@@ -384,6 +407,27 @@ pub async fn update_media(
         .await?;
     commit_tx(txn).await?;
     Ok(updated)
+}
+
+/// The addresses `patch` gives a medium that it did not hold already: the
+/// ones whoever edits it vouches for (`docs/cross-cutting.md` §7.2). An
+/// address left as it was — one an import brought, beside the one being
+/// given — is not theirs.
+fn given_addresses(stored: &Media, patch: &MediaPatch) -> Vec<String> {
+    let file_path = patch
+        .file_path
+        .as_ref()
+        .filter(|path| path.as_str() != stored.file_path.trim());
+    let thumbnail_url = patch
+        .thumbnail_url
+        .as_ref()
+        .and_then(Option::as_ref)
+        .filter(|url| Some(url.as_str()) != stored.thumbnail_url.as_deref().map(str::trim));
+    file_path
+        .into_iter()
+        .chain(thumbnail_url)
+        .cloned()
+        .collect()
 }
 
 /// Turn an update into a repository patch, deriving what the client may not

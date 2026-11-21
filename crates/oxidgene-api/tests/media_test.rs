@@ -4676,3 +4676,243 @@ async fn import_sources_are_bounded_by_what_they_are() {
     let job = common::import_job(&app, &worker, &tree_id, "format=gedzip", heavy).await;
     assert_eq!(job["phase"], "completed", "{job}");
 }
+
+/// A tree's trusted media hosts (docs/cross-cutting.md §7.2): none on a new
+/// tree; the owner's update replaces the list, stored as lowercase hosts,
+/// sorted, each once; `POST trusted-media-hosts` adds one; an entry naming
+/// no host, or a private or local one, is refused and changes nothing. The
+/// GraphQL twin is in `graphql_test.rs`.
+#[tokio::test]
+async fn trusted_media_hosts_are_a_tree_setting_set_whole_or_one_at_a_time() {
+    let h = setup().await;
+    let tree = format!("/api/v1/trees/{}", h.tree_id);
+    let trust = format!("{tree}/trusted-media-hosts");
+    let (_, read) = send(&h.app, Method::GET, &tree, None).await;
+    assert_eq!(read["trusted_media_hosts"], json!([]));
+
+    let (status, set) = send(
+        &h.app,
+        Method::PUT,
+        &tree,
+        Some(json!({ "trusted_media_hosts": [
+            "Media.Example.org",
+            "https://archives.example.org/scan/42.jpg",
+            "archives.example.org"
+        ] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{set}");
+    assert_eq!(
+        set["trusted_media_hosts"],
+        json!(["archives.example.org", "media.example.org"])
+    );
+
+    let all = json!([
+        "archives.example.org",
+        "media.example.org",
+        "photos.example.net"
+    ]);
+    for host in [
+        "Photos.Example.net",
+        "https://photos.example.net/album/3.jpg",
+    ] {
+        let (status, added) =
+            send(&h.app, Method::POST, &trust, Some(json!({ "host": host }))).await;
+        assert_eq!(status, StatusCode::OK, "{host}: {added}");
+        assert_eq!(added["trusted_media_hosts"], all, "{host}");
+    }
+
+    for refused in [
+        "",
+        "not a host",
+        "localhost",
+        "nas.local",
+        "192.168.1.10",
+        "0x7f.1",
+        "[::1]",
+    ] {
+        let (status, body) = send(
+            &h.app,
+            Method::POST,
+            &trust,
+            Some(json!({ "host": refused })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}: {body}");
+        assert_eq!(body["error"], "validation_error", "{refused}");
+        let (status, body) = send(
+            &h.app,
+            Method::PUT,
+            &tree,
+            Some(json!({ "trusted_media_hosts": ["archives.example.org", refused] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}: {body}");
+    }
+    let (_, read) = send(&h.app, Method::GET, &tree, None).await;
+    assert_eq!(read["trusted_media_hosts"], all);
+
+    // More hosts than a list holds.
+    let many: Vec<String> = (0..257)
+        .map(|index| format!("host{index}.example.org"))
+        .collect();
+    let (status, body) = send(
+        &h.app,
+        Method::PUT,
+        &tree,
+        Some(json!({ "trusted_media_hosts": many })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    // The owner removes a host by sending the list without it.
+    let (status, kept) = send(
+        &h.app,
+        Method::PUT,
+        &tree,
+        Some(json!({ "trusted_media_hosts": ["archives.example.org"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{kept}");
+    assert_eq!(kept["trusted_media_hosts"], json!(["archives.example.org"]));
+}
+
+/// The trusted media hosts of tree `tree_id`.
+async fn trusted_hosts(app: &axum::Router, tree_id: Uuid) -> Value {
+    let (status, tree) = send(app, Method::GET, &format!("/api/v1/trees/{tree_id}"), None).await;
+    assert_eq!(status, StatusCode::OK, "{tree}");
+    tree["trusted_media_hosts"].clone()
+}
+
+/// Whoever adds an address themselves vouches for its host: a page created
+/// as an address, a page repointed, a thumbnail address given. A file that
+/// brings an address trusts nothing, and a private address is recorded
+/// without being trusted. The GraphQL twin is in `graphql_test.rs`.
+#[tokio::test]
+async fn an_address_somebody_adds_is_trusted_and_one_a_file_brings_is_not() {
+    let db = setup_db().await;
+    let app = common::app_on(db.clone());
+    let tree = common::new_tree(&app, "Imported").await;
+    let tree_id = Uuid::parse_str(&tree).unwrap();
+    let media = format!("/api/v1/trees/{tree}/media");
+
+    // An import: its remote `OBJE.FILE` is recorded, and nothing trusted.
+    let gedcom = "0 HEAD\n1 GEDC\n2 VERS 5.5.1\n2 FORM LINEAGE-LINKED\n1 CHAR UTF-8\n\
+        0 @I1@ INDI\n1 NAME Child_1 /BRANCH_A/\n1 OBJE @M1@\n\
+        0 @M1@ OBJE\n1 FILE https://tracker.example.org/pixel.gif\n2 FORM gif\n\
+        0 TRLR\n";
+    common::import_gedcom(&app, &db, &tree, gedcom).await;
+    let (_, library) = send(&app, Method::GET, &media, None).await;
+    let imported = library["edges"][0]["node"]["id"].clone();
+    let (status, bundle) = send(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/gallery-bundle"),
+        Some(json!({ "media_ids": [imported], "vignette_ids": [] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{bundle}");
+    assert_eq!(
+        bundle["media"][0]["document_previews"],
+        json!([{ "kind": "remote", "url": "https://tracker.example.org/pixel.gif" }]),
+        "the import recorded the address, which a tile would draw: {bundle}"
+    );
+    assert_eq!(trusted_hosts(&app, tree_id).await, json!([]));
+
+    // A page somebody adds as an address, with its thumbnail on another host.
+    let document = new_document(&app, tree_id, None).await;
+    let page = |file_path: &str, thumbnail: Option<&str>| {
+        json!({
+            "document_id": document,
+            "file_name": "7.jpg",
+            "mime_type": "image/jpeg",
+            "file_path": file_path,
+            "file_size": 0,
+            "thumbnail_url": thumbnail,
+        })
+    };
+    let (status, created) = send(
+        &app,
+        Method::POST,
+        &media,
+        Some(page(
+            "https://Archives.Example.org/view/7.jpg",
+            Some("https://thumbs.example.org/view/7.jpg"),
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let page_id = created["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        trusted_hosts(&app, tree_id).await,
+        json!(["archives.example.org", "thumbs.example.org"])
+    );
+
+    // A private address is a page like another, and never a trusted host.
+    let (status, private) = send(
+        &app,
+        Method::POST,
+        &media,
+        Some(page("http://192.168.1.10/camera.jpg", None)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{private}");
+    assert_eq!(
+        trusted_hosts(&app, tree_id).await,
+        json!(["archives.example.org", "thumbs.example.org"])
+    );
+
+    // Repointing the page trusts where it now points; another change of
+    // the page trusts nothing more.
+    let (status, moved) = send(
+        &app,
+        Method::PUT,
+        &format!("{media}/{page_id}"),
+        Some(json!({ "file_path": "https://media.example.net/7.jpg" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{moved}");
+    let (status, titled) = send(
+        &app,
+        Method::PUT,
+        &format!("{media}/{page_id}"),
+        Some(json!({ "title": "Register, view 7" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{titled}");
+    assert_eq!(
+        trusted_hosts(&app, tree_id).await,
+        json!([
+            "archives.example.org",
+            "media.example.net",
+            "thumbs.example.org"
+        ])
+    );
+
+    // Only what an update gives is vouched for: once the owner removed
+    // every host, a thumbnail address given trusts its own host, and the
+    // page's address left as it was, or sent again unchanged, trusts none.
+    let (status, cleared) = send(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree}"),
+        Some(json!({ "trusted_media_hosts": [] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    for body in [
+        json!({ "thumbnail_url": "https://covers.example.net/7.jpg" }),
+        json!({
+            "file_path": "https://media.example.net/7.jpg",
+            "thumbnail_url": "https://covers.example.net/7.jpg"
+        }),
+    ] {
+        let (status, updated) =
+            send(&app, Method::PUT, &format!("{media}/{page_id}"), Some(body)).await;
+        assert_eq!(status, StatusCode::OK, "{updated}");
+    }
+    assert_eq!(
+        trusted_hosts(&app, tree_id).await,
+        json!(["covers.example.net"])
+    );
+}

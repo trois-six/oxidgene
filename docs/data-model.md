@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-21T16:13:30Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
 ---
 
 
@@ -49,6 +49,7 @@ Runtime projection versioning remains independent of this schema reset (see
 | `submitter_email` | String? | The submitter's email (`SUBM.EMAIL`), written only when set |
 | `submitter_address` | Text? | The submitter's postal address over several lines (`SUBM.ADDR`), written only when set |
 | `anomaly_thresholds` | Text? | The thresholds of the anomaly rules ([Tools §3.3](ui-tools.md)), as the JSON of `AnomalyThresholds`: seventeen whole numbers named as in the domain type. `NULL` while they are the defaults, so a tree that never changed them follows the defaults of every later version; a threshold the JSON leaves out reads as its default. Set in [Settings](ui-settings.md) §8b, versioned with the tree's other settings |
+| `trusted_media_hosts` | Text? | The hosts whose pictures the tree's readers load without being asked ([Cross-cutting §7.2](cross-cutting.md#72-remote-media)), as a JSON array of host names: lowercase, sorted, each once, at most 256. `NULL` for none. Gains the host of an address somebody who may edit the tree adds themselves; never read from an import, a GEDZIP or a duplicated tree, never written to an export. Set in [Settings](ui-settings.md) §8, versioned with the tree's other settings |
 | `created_at` | DateTime | Creation time. Native OxidGene records use the current time; a Geneanet import preserves the deposit's `date_create` when it is valid |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |

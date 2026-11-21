@@ -45,6 +45,10 @@ These settings are what the export option **Leave out contemporary and private p
 
 On a web server shared with other people, you can keep persons and whole branches to yourself: open a person's menu in the tree, choose **Exclude from sharing**, then **Exclude this person**, **Exclude their ancestors** or **Exclude their descendants**, and confirm. Nobody but you will see them, whatever you share. The **Exclusions from sharing** card of the Privacy settings lists them, with the number of persons each covers, and **Remove** takes one away. A child you add later under an excluded branch is excluded too. The desktop application, used by you alone, has no exclusions.
 
+### Pictures held by other sites
+
+A picture kept on another website is shown only when you ask for it, because showing it tells that site that you are looking at it; see [Photos and documents](@/guide/media.md). The **Pictures held by other sites** card lists the sites whose pictures the tree shows without asking, to everyone who views it. The × of a row stops trusting that site. To add one, type its name, or paste the address of one of its pictures, and click **Trust a host**. Sites are also added when you choose **Always** on a picture, and when you link an address yourself.
+
 ## Anomaly thresholds
 
 {{ <screenshot name="tree-settings-anomalies" alt="Anomaly thresholds section of the tree settings, its thresholds in four cards: dates, filiation, unions and places" lang={lang} /> }}

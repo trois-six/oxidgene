@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and, without an account, the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T20:30:00Z }
 ---
 
 
@@ -294,6 +294,17 @@ excluded from sharing.* Exclusions are created from the person menu
 fresh whenever the section opens, since the persons an exclusion covers
 follow the family links. Absent from the desktop and from a web server run
 without authentication.
+
+### Pictures held by other sites
+
+A **Pictures held by other sites** card, in both builds, lists the tree's
+trusted media hosts
+([Cross-cutting §7.2](cross-cutting.md#72-remote-media)): one row per host
+with a button that stops trusting it, or *No host is trusted yet.* Under
+the list, a field takes a host name or the address of a picture, and
+**Trust a host** adds its host; an entry that names no public host says so
+under the field and is not sent. Each change is saved at once and
+versioned with the tree's other settings.
 
 ### Visibility, members and sharing (web only)
 

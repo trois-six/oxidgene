@@ -2152,6 +2152,24 @@ const SETTINGS_STYLES: &str = r#"
         align-items: center;
         gap: var(--space-8);
     }
+    .settings-hosts {
+        list-style: none;
+        margin: 0 0 var(--space-6);
+        padding: 0;
+    }
+    .settings-host {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-4);
+        padding: var(--space-2) 0;
+        border-bottom: 1px solid var(--border);
+        font-size: var(--text-85);
+    }
+    .settings-host-name {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
     .settings-export-format {
         width: auto;
         flex-shrink: 0;

@@ -48,6 +48,9 @@ use crate::components::pdf_viewer::{
     PdfFile, PdfPreview, PdfViewer, opens_in_pdf_viewer, pdf_preview_page,
 };
 use crate::components::place_input::{render_place_input, resolve_place};
+use crate::components::remote_media::{
+    GatedImage, Picture, PlaceholderSize, RemoteGate, RemotePlaceholder, use_remote_gate,
+};
 use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::search_person::SearchPerson;
 use crate::components::tags::{TagBadges, TagPicker};
@@ -80,11 +83,13 @@ pub struct MediaEventLinkOption {
     pub date_sort: Option<NaiveDate>,
 }
 
+/// A picture a bundle names: a thumbnail of ours, or a remote page's
+/// address, which the remote gate lets through or marks as not loaded.
 #[component]
 fn BundledThumbnail(source: Option<String>, alt: String, class: Option<String>) -> Element {
     rsx! {
-        if let Some(source) = source {
-            img { class, src: "{source}", alt, loading: "lazy" }
+        if let Some(src) = source {
+            GatedImage { src, alt, class }
         }
     }
 }
@@ -94,13 +99,19 @@ fn BundledThumbnail(source: Option<String>, alt: String, class: Option<String>) 
 /// A page we hold has a thumbnail we rasterised, which the viewer's bundle
 /// draws. A page we only have a URL for has none and never will, so the
 /// browser draws it from that URL — the same answer the tile, the mosaic and
-/// the viewer give. `thumbnail` is whichever of the two the page has.
+/// the viewer give — once the remote gate lets it through, and a mark says
+/// so until then. `thumbnail` is whichever of the two the page has.
 #[component]
 fn AttachmentThumbnail(thumbnail: Option<String>, picture: AttachmentPicture) -> Element {
     const CLASS: &str = "media-vignette-thumbnail";
     match picture {
-        AttachmentPicture::Portrait(image) => rsx! {
-            CroppedImage { image, alt: String::new(), class: CLASS.to_string() }
+        AttachmentPicture::Portrait(image, sex) => rsx! {
+            CroppedImage {
+                image,
+                alt: String::new(),
+                class: CLASS.to_string(),
+                fallback: CroppedSource::silhouette(sex),
+            }
         },
         AttachmentPicture::Silhouette(sex) => rsx! {
             CroppedImage {
@@ -160,8 +171,15 @@ fn BundledVignetteImage(
     alt: String,
     class: Option<String>,
 ) -> Element {
+    let gate = use_remote_gate();
+    // A region of somebody else's picture: asked for like the picture.
+    let blocked = image
+        .as_ref()
+        .and_then(|image| gate.blocked([image.source.as_str()]));
     rsx! {
-        if let Some(image) = image {
+        if let Some(blocked) = blocked {
+            RemotePlaceholder { blocked, size: PlaceholderSize::Tile }
+        } else if let Some(image) = image {
             CroppedImage { image, alt, class }
         }
     }
@@ -804,6 +822,7 @@ fn MediaTile(
     // Every entry of the tile's menu writes: a viewer who may change
     // nothing gets no menu (docs/authorization.md §11).
     let has_menu = use_can(Permission::Edit);
+    let gate = use_remote_gate();
 
     let mut confirming = use_signal(|| false);
     let busy = use_signal(|| false);
@@ -981,6 +1000,7 @@ fn MediaTile(
                     thumbnail_source.clone(),
                     tile.media.thumbnail_key.is_some(),
                     look.pdf_preview.clone().map(|file| (tree_id, file)),
+                    gate,
                 )}
                 {tile_badges(&i18n, look.draws_remote, is_portrait, tile.media.page_count)}
                 // The ⋮ lies on the picture, at its bottom right (ui-common.md
@@ -1302,7 +1322,12 @@ fn tile_picture(
     thumbnail_source: Option<String>,
     has_thumbnail: bool,
     pdf_preview: Option<(Uuid, PdfFile)>,
+    gate: RemoteGate,
 ) -> Element {
+    // One placeholder for the tile, not one per page of its mosaic.
+    if let Some(blocked) = gate.blocked(previews.iter().map(String::as_str)) {
+        return rsx! { RemotePlaceholder { blocked, size: PlaceholderSize::Tile } };
+    }
     if !previews.is_empty() {
         return rsx! { DocumentMosaic { sources: previews.to_vec() } };
     }
@@ -1310,7 +1335,13 @@ fn tile_picture(
         return rsx! { BundledThumbnail { source: thumbnail_source, alt: look.caption.clone() } };
     }
     if let Some(preview) = &look.remote_preview {
-        return rsx! { img { src: "{preview}", alt: "{look.caption}", loading: "lazy" } };
+        return rsx! {
+            GatedImage {
+                src: preview.clone(),
+                alt: look.caption.clone(),
+                placeholder: PlaceholderSize::Tile,
+            }
+        };
     }
     let icon = rsx! {
         div { class: "media-thumb-icon",
@@ -1793,6 +1824,16 @@ async fn save_media_note(
     }
 }
 
+/// The address a page is repointed at: the one `typed`, unless it is the
+/// one the page `had`, and then none.
+fn repointed(typed: &str, had: &str) -> String {
+    if typed == had {
+        String::new()
+    } else {
+        typed.to_string()
+    }
+}
+
 #[component]
 fn MediaEditPanel(
     tree_id: Uuid,
@@ -1817,6 +1858,7 @@ fn MediaEditPanel(
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let gate = use_remote_gate();
 
     let media_id = tile.media.id;
     // The row whose file this panel describes: the page on screen, or the
@@ -1947,6 +1989,7 @@ fn MediaEditPanel(
             let existing_page_note = page_note_id();
             let resolved = date_parts().resolved();
             let previous_url = stored_url.clone();
+            let given_url = repointed(&url_value, &previous_url);
             let target = EditTarget {
                 media_id,
                 file_media_id,
@@ -1982,6 +2025,9 @@ fn MediaEditPanel(
                 .await;
                 match saved {
                     Ok(()) => {
+                        // An address the reader gave themselves: its host
+                        // is trusted from now on, as the server recorded.
+                        gate.added(&given_url);
                         on_changed.call(());
                         on_close.call(());
                     }
@@ -2516,8 +2562,8 @@ fn DocumentPages(tree_id: Uuid, document_id: Uuid, on_changed: EventHandler<()>)
                                         source: thumbnails.get(&page_id).cloned(),
                                         alt: name,
                                     }
-                                } else if let Some(remote) = remote {
-                                    img { src: "{remote}", alt: "{name}", loading: "lazy" }
+                                } else if let Some(src) = remote {
+                                    GatedImage { src, alt: name, placeholder: PlaceholderSize::Thumb }
                                 } else {
                                     span { class: "media-glyph", "\u{1F4C4}" }
                                 }
@@ -3129,8 +3175,10 @@ fn identifications(vignettes: &[Vignette], person_names: &[PersonName]) -> Vec<M
 enum AttachmentPicture {
     /// The medium itself, which can be drawn as a picture.
     Medium,
-    /// A person's portrait, standing in for a medium that cannot be drawn.
-    Portrait(CroppedSource),
+    /// A person's portrait, standing in for a medium that cannot be drawn,
+    /// and the sex whose silhouette stands in for the portrait when that
+    /// is refused or is somebody else's and not loaded.
+    Portrait(CroppedSource, Sex),
     /// The silhouette of a sex, for a medium that cannot be drawn and a
     /// person with no portrait, or a couple, which has none of its own.
     Silhouette(Sex),
@@ -3145,7 +3193,7 @@ fn attachment_picture(
 ) -> AttachmentPicture {
     match (can_draw, portrait) {
         (true, _) => AttachmentPicture::Medium,
-        (false, Some(portrait)) => AttachmentPicture::Portrait(portrait),
+        (false, Some(portrait)) => AttachmentPicture::Portrait(portrait, sex),
         (false, None) => AttachmentPicture::Silhouette(sex),
     }
 }
@@ -3550,6 +3598,7 @@ fn MediaViewer(
 ) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let gate = use_remote_gate();
     // The companion column starts as prose. A reader opened this to look at
     // the document, not to fill in a form, so the form is a step they take.
     let mut editing = use_signal(|| false);
@@ -3693,6 +3742,11 @@ fn MediaViewer(
         asset_to_fetch(content_source, kind, content_media_id)
             .and_then(|_| api.media_file_url(tree_id, &content_media)),
     );
+    // Somebody else's address reaches the stage or a player once the
+    // remote gate lets it through; its placeholder stands there until then.
+    let gated = url.as_deref().map(|address| gate.picture(address));
+    let held_back = gated.as_ref().and_then(Picture::blocked);
+    let url = gated.and_then(Picture::drawn);
     let facts = ViewerFacts::of(
         &bundle,
         &pictures.read_unchecked().clone().unwrap_or_default(),
@@ -3914,7 +3968,12 @@ fn MediaViewer(
                         size: (content_width, content_height),
                     }
                 },
-                fallback: stage_fallback(&i18n, tree_id, kind, url.clone(), preview_failed, pdf_failed, &content_media),
+                fallback: match held_back {
+                    Some(blocked) => rsx! {
+                        RemotePlaceholder { blocked, size: PlaceholderSize::Stage }
+                    },
+                    None => stage_fallback(&i18n, tree_id, kind, url.clone(), preview_failed, pdf_failed, &content_media),
+                },
                 {relation_tools}
             }
             }
@@ -4205,6 +4264,7 @@ fn stage_fallback(
         "media.not_embeddable"
     };
     match (url.clone(), kind) {
+        // `url` is the address the remote gate let through, or our own.
         (Some(url), MediaKind::Video) => rsx! {
             video {
                 class: "media-viewer-image",
@@ -4990,7 +5050,7 @@ mod tests {
         let portrait = CroppedSource::whole("portrait.png".into());
         assert_eq!(
             attachment_picture(false, Some(portrait.clone()), Sex::Male),
-            AttachmentPicture::Portrait(portrait)
+            AttachmentPicture::Portrait(portrait, Sex::Male)
         );
         for sex in [Sex::Male, Sex::Female, Sex::Unknown] {
             assert_eq!(

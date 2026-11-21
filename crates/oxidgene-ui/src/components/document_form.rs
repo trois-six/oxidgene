@@ -38,6 +38,7 @@ use crate::components::media_gallery::{MediaClassification, MediaEventsChecklist
 use crate::components::media_input::{MediaInput, PickedFile, friendly};
 use crate::components::modal::Modal;
 use crate::components::place_input::{render_place_input, resolve_place};
+use crate::components::remote_media::{GatedImage, PlaceholderSize, use_remote_gate};
 use crate::components::text_field::{TextArea, TextInput};
 use crate::i18n::use_i18n;
 
@@ -129,6 +130,17 @@ impl PendingPage {
         match self {
             Self::File { .. } => None,
             Self::Remote(page) => page.view,
+        }
+    }
+
+    /// The addresses the page is drawn from, its own and its thumbnail's,
+    /// when somebody else serves it.
+    fn addresses(&self) -> Vec<String> {
+        match self {
+            Self::File { .. } => Vec::new(),
+            Self::Remote(page) => std::iter::once(page.url.clone())
+                .chain(page.thumbnail_url.clone())
+                .collect(),
         }
     }
 }
@@ -228,6 +240,7 @@ pub struct DocumentFormProps {
 pub fn DocumentForm(props: DocumentFormProps) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
+    let gate = use_remote_gate();
 
     let tree_id = props.tree_id;
     let owner = props.owner;
@@ -275,6 +288,13 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
             }
         }
     });
+    // Every address here is one the reader typed or took from an archive's
+    // portal just now: its picture is one they asked for.
+    use_effect(move || {
+        for address in pages.read().iter().flat_map(PendingPage::addresses) {
+            gate.vouch(&address);
+        }
+    });
     let mut saving = use_signal(|| false);
     let mut progress = use_signal(|| None::<(usize, usize)>);
     let mut error = use_signal(|| None::<String>);
@@ -318,6 +338,11 @@ pub fn DocumentForm(props: DocumentFormProps) -> Element {
                 saving.set(false);
                 match created {
                     Ok(document_id) => {
+                        // The server trusts the hosts of the addresses it
+                        // was just given; the tree on screen follows.
+                        for address in pages.peek().iter().flat_map(PendingPage::addresses) {
+                            gate.trusted(&address);
+                        }
                         on_created.call(document_id);
                         on_close.call(());
                     }
@@ -767,8 +792,8 @@ fn PendingPageRow(
         div { class: "doc-page",
             span { class: "doc-page-number", "{index + 1}" }
             div { class: "doc-page-thumb",
-                if let Some(preview) = preview {
-                    img { src: "{preview}", alt: "{label}", loading: "lazy" }
+                if let Some(src) = preview {
+                    GatedImage { src, alt: label.clone(), placeholder: PlaceholderSize::Thumb }
                 } else if remote {
                     span { class: "media-glyph", "\u{1F517}" }
                 } else {

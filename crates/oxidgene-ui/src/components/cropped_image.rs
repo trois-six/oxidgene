@@ -14,11 +14,43 @@
 //! clips the rest, and the whole thing scales with the element's CSS size with
 //! no measurement, no script, and no second element to keep in sync. The same
 //! markup nests inside the pedigree's own SVG, so one rule covers both.
+//!
+//! # Somebody else's address
+//!
+//! A picture held only as a remote address is drawn when the remote gate
+//! lets it through (`components/remote_media.rs`), and never otherwise: its
+//! fallback stands in for it, as for a picture the browser refuses, and
+//! without one nothing is drawn. A portrait therefore shows its silhouette
+//! rather than a control too large for a card; the surfaces with room for
+//! one ask the gate first and draw its placeholder.
 
 use dioxus::prelude::*;
 use oxidgene_core::types::ImageCrop;
 
 use crate::api::CroppedSource;
+use crate::components::remote_media::{RemoteGate, use_remote_gate};
+
+/// What is drawn for `image`: itself, from the address the gate gives it,
+/// unless the gate holds it back or the browser `refused` it; then
+/// `fallback`, under the same gate; then nothing.
+fn shown(
+    gate: RemoteGate,
+    image: CroppedSource,
+    fallback: Option<CroppedSource>,
+    refused: bool,
+) -> Option<CroppedSource> {
+    let through = |image: CroppedSource| {
+        let source = gate.picture(&image.source).drawn()?;
+        Some(CroppedSource {
+            source,
+            crop: image.crop,
+        })
+    };
+    (!refused)
+        .then_some(image)
+        .and_then(through)
+        .or_else(|| fallback.and_then(through))
+}
 
 /// A picture in an HTML context, cropped if it has to be.
 ///
@@ -38,11 +70,11 @@ pub fn CroppedImage(
     fallback: Option<CroppedSource>,
 ) -> Element {
     let mut refused = use_signal(String::new);
+    let gate = use_remote_gate();
     let requested = image.source.clone();
     let refused_now = refused() == requested;
-    let CroppedSource { source, crop } = match fallback {
-        Some(fallback) if refused_now => fallback,
-        _ => image,
+    let Some(CroppedSource { source, crop }) = shown(gate, image, fallback, refused_now) else {
+        return rsx! {};
     };
     let Some(crop) = crop else {
         return rsx! {
@@ -51,6 +83,7 @@ pub fn CroppedImage(
                 src: "{source}",
                 alt,
                 loading: "lazy",
+                "referrerpolicy": "no-referrer",
                 onerror: move |_| refused.set(requested.clone()),
             }
         };
@@ -92,11 +125,11 @@ pub fn CroppedSvgImage(
     fallback: Option<CroppedSource>,
 ) -> Element {
     let mut refused = use_signal(String::new);
+    let gate = use_remote_gate();
     let requested = image.source.clone();
     let refused_now = refused() == requested;
-    let CroppedSource { source, crop } = match fallback {
-        Some(fallback) if refused_now => fallback,
-        _ => image,
+    let Some(CroppedSource { source, crop }) = shown(gate, image, fallback, refused_now) else {
+        return rsx! {};
     };
     let Some(crop) = crop else {
         return rsx! {

@@ -142,6 +142,9 @@ pub struct UpdateTreeInput {
     pub submitter_address: MaybeUndefined<String>,
     /// The thresholds of the anomaly rules.
     pub anomaly_thresholds: Option<AnomalyThresholdsInput>,
+    /// The hosts whose pictures the tree's readers load without being
+    /// asked, all at once.
+    pub trusted_media_hosts: Option<Vec<String>>,
 }
 
 impl From<CreateTreeInput> for crate::service::tree::NewTree {
@@ -181,6 +184,7 @@ impl TryFrom<UpdateTreeInput> for crate::service::tree::TreePatch {
             submitter_email: patch(input.submitter_email),
             submitter_address: patch(input.submitter_address),
             anomaly_thresholds: input.anomaly_thresholds.map(Into::into),
+            trusted_media_hosts: input.trusted_media_hosts,
         })
     }
 }
