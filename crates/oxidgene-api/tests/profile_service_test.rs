@@ -1722,3 +1722,152 @@ async fn the_trees_an_upgrade_outdated_are_rebuilt_before_their_first_read() {
     service.search(outdated, "", 10, 0).await.unwrap();
     assert_eq!(service.full_rebuilds() - rebuilds, 1);
 }
+
+// ─────────────────────── Wide refreshes ──────────────────────────────
+
+/// A refresh builds the persons its mutation affects, whatever their
+/// number, and no other: renaming a place 600 persons of 3,000 are born in
+/// builds 600 projections, in slices, and reads no other person's records.
+#[tokio::test]
+async fn a_wide_refresh_builds_the_persons_it_affects_and_no_other() {
+    use axum::http::Method;
+
+    const BLOCKS: usize = 300;
+    let (app, profiles, db, _directory) = file_backed_app().await;
+    let (tree, _anchor) = common::family_blocks_tree(&app, &db, BLOCKS).await;
+    let places = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree}/places?name=Southmere,%20Shire"),
+        None,
+    )
+    .await;
+    let place = places["edges"][0]["node"]["id"].as_str().unwrap();
+    let born_in = |profiles: &[serde_json::Value], name: &str| {
+        profiles
+            .iter()
+            .filter(|profile| profile["birth"]["place_name"] == name)
+            .count()
+    };
+    // Two persons of each block of ten are born there.
+    let born_there = BLOCKS * 2;
+    assert_eq!(
+        born_in(&common::all_profiles(&app, &tree).await, "Southmere, Shire"),
+        born_there
+    );
+
+    let (built, rebuilds) = (profiles.built_profiles(), profiles.full_rebuilds());
+    common::ok(
+        &app,
+        Method::PUT,
+        &format!("/api/v1/trees/{tree}/places/{place}"),
+        Some(serde_json::json!({ "name": "Southmere Magna, Shire" })),
+    )
+    .await;
+    assert_eq!(
+        profiles.built_profiles() - built,
+        born_there as u64,
+        "the refresh built other persons than those born in the place"
+    );
+    assert_eq!(profiles.full_rebuilds(), rebuilds, "the tree was rebuilt");
+
+    let after = common::all_profiles(&app, &tree).await;
+    assert_eq!(born_in(&after, "Southmere Magna, Shire"), born_there);
+    assert_eq!(born_in(&after, "Southmere, Shire"), 0);
+    let found = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree}/persons/search?q=&limit=100"),
+        None,
+    )
+    .await;
+    let birth_places: Vec<&str> = found["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["birth_place"].as_str())
+        .collect();
+    assert!(
+        birth_places.contains(&"Southmere Magna, Shire")
+            && !birth_places.contains(&"Southmere, Shire"),
+        "the search rows follow: {birth_places:?}"
+    );
+}
+
+/// A refresh skips the persons of its set that are not live persons of the
+/// tree — unknown, or another tree's — instead of failing or projecting
+/// them, however small the set.
+#[tokio::test]
+async fn a_refresh_skips_who_is_not_a_person_of_the_tree() {
+    let (db, service) = setup().await;
+    let tree_id = create_tree(&db).await;
+    let (father, _mother, child, _family) = create_family_trio(&db, tree_id).await;
+    service.rebuild_tree_full(&db, tree_id).await.unwrap();
+    let other_tree = create_tree(&db).await;
+    let outsider =
+        create_named_person(&db, other_tree, Sex::Female, "Given_x", "BRANCH_X", None).await;
+
+    service
+        .invalidate_for_mutation(&db, tree_id, &[father, Uuid::now_v7(), outsider, child])
+        .await
+        .expect("the refresh goes on without them");
+    assert_eq!(PersonDenormRepo::count_tree(&db, tree_id).await.unwrap(), 3);
+    assert!(
+        PersonDenormRepo::get(&db, tree_id, outsider)
+            .await
+            .unwrap()
+            .is_none(),
+        "a person of another tree is not projected under this one"
+    );
+    assert_eq!(
+        service
+            .search(tree_id, "branch_x", 10, 0)
+            .await
+            .unwrap()
+            .total_count,
+        0
+    );
+}
+
+/// Re-cutting a surname at its particle refreshes its bearers and their
+/// relatives in the transaction of the change: the tree is not rebuilt.
+#[tokio::test]
+async fn a_surname_recut_refreshes_its_bearers_without_rebuilding_the_tree() {
+    use axum::http::Method;
+
+    let (app, profiles, db, _directory) = file_backed_app().await;
+    let (tree, _anchor) = common::family_blocks_tree(&app, &db, 3).await;
+    let bearer = common::new_person(&app, &tree).await;
+    common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/persons/{bearer}/names"),
+        Some(serde_json::json!({
+            "name_type": "birth",
+            "given_names": "Given_a",
+            "surname_prefix": "LE",
+            "surname": "BRANCH",
+            "is_primary": true,
+        })),
+    )
+    .await;
+    let (built, rebuilds) = (profiles.built_profiles(), profiles.full_rebuilds());
+    let out = common::ok(
+        &app,
+        Method::PATCH,
+        &format!("/api/v1/trees/{tree}/dictionary/family-names/particle"),
+        Some(serde_json::json!({ "value": "LE BRANCH", "particle": "" })),
+    )
+    .await;
+    assert_eq!(out["names_updated"], 1);
+    assert_eq!(profiles.full_rebuilds(), rebuilds, "the tree was rebuilt");
+    assert_eq!(profiles.built_profiles() - built, 1, "the bearer alone");
+    let profile = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree}/profiles/{bearer}"),
+        None,
+    )
+    .await;
+    assert_eq!(profile["primary_name"]["surname"], "LE BRANCH");
+}

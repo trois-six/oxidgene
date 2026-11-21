@@ -1125,6 +1125,24 @@ outlive it. Anything that reaches a family *through* a membership row must
 therefore exclude deleted families explicitly, or a targeted rebuild would
 restore a family a whole-tree rebuild correctly omits.
 
+**A refresh reads what its persons need, whatever their number.** An
+affected set is 2 to 10 persons for an ordinary mutation and thousands for
+a place, a tag, a source or a surname many persons carry. It is refreshed
+500 persons at a time: each slice reads the rows those persons'
+projections are made of — the persons, their families and those families'
+members with their names, their events and places, portraits and tags, and
+their citation and note counts, grouped by person — builds the
+projections, on the blocking pool past a few dozen persons, and writes
+them with their search rows before the next slice is read. Nothing of the
+tree outside the set and its families is read and no more than a slice is
+held, so a refresh costs what its set does and nothing for the tree around
+it: there is no size past which a refresh reads the whole tree. On a
+generated tree of 100,000 persons (release build, SQLite), renaming a
+place 60 persons were born at went from 14 s of processor time and 2.3 GiB
+of resident memory, the whole tree read and held, to 0.05 s within the
+memory the process already had, and one 2,000 were born at from 15 s to
+2.1 s.
+
 Whole-tree imports and explicit maintenance rebuilds perform idempotent bulk
 work. On every tree-wide read, `ensure_materialized` checks that the tree is
 materialized (§4.1) and rebuilds it when it is not.
@@ -1221,8 +1239,9 @@ depend on the database or API implementation crates.
 - Search should use backend-native indexes and avoid offset scans for ordinary
     list APIs.
 - Refresh latency is part of mutation latency and must remain bounded to the
-    affected set; whole-tree rebuilds are reserved for imports, maintenance, or
-    schema-version changes.
+    affected set — in statements, in time and in memory, whatever the size
+    of the tree around it (§4.4); whole-tree rebuilds are reserved for
+    imports, maintenance, or schema-version changes.
 
 ### 4.8 SOSA ancestry: `sosa_ancestor`
 

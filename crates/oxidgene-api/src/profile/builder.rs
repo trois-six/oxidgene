@@ -310,13 +310,9 @@ pub fn build_all_persons(tree_id: Uuid, data: &TreeData) -> Vec<PersonProfile> {
 ///
 /// `data` only needs to contain the persons, their relatives (spouses,
 /// parents, children) and the entities attached to them — see
-/// `ProfileService::fetch_persons_data`. Fails with the first id that is not
-/// a person of this tree in `data.persons`.
-pub fn build_persons(
-    tree_id: Uuid,
-    person_ids: &[Uuid],
-    data: &TreeData,
-) -> Result<Vec<PersonProfile>, Uuid> {
+/// `ProfileService::fetch_persons_data`. An id that is not a person of this
+/// tree in `data.persons` — deleted since, or another tree's — is skipped.
+pub fn build_persons(tree_id: Uuid, person_ids: &[Uuid], data: &TreeData) -> Vec<PersonProfile> {
     // A targeted fetch reaches the persons by ID alone, so the tree is checked
     // here: a person of another tree would otherwise be projected — and stored,
     // and indexed for search — under this one.
@@ -330,12 +326,8 @@ pub fn build_persons(
     let now = Utc::now();
     person_ids
         .iter()
-        .map(|id| {
-            persons
-                .get(id)
-                .map(|person| build_one_person(person, tree_id, &idx, now))
-                .ok_or(*id)
-        })
+        .filter_map(|id| persons.get(id))
+        .map(|person| build_one_person(person, tree_id, &idx, now))
         .collect()
 }
 

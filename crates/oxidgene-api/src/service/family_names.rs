@@ -38,12 +38,11 @@ pub struct FamilyNameChange {
 /// Re-cut every occurrence of a surname of `tree_id` at a particle — the
 /// bulk repair for an import that guessed wrong across a whole family.
 ///
-/// A surname reaches every projection that embeds a display name, so the
-/// affected set of this edit is unbounded in practice: the tree is rebuilt
-/// eagerly once the change is committed, in a transaction of its own
-/// ([`ProfileService::rebuild_tree`]), rather than holding the edit's write
-/// lock over every row of a large tree. Nothing is rebuilt, or recorded,
-/// when nothing changed.
+/// A surname is shown by its bearers' own projections and search rows, and
+/// by their relatives', as for [`rename`]: those persons are refreshed in
+/// the transaction of the change, a slice at a time, and nobody else, so
+/// the cost follows the name's family rather than the tree. Nothing is
+/// refreshed, or recorded, when nothing changed.
 pub async fn set_particle(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
@@ -61,15 +60,16 @@ pub async fn set_particle(
         DictionaryRepo::set_family_name_particle(&txn, tree_id, &change.value, &change.particle)
             .await?;
     if update.names_updated > 0 {
+        let affected = invalidation::affected_persons_of_all(&txn, &bearers).await?;
+        profiles
+            .invalidate_for_mutation(&txn, tree_id, &affected)
+            .await?;
         pending
             .details(history::family_name_details(&update))
             .record(&txn)
             .await?;
     }
     commit_tx(txn).await?;
-    if update.names_updated > 0 {
-        profiles.rebuild_tree(tree_id).await?;
-    }
     Ok(update)
 }
 

@@ -40,13 +40,16 @@ use super::builder::{
 use super::{invalidation, pedigree, sosa};
 use crate::tree_cache::{TreeCache, TreeProfiles};
 
-/// Above this many affected persons, rebuild from a single whole-tree fetch
-/// instead of running targeted per-person queries.
+/// How many persons a projection refresh reads, builds and writes at a
+/// time.
 ///
-/// Affected sets from a normal mutation are 2–10 persons, where targeted
-/// queries win. Bulk paths (GEDCOM import, tree-wide fixes) blow past this,
-/// where one wide read beats N narrow ones.
-const FULL_FETCH_THRESHOLD: usize = 50;
+/// An affected set is 2 to 10 persons for an ordinary mutation and
+/// thousands for a place, a tag or a surname many persons carry. Whatever
+/// its size it is refreshed from targeted reads — the persons, their
+/// families and what is attached to them — one slice after the other, so
+/// that the work and the memory follow the affected persons and never the
+/// tree: a slice costs the same statements whatever the tree around it.
+const REFRESH_SLICE: usize = 500;
 
 /// Page size of a person search when the caller names none.
 pub const SEARCH_DEFAULT_LIMIT: usize = 25;
@@ -84,8 +87,8 @@ type Gate = Arc<tokio::sync::Mutex<()>>;
 
 /// The whole-tree rebuilds of one process: a gate per tree being rebuilt,
 /// so that the requests finding a tree unmaterialized together wait for one
-/// rebuild instead of each running its own, and a count of the rebuilds
-/// run.
+/// rebuild instead of each running its own, and counts of the rebuilds run
+/// and of the projections built.
 ///
 /// The gate only spares the waiting requests a connection each; what keeps
 /// two rebuilds of a tree apart, across processes too, is the database
@@ -97,6 +100,7 @@ type Gate = Arc<tokio::sync::Mutex<()>>;
 struct Rebuilds {
     gates: Mutex<HashMap<Option<Uuid>, Gate>>,
     run: AtomicU64,
+    built: AtomicU64,
 }
 
 impl Rebuilds {
@@ -186,6 +190,9 @@ impl ProfileService {
 
         let tree_data = Box::pin(Self::fetch_tree_data(conn, tree_id)).await?;
         let persons = build_all_persons(tree_id, &tree_data);
+        rebuilds
+            .built
+            .fetch_add(persons.len() as u64, Ordering::AcqRel);
         debug!(count = persons.len(), "Built projections");
 
         PersonDenormRepo::replace_tree(conn, tree_id, &persons).await?;
@@ -209,6 +216,13 @@ impl ProfileService {
     /// measurements.
     pub fn full_rebuilds(&self) -> u64 {
         self.rebuilds.run.load(Ordering::Acquire)
+    }
+
+    /// How many projections this service built, in whole-tree rebuilds and
+    /// refreshes alike, for the tests and the measurements: a refresh
+    /// builds the persons it was given and no other.
+    pub fn built_profiles(&self) -> u64 {
+        self.rebuilds.built.load(Ordering::Acquire)
     }
 
     /// Whether the projections and the search rows of a tree are usable, as
@@ -437,8 +451,7 @@ impl ProfileService {
         tree_id: Uuid,
         person_id: Uuid,
     ) -> Result<PersonProfile, OxidGeneError> {
-        let built = self
-            .build_targeted(conn, tree_id, &[person_id])
+        let built = Self::build_targeted(conn, tree_id, &[person_id], &self.rebuilds)
             .await?
             .pop()
             .ok_or(OxidGeneError::NotFound {
@@ -452,10 +465,18 @@ impl ProfileService {
         Ok(built)
     }
 
-    /// Rebuild the projections of a bounded set of persons.
+    /// Rebuild the projections of a set of persons, `REFRESH_SLICE` at a
+    /// time, and return them: those a read found missing.
     ///
     /// Does not touch the search rows — callers that need them refreshed go
     /// through `Self::rebuild_affected`.
+    ///
+    /// # Errors
+    ///
+    /// `NotFound` for the first of `person_ids` that is not a live person
+    /// of the tree: a read asked for it by name — a pedigree's root above
+    /// all — and it must not answer about another tree's person, nor draw a
+    /// window around nobody.
     #[instrument(skip_all, fields(count = person_ids.len()))]
     pub async fn rebuild_persons(
         &self,
@@ -463,24 +484,22 @@ impl ProfileService {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<PersonProfile>, OxidGeneError> {
-        if person_ids.is_empty() {
-            return Ok(vec![]);
+        let mut rebuilt = Vec::with_capacity(person_ids.len());
+        for slice in person_ids.chunks(REFRESH_SLICE) {
+            let built = Self::build_targeted(conn, tree_id, slice, &self.rebuilds).await?;
+            if built.len() < slice.len() {
+                let found: HashSet<Uuid> = built.iter().map(|p| p.person_id).collect();
+                let id = slice.iter().copied().find(|id| !found.contains(id));
+                return Err(OxidGeneError::NotFound {
+                    entity: "Person",
+                    id: id.unwrap_or_default(),
+                });
+            }
+            PersonDenormRepo::upsert(conn, &built).await?;
+            rebuilt.extend(built);
         }
-
-        let built: Vec<PersonProfile> = if person_ids.len() >= FULL_FETCH_THRESHOLD {
-            let wanted: HashSet<Uuid> = person_ids.iter().copied().collect();
-            let tree_data = Box::pin(Self::fetch_tree_data(conn, tree_id)).await?;
-            build_all_persons(tree_id, &tree_data)
-                .into_iter()
-                .filter(|p| wanted.contains(&p.person_id))
-                .collect()
-        } else {
-            self.build_targeted(conn, tree_id, person_ids).await?
-        };
-
-        PersonDenormRepo::upsert(conn, &built).await?;
-        debug!(count = built.len(), "Rebuilt projections");
-        Ok(built)
+        debug!(count = rebuilt.len(), "Rebuilt projections");
+        Ok(rebuilt)
     }
 
     /// Every projection of a tree, materializing them if needed: those the
@@ -880,7 +899,8 @@ impl ProfileService {
 
     // ── Private helpers ──────────────────────────────────────────────────
 
-    /// Rewrite the projections and search rows of an affected set.
+    /// Rewrite the projections and search rows of an affected set,
+    /// [`REFRESH_SLICE`] persons at a time, keeping none of them.
     ///
     /// Persons that no longer exist (soft-deleted, or removed between the
     /// affected-set computation and this call) are skipped rather than
@@ -891,9 +911,12 @@ impl ProfileService {
         tree_id: Uuid,
         affected: &[Uuid],
     ) -> Result<(), OxidGeneError> {
-        let rebuilt = self.rebuild_persons(conn, tree_id, affected).await?;
-        let entries: Vec<_> = rebuilt.iter().map(build_db_search_entry).collect();
-        PersonSearchRepo::upsert(conn, &entries).await?;
+        for slice in affected.chunks(REFRESH_SLICE) {
+            let built = Self::build_targeted(conn, tree_id, slice, &self.rebuilds).await?;
+            PersonDenormRepo::upsert(conn, &built).await?;
+            let entries: Vec<_> = built.iter().map(build_db_search_entry).collect();
+            PersonSearchRepo::upsert(conn, &entries).await?;
+        }
         #[cfg(feature = "auth")]
         super::visibility::refresh(conn, tree_id, affected).await?;
         Ok(())
@@ -901,22 +924,25 @@ impl ProfileService {
 
     /// Build the projections of a bounded set of persons with targeted
     /// queries — the persons, their families, their relatives' names, and the
-    /// entities attached to them. No full-tree fetch.
+    /// entities attached to them. No full-tree fetch. Those of
+    /// `person_ids` that are live persons of the tree are built, in their
+    /// order.
     ///
     /// One fetch covers the whole set, so the query count does not grow with
     /// it: an edit that touches a person with a dozen relatives costs the same
     /// dozen statements as one that touches a single person.
     async fn build_targeted(
-        &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
         person_ids: &[Uuid],
+        rebuilds: &Rebuilds,
     ) -> Result<Vec<PersonProfile>, OxidGeneError> {
-        let data = Box::pin(self.fetch_persons_data(conn, tree_id, person_ids)).await?;
-        builder::build_persons(tree_id, person_ids, &data).map_err(|id| OxidGeneError::NotFound {
-            entity: "Person",
-            id,
-        })
+        let data = Box::pin(Self::fetch_persons_data(conn, tree_id, person_ids)).await?;
+        let built = builder::build_persons(tree_id, person_ids, &data);
+        rebuilds
+            .built
+            .fetch_add(built.len() as u64, Ordering::AcqRel);
+        Ok(built)
     }
 
     /// The tags of the given persons and events, one grouped read per kind.
@@ -943,7 +969,6 @@ impl ProfileService {
     /// awaited inline it would be copied into the frame of every caller above
     /// it — every mutation's stack.
     async fn fetch_persons_data(
-        &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
         targets: &[Uuid],
@@ -1015,17 +1040,19 @@ impl ProfileService {
         // written on the person; and appended to `media` because the
         // containing scan need not be one of the person's own links — a face
         // in somebody else's group photograph is still their portrait.
+        let wanted: HashSet<Uuid> = targets.iter().copied().collect();
         let vignette_ids: Vec<Uuid> = persons
             .iter()
-            .filter(|p| targets.contains(&p.id))
+            .filter(|p| wanted.contains(&p.id))
             .filter_map(|p| p.portrait_vignette_id)
             .collect();
         let portrait_vignettes = VignetteRepo::get_many(conn, &vignette_ids).await?;
+        let fetched: HashSet<Uuid> = media.iter().map(|m| m.id).collect();
         let scan_ids = sorted_unique(
             portrait_vignettes
                 .iter()
                 .map(|v| v.media_id)
-                .filter(|id| !media.iter().any(|m| m.id == *id)),
+                .filter(|id| !fetched.contains(id)),
         );
         media.extend(MediaRepo::get_many(conn, &scan_ids).await?);
 
