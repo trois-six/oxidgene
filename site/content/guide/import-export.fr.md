@@ -24,7 +24,7 @@ Un import se fait toujours dans un arbre existant. Créez d’abord l’arbre (v
 
 1. Sur la page d’accueil, ouvrez le menu à trois points de la carte de l’arbre et choisissez **Importer**.
 2. La fenêtre **Importer dans « … »** s’ouvre sur l’onglet **Un fichier**.
-3. Déposez votre fichier sur **Déposez un fichier ici, ou cliquez pour parcourir**, ou cliquez dessus pour le choisir. Elle accepte les fichiers `.ged`, `.gdz` et `.gw` jusqu’à 1 Gio.
+3. Déposez votre fichier sur **Déposez un fichier ici, ou cliquez pour parcourir**, ou cliquez dessus pour le choisir. Elle accepte les fichiers `.ged` et `.gw` jusqu’à 350 Mio, et les archives `.gdz` de toute taille sur l’application de bureau ; sur un serveur web, jusqu’à ce que le stockage des médias de l’arbre permet (10 Gio par défaut).
 4. Cliquez sur **Importer**.
 5. Patientez pendant que la barre de progression passe par ses étapes : **Envoi du fichier**, **Lecture de la généalogie…**, **Enregistrement des médias** pour un GEDZIP, **Écriture de la généalogie…** puis **Préparation de l’arbre…**. La fenêtre ne peut pas être fermée tant que l’import est en cours, mais l’import peut être annulé (voir plus bas).
 6. Quand **Import terminé** s’affiche, lisez le bilan : personnes, familles, événements, sources, lieux, images et documents.

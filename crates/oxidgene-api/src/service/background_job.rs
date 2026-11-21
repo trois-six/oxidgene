@@ -23,8 +23,10 @@ use super::job_watch::{self, JobWait, Versioned};
 use super::tag_bulk::{self, TagTargetSpec};
 use super::{gedcom, geneanet, history};
 use crate::error_contract::error_kind;
+use crate::limits::IntakeLimits;
 use crate::media::MediaStore;
 use crate::media::job_objects::{self, RecordingStore};
+use crate::media::quota::QuotaStore;
 use crate::media::store::{job_blob_key, job_input_blob_key};
 use crate::profile::ProfileService;
 use crate::workdir::WorkDir;
@@ -429,6 +431,8 @@ pub struct BackgroundJobWorker {
     worker_id: String,
     lease_duration: Duration,
     work_dir: WorkDir,
+    /// How much an import may read and store ([`IntakeLimits`]).
+    limits: IntakeLimits,
     /// How long the maintenance keeps access events.
     access_log_retention: Duration,
     /// Whether the notifications this worker writes may be mailed: the
@@ -467,6 +471,7 @@ impl BackgroundJobWorker {
             worker_id: worker_id.into(),
             lease_duration,
             work_dir: WorkDir::temporary(),
+            limits: IntakeLimits::default(),
             access_log_retention: DEFAULT_ACCESS_LOG_RETENTION,
             #[cfg(feature = "auth")]
             mailing: crate::service::notification::Mailing(false),
@@ -487,6 +492,14 @@ impl BackgroundJobWorker {
     #[must_use]
     pub fn with_access_log_retention(mut self, retention: Duration) -> Self {
         self.access_log_retention = retention;
+        self
+    }
+
+    /// Read and store within `limits` rather than the standalone
+    /// server's defaults: the bounds of the process that took the upload.
+    #[must_use]
+    pub fn with_intake_limits(mut self, limits: IntakeLimits) -> Self {
+        self.limits = limits;
         self
     }
 
@@ -553,6 +566,10 @@ impl BackgroundJobWorker {
             }
             let code = match error {
                 OxidGeneError::Gedcom(_) | OxidGeneError::Validation(_) => "invalid_job_input",
+                // The file's size, or the tree's quota: the interface says
+                // which (docs/api.md, Intake limits).
+                OxidGeneError::TooLarge(_) => "payload_too_large",
+                OxidGeneError::QuotaExceeded => "quota_exceeded",
                 // Its actor may no longer act on the tree (§5.5).
                 OxidGeneError::Forbidden | OxidGeneError::Unauthenticated => "actor_revoked",
                 _ => "job_failed",
@@ -932,7 +949,14 @@ impl BackgroundJobWorker {
             let (phase, done, total) = progress.read();
             (import_phase(phase), done, total)
         };
-        let store = RecordingStore::new(&*self.media, job.id);
+        let recording = RecordingStore::new(&*self.media, job.id);
+        let store = QuotaStore::open(
+            &recording,
+            &self.db,
+            job.tree_id,
+            self.limits.tree_media_bytes,
+        )
+        .await?;
         let parsed = self
             .with_progress(
                 job.id,
@@ -940,6 +964,9 @@ impl BackgroundJobWorker {
                 report,
             )
             .await?;
+        // A file the quota refused left its record without bytes: the
+        // import fails as a whole rather than half of its media.
+        store.check()?;
         progress.check_cancelled()?;
         let transaction = self.db.begin().await.map_err(db_err)?;
         let written = self
@@ -984,6 +1011,14 @@ impl BackgroundJobWorker {
         Ok(summary)
     }
 
+    /// The genealogy text staged at `source`, read whole for its parser:
+    /// within the bound on such a text, whatever the upload let through.
+    async fn read_genealogy(&self, source: &Path) -> Result<Vec<u8>, OxidGeneError> {
+        let size = tokio::fs::metadata(source).await?.len();
+        self.limits.check_genealogy(size)?;
+        Ok(tokio::fs::read(source).await?)
+    }
+
     /// Reads the staged `source` of a GEDCOM, GEDZIP or GeneWeb import,
     /// storing a GEDZIP's media in `store`.
     async fn parse_import(
@@ -996,7 +1031,7 @@ impl BackgroundJobWorker {
         match job.format.as_str() {
             "gedcom" => {
                 progress.enter(gedcom::FileImportPhase::Parsing);
-                let source = tokio::fs::read(source).await?;
+                let source = self.read_genealogy(source).await?;
                 let tree_id = job.tree_id;
                 parse_off_thread("gedcom", move || {
                     Ok(oxidgene_gedcom::import::import_gedcom_bytes(
@@ -1005,10 +1040,13 @@ impl BackgroundJobWorker {
                 })
                 .await
             }
-            "gedzip" => gedcom::prepare_gedzip_file(store, job.tree_id, source, progress).await,
+            "gedzip" => {
+                let limits = self.limits.gedzip();
+                gedcom::prepare_gedzip_file(store, job.tree_id, source, &limits, progress).await
+            }
             "geneweb" => {
                 progress.enter(gedcom::FileImportPhase::Parsing);
-                let source = tokio::fs::read(source).await?;
+                let source = self.read_genealogy(source).await?;
                 let origin = safe_origin_file(job.original_filename.as_deref());
                 let tree_id = job.tree_id;
                 parse_off_thread("geneweb", move || {
@@ -1049,11 +1087,18 @@ impl BackgroundJobWorker {
             .stage_geneanet_inputs(scratch.path(), &payload, cancel)
             .await?;
 
-        let gw = tokio::fs::read(source).await?;
+        let gw = self.read_genealogy(&source).await?;
         let collection = std::mem::take(&mut payload.collection);
         let origin_file = safe_origin_file(job.original_filename.as_deref());
         let progress = Arc::new(geneanet::ImportProgress::cancellable(cancel.clone()));
-        let store = RecordingStore::new(&*self.media, job.id);
+        let recording = RecordingStore::new(&*self.media, job.id);
+        let store = QuotaStore::open(
+            &recording,
+            &self.db,
+            job.tree_id,
+            self.limits.tree_media_bytes,
+        )
+        .await?;
         let transaction = self.db.begin().await.map_err(db_err)?;
         let import = async {
             let summary = geneanet::import(
@@ -1070,7 +1115,8 @@ impl BackgroundJobWorker {
                 &progress,
             )
             .await?;
-            progress.check_cancelled()?;
+            // As for a file import: past the quota, nothing is kept.
+            store.check().and_then(|()| progress.check_cancelled())?;
             self.profiles
                 .rebuild_tree_full(&transaction, job.tree_id)
                 .instrument(tracing::info_span!("import.projections"))

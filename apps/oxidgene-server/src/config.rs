@@ -21,6 +21,9 @@
 //! | `OXIDGENE_S3_ENDPOINT`           | unset                                      | S3-compatible endpoint      |
 //! | `OXIDGENE_S3_ACCESS_KEY_ID`      | unset                                      | S3 access key               |
 //! | `OXIDGENE_S3_SECRET_ACCESS_KEY`  | unset                                      | S3 secret key               |
+//! | `OXIDGENE_IMPORT_GEDCOM_MAX`     | `350M`                                     | Largest genealogy text      |
+//! | `OXIDGENE_MEDIA_QUOTA`           | `10G`                                      | Media a tree may hold; `0`: none |
+//! | `OXIDGENE_IMPORT_ARCHIVE_ENTRIES`| `100000`                                   | Most files of an archive    |
 //! | `OXIDGENE_CACHE_MIB`             | `256`                                      | Tree cache budget, MiB      |
 //! | `OXIDGENE_CACHE_IDLE_SECS`       | `300`                                      | Tree cache idle delay, s    |
 //!
@@ -40,6 +43,13 @@
 //! `X-Forwarded-For` then names the client (see
 //! `oxidgene_api::auth::client`). Behind a proxy that is not named, every
 //! visitor counts as one.
+//!
+//! What the server and the worker take in is bounded
+//! (`oxidgene_api::limits::IntakeLimits`): a genealogy text by
+//! `OXIDGENE_IMPORT_GEDCOM_MAX`, the media a tree holds — and so the
+//! archive it can import — by `OXIDGENE_MEDIA_QUOTA`, an archive's files by
+//! `OXIDGENE_IMPORT_ARCHIVE_ENTRIES`. Sizes are bytes or a number with a
+//! binary unit (`350M`, `10G`).
 //!
 //! The authentication settings — `OXIDGENE_AUTH_MODE`, `OXIDGENE_PUBLIC_URL`,
 //! `OXIDGENE_OIDC_*`, `OXIDGENE_AUTH_*`, `OXIDGENE_SESSION_*`,
@@ -70,6 +80,7 @@ use config::{Config, ConfigBuilder, Environment, File};
 use oxidgene_api::access::AllowedHosts;
 use oxidgene_api::auth::AuthSettings;
 use oxidgene_api::auth::client::{InvalidTrustedProxies, TrustedProxies};
+use oxidgene_api::limits::{IntakeLimits, parse_size};
 use oxidgene_api::mail::MailSettings;
 use oxidgene_api::media::{FsStore, MediaStore, S3Store, S3StoreConfig};
 use oxidgene_api::tree_cache::CacheSettings;
@@ -175,6 +186,20 @@ pub struct ServerConfig {
     #[serde(default)]
     pub s3_secret_access_key: Option<String>,
 
+    /// The largest genealogy text taken in — a `.ged`, a `.gw`, the
+    /// `gedcom.ged` of a GEDZIP once inflated — as a size (`350M`).
+    #[serde(default = "default_import_gedcom_max")]
+    pub import_gedcom_max: String,
+
+    /// The media a tree may hold in the store, as a size (`10G`); `0` for
+    /// no quota.
+    #[serde(default = "default_media_quota")]
+    pub media_quota: String,
+
+    /// The most files an archive may hold.
+    #[serde(default = "default_import_archive_entries")]
+    pub import_archive_entries: usize,
+
     /// The tree cache's budget, in mebibytes of estimated memory.
     #[serde(default = "default_cache_mib")]
     pub cache_mib: usize,
@@ -207,6 +232,9 @@ impl std::fmt::Debug for ServerConfig {
                 "s3_secret_access_key",
                 &self.s3_secret_access_key.as_ref().map(|_| REDACTED),
             )
+            .field("import_gedcom_max", &self.import_gedcom_max)
+            .field("media_quota", &self.media_quota)
+            .field("import_archive_entries", &self.import_archive_entries)
             .field("cache_mib", &self.cache_mib)
             .field("cache_idle_secs", &self.cache_idle_secs)
             .finish()
@@ -243,6 +271,18 @@ fn redact_url_password(url: &str) -> String {
 
 fn default_host() -> String {
     "127.0.0.1".to_string()
+}
+
+fn default_import_gedcom_max() -> String {
+    "350M".to_string()
+}
+
+fn default_media_quota() -> String {
+    "10G".to_string()
+}
+
+fn default_import_archive_entries() -> usize {
+    IntakeLimits::default().archive_entries
 }
 
 fn default_cache_mib() -> usize {
@@ -311,6 +351,29 @@ impl ServerConfig {
             std::iter::once(public_origin.unwrap_or(&self.cors_origin))
                 .chain(self.allowed_hosts.split(',')),
         )
+    }
+
+    /// What the server and the worker take in: the bounds
+    /// `OXIDGENE_IMPORT_GEDCOM_MAX`, `OXIDGENE_MEDIA_QUOTA` and
+    /// `OXIDGENE_IMPORT_ARCHIVE_ENTRIES` set.
+    ///
+    /// # Errors
+    ///
+    /// The variable that is no size, or names no file or no byte at all.
+    pub fn intake_limits(&self) -> Result<IntakeLimits, &'static str> {
+        let genealogy_bytes = parse_size(&self.import_gedcom_max)
+            .ok()
+            .filter(|bytes| *bytes > 0)
+            .ok_or("OXIDGENE_IMPORT_GEDCOM_MAX")?;
+        let quota = parse_size(&self.media_quota).map_err(|_| "OXIDGENE_MEDIA_QUOTA")?;
+        if self.import_archive_entries == 0 {
+            return Err("OXIDGENE_IMPORT_ARCHIVE_ENTRIES");
+        }
+        Ok(IntakeLimits {
+            genealogy_bytes,
+            archive_entries: self.import_archive_entries,
+            tree_media_bytes: (quota > 0).then_some(quota),
+        })
     }
 
     /// The reverse proxies `OXIDGENE_TRUSTED_PROXIES` names.
@@ -423,6 +486,53 @@ mod tests {
     fn network_defaults_do_not_expose_the_unauthenticated_backend() {
         assert_eq!(default_host(), "127.0.0.1");
         assert_eq!(default_cors_origin(), "http://127.0.0.1:8081");
+    }
+
+    /// The server's bounds are Geneanet's sizes unless the operator says
+    /// otherwise; a quota of `0` is none, and what is no size names its
+    /// variable.
+    #[test]
+    fn the_intake_limits_default_to_geneanets_and_follow_the_settings() {
+        let with = |settings: &[(&str, &str)]| {
+            let mut builder = Config::builder();
+            for (key, value) in settings {
+                builder = builder.set_override(*key, *value).expect("a setting");
+            }
+            builder
+                .build()
+                .and_then(Config::try_deserialize::<ServerConfig>)
+                .expect("a configuration")
+                .intake_limits()
+        };
+        assert_eq!(with(&[]), Ok(IntakeLimits::default()));
+        assert_eq!(
+            with(&[
+                ("import_gedcom_max", "64M"),
+                ("media_quota", "2G"),
+                ("import_archive_entries", "500"),
+            ]),
+            Ok(IntakeLimits {
+                genealogy_bytes: 64 * 1024 * 1024,
+                archive_entries: 500,
+                tree_media_bytes: Some(2 * 1024 * 1024 * 1024),
+            })
+        );
+        assert_eq!(
+            with(&[("media_quota", "0")]).map(|limits| limits.tree_media_bytes),
+            Ok(None)
+        );
+        assert_eq!(
+            with(&[("import_gedcom_max", "0")]),
+            Err("OXIDGENE_IMPORT_GEDCOM_MAX")
+        );
+        assert_eq!(
+            with(&[("media_quota", "plenty")]),
+            Err("OXIDGENE_MEDIA_QUOTA")
+        );
+        assert_eq!(
+            with(&[("import_archive_entries", "0")]),
+            Err("OXIDGENE_IMPORT_ARCHIVE_ENTRIES")
+        );
     }
 
     /// The reason names the missing variable, so the operator knows which

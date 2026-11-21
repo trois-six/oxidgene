@@ -163,6 +163,7 @@ pub async fn spawn_background_worker(state: &AppState, requeue_running: bool, wo
         worker_id,
     )
     .with_work_dir(state.work_dir.clone())
+    .with_intake_limits(state.limits)
     .with_access_log_retention(state.access_log_retention);
     #[cfg(feature = "auth")]
     let worker = worker.with_mailing(state.auth.mailing().0);

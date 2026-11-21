@@ -568,11 +568,10 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/export-jobs/{job_id}/download",
             get(file_export::download),
         )
-        .route(
-            "/{tree_id}/import-jobs",
-            post(file_import::start)
-                .layer(DefaultBodyLimit::max(file_import::FILE_IMPORT_BODY_LIMIT)),
-        )
+        // Streamed to disk within the bound of its format, which the
+        // handler enforces as the bytes arrive: an archive may weigh
+        // gigabytes (`IntakeLimits`).
+        .route("/{tree_id}/import-jobs", post(file_import::start))
         .route("/{tree_id}/import-jobs/{job_id}", get(file_import::status))
         .route(
             "/{tree_id}/import-jobs/{job_id}/cancel",
@@ -670,6 +669,7 @@ pub fn build_router(state: AppState) -> Router {
         state.media.clone(),
         state.work_dir.clone(),
         state.archives.clone(),
+        state.limits,
     );
 
     #[cfg(feature = "graphql")]

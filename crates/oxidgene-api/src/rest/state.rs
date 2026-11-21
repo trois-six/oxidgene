@@ -54,6 +54,9 @@ pub struct AppState {
     /// The archive resolution every request shares, with its session cache.
     pub archives: Arc<ArchivePortals>,
     pub(crate) local_file_access: LocalFileAccess,
+    /// How much the backend takes in: the server's bounds unless the
+    /// desktop lifts them.
+    pub limits: crate::limits::IntakeLimits,
     /// How long the embedded worker keeps access events
     /// (docs/authorization.md §9.2).
     pub access_log_retention: std::time::Duration,
@@ -112,6 +115,7 @@ impl AppState {
             work_dir: WorkDir::temporary(),
             archives: Arc::new(ArchivePortals::native()),
             local_file_access: LocalFileAccess(false),
+            limits: crate::limits::IntakeLimits::default(),
             access_log_retention: crate::service::background_job::DEFAULT_ACCESS_LOG_RETENTION,
             #[cfg(feature = "auth")]
             auth: Arc::new(crate::auth::Auth::none()),
@@ -123,6 +127,14 @@ impl AppState {
     #[must_use]
     pub fn with_auth(mut self, auth: Arc<crate::auth::Auth>) -> Self {
         self.auth = auth;
+        self
+    }
+
+    /// Take in files, archives and media within `limits` rather than the
+    /// standalone server's defaults.
+    #[must_use]
+    pub fn with_intake_limits(mut self, limits: crate::limits::IntakeLimits) -> Self {
+        self.limits = limits;
         self
     }
 

@@ -38,6 +38,10 @@ pub enum OxidGeneError {
     #[error("Too large: {0}")]
     TooLarge(String),
 
+    /// A tree's media would pass its storage quota.
+    #[error("Storage quota exceeded")]
+    QuotaExceeded,
+
     /// Database error.
     #[error("Database error: {0}")]
     Database(String),

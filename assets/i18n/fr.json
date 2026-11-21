@@ -7220,6 +7220,7 @@
     "error.io": "Un fichier n’a pas pu être lu ou écrit.",
     "error.no_archive": "Aucun fonds d’archives catalogué ne contient cet acte.",
     "error.not_found": "Cet enregistrement n’existe plus. Rechargez la page.",
+    "error.quota_exceeded": "Cet arbre a atteint sa limite de stockage des médias. Supprimez des médias ou demandez plus d’espace à l’administrateur.",
     "error.rate_limited": "Trop de demandes. Patientez un instant et réessayez.",
     "error.server": "Une erreur s’est produite sur le serveur. Réessayez.",
     "error.timeout": "La demande a pris trop de temps. Réessayez.",

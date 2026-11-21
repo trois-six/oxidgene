@@ -368,6 +368,9 @@ fn main() {
             let state = AppState::new(db, media_root)
                 .with_work_dir(server_work_dir)
                 .with_cache(CacheSettings::one_tree(cache_idle()))
+                // The disk is the user's: no quota, and an archive of any
+                // size is read where it lies.
+                .with_intake_limits(oxidgene_api::limits::IntakeLimits::local())
                 .with_local_file_access();
             // This process is the only worker of its SQLite database.
             spawn_background_worker(&state, true, "desktop").await;

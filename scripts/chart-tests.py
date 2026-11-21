@@ -151,6 +151,13 @@ def run() -> None:
             "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7",
             "OXIDGENE_TRUSTED_PROXIES",
         )
+        # The intake limits are Geneanet's sizes unless the operator says otherwise.
+        for name, value in (
+            ("OXIDGENE_IMPORT_GEDCOM_MAX", "350M"),
+            ("OXIDGENE_MEDIA_QUOTA", "10G"),
+            ("OXIDGENE_IMPORT_ARCHIVE_ENTRIES", "100000"),
+        ):
+            expect_eq(env.get(name), value, name)
         narrowed = backend_env(render(*values("external"), "--set", "backend.trustedProxies={10.42.0.0/16}"))
         expect_eq(narrowed.get("OXIDGENE_TRUSTED_PROXIES"), "10.42.0.0/16", "a narrowed OXIDGENE_TRUSTED_PROXIES")
         expect_eq(env.get("OXIDGENE_REDIS_URL"), ("oxidgene-redis", "url"), "OXIDGENE_REDIS_URL")

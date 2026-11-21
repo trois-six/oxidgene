@@ -1107,11 +1107,19 @@ impl TreeMutation {
                     .into());
                 }
             };
+            // Within the tree's quota, as the REST upload is.
+            let within_quota = crate::media::quota::QuotaStore::open(
+                &**media_from_ctx(ctx),
+                reader_from_ctx(ctx),
+                tree_id,
+                super::types::limits_from_ctx(ctx).tree_media_bytes,
+            )
+            .await?;
             let (page, _) = media::upload(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
                 profiles_from_ctx(ctx),
-                &**media_from_ctx(ctx),
+                &within_quota,
                 tree_id,
                 NewUpload {
                     file_name: input.file_name,

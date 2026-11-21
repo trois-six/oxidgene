@@ -7220,6 +7220,7 @@
     "error.io": "A file could not be read or written.",
     "error.no_archive": "No catalogued archive holds this record.",
     "error.not_found": "This record no longer exists. Reload the page.",
+    "error.quota_exceeded": "This tree has reached its media storage limit. Remove some media, or ask the administrator for more space.",
     "error.rate_limited": "Too many requests. Wait a moment and try again.",
     "error.server": "Something went wrong on the server. Try again.",
     "error.timeout": "The request took too long. Try again.",

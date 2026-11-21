@@ -36,13 +36,6 @@ use crate::service::geneanet;
 /// Default `origin_file` when the client sends no `?filename=`.
 const DEFAULT_ORIGIN_FILE: &str = "import.gw";
 
-/// The largest saved session taken in, in bytes (10 GiB): a session holds
-/// the media of one Geneanet account, which Geneanet bounds at 10 GB
-/// (docs/geneanet-upload-api.md). Its media are stored uncompressed and
-/// counted against the archive's size as they are read, so this bounds what
-/// a session spools and what it expands to.
-const SESSION_ARCHIVE_LIMIT: u64 = 10 * 1024 * 1024 * 1024;
-
 /// POST /api/v1/geneweb/inspect
 ///
 /// Parse a `.gw` file and report what it holds, writing nothing.
@@ -360,7 +353,7 @@ pub async fn session_import_handler(
 const GW_PART_LIMIT: usize = 32 * 1024 * 1024;
 
 /// The parts of a session import, its session spooled to a private file
-/// of at most [`SESSION_ARCHIVE_LIMIT`] bytes, with the intake slot taken
+/// within what the backend takes of an archive, with the intake slot taken
 /// when the first part arrived.
 async fn read_session_import_form(
     state: &AppState,
@@ -447,8 +440,8 @@ async fn read_gw_part(
 }
 
 /// The `session` part of a session import, spooled to a private file of
-/// the working directory, rewound: at most [`SESSION_ARCHIVE_LIMIT`] bytes
-/// of it.
+/// the working directory, rewound: within what the backend takes of an
+/// archive.
 async fn spool_session_part(
     state: &AppState,
     mut field: axum::extract::multipart::Field<'_>,
@@ -457,7 +450,7 @@ async fn spool_session_part(
         tokio::fs::File::from_std(state.work_dir.anonymous_file().map_err(OxidGeneError::Io)?);
     let mut received = 0u64;
     while let Some(chunk) = field.chunk().await.map_err(malformed_part)? {
-        received = within_session_limit(received, chunk.len())?;
+        received = within_session_limit(state.limits, received, chunk.len())?;
         file.write_all(&chunk).await.map_err(OxidGeneError::Io)?;
     }
     file.rewind().await.map_err(OxidGeneError::Io)?;
@@ -465,21 +458,25 @@ async fn spool_session_part(
 }
 
 /// `received` bytes of a saved session and `more`, when they stay within
-/// [`SESSION_ARCHIVE_LIMIT`].
-fn within_session_limit(received: u64, more: usize) -> Result<u64, OxidGeneError> {
-    received
-        .checked_add(more as u64)
-        .filter(|total| *total <= SESSION_ARCHIVE_LIMIT)
-        .ok_or_else(|| {
-            OxidGeneError::TooLarge(format!(
-                "the saved session exceeds the {SESSION_ARCHIVE_LIMIT}-byte limit"
-            ))
-        })
+/// what the backend takes of an archive: what a tree's media quota can
+/// hold — a session holds the media of one Geneanet account, which
+/// Geneanet bounds at 10 GB as the default quota does — and anything on
+/// the desktop. Its media are stored uncompressed and counted against the
+/// archive's size as they are read, so this bounds what a session spools
+/// and what it expands to.
+fn within_session_limit(
+    limits: crate::limits::IntakeLimits,
+    received: u64,
+    more: usize,
+) -> Result<u64, OxidGeneError> {
+    let received = received.saturating_add(more as u64);
+    limits.check_archive(received)?;
+    Ok(received)
 }
 
 /// An uploaded session — its `first` bytes and the `rest` of its body —
-/// streamed to a private file of the working directory, rewound: at most
-/// [`SESSION_ARCHIVE_LIMIT`] bytes of it.
+/// streamed to a private file of the working directory, rewound: within
+/// what the backend takes of an archive.
 async fn spool(
     state: &AppState,
     first: Bytes,
@@ -494,7 +491,7 @@ async fn spool(
     while let Some(chunk) = next {
         let chunk = chunk
             .map_err(|_| OxidGeneError::Validation("session upload was interrupted".into()))?;
-        received = within_session_limit(received, chunk.len())?;
+        received = within_session_limit(state.limits, received, chunk.len())?;
         upload.write_all(&chunk).await.map_err(OxidGeneError::Io)?;
         next = rest.next().await;
     }
@@ -544,21 +541,23 @@ fn decode_gw(encoded: &str) -> Result<Vec<u8>, ApiError> {
 mod tests {
     use super::*;
 
-    /// A saved session is spooled up to its limit and refused past it, as
-    /// too large rather than as invalid.
+    /// A saved session is spooled up to what a tree can hold and refused
+    /// past it, as too large rather than as invalid; the desktop, which
+    /// has no quota, takes any.
     #[test]
-    fn a_session_is_spooled_within_its_limit() {
-        assert_eq!(within_session_limit(0, 4096).ok(), Some(4096));
-        assert_eq!(
-            within_session_limit(SESSION_ARCHIVE_LIMIT - 1, 1).ok(),
-            Some(SESSION_ARCHIVE_LIMIT)
-        );
-        for (received, more) in [(SESSION_ARCHIVE_LIMIT, 1), (u64::MAX, 1)] {
+    fn a_session_is_spooled_within_what_a_tree_can_hold() {
+        let server = crate::limits::IntakeLimits::default();
+        let limit = server.archive_bytes().expect("the server's quota");
+        assert_eq!(within_session_limit(server, 0, 4096).ok(), Some(4096));
+        assert_eq!(within_session_limit(server, limit - 1, 1).ok(), Some(limit));
+        for (received, more) in [(limit, 1), (u64::MAX, 1)] {
             assert!(matches!(
-                within_session_limit(received, more),
+                within_session_limit(server, received, more),
                 Err(OxidGeneError::TooLarge(_))
             ));
         }
+        let desktop = crate::limits::IntakeLimits::local();
+        assert!(within_session_limit(desktop, limit, 1).is_ok());
     }
 
     /// An upload past its limit answers `413 payload_too_large`.

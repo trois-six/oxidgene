@@ -7220,6 +7220,7 @@
     "error.io": "Não foi possível ler ou escrever um ficheiro.",
     "error.no_archive": "Nenhum arquivo catalogado contém este registo.",
     "error.not_found": "Este registo já não existe. Recarregue a página.",
+    "error.quota_exceeded": "Esta árvore atingiu o limite de armazenamento de multimédia. Remova alguns ficheiros ou peça mais espaço ao administrador.",
     "error.rate_limited": "Demasiados pedidos. Aguarde um momento e tente novamente.",
     "error.server": "Ocorreu um erro no servidor. Tente novamente.",
     "error.timeout": "O pedido demorou demasiado tempo. Tente novamente.",

@@ -18,7 +18,7 @@ Use your current program's export function. Pick the best format it offers, in t
 
 With a plain GEDCOM file, your photos stay behind: OxidGene creates a record for each one, with its file name, but without the picture. Keep your media folder; you can attach each file to its record later (see [Media](@/guide/media.md)).
 
-The file can be up to 1 GiB.
+A `.ged` or a `.gw` can be up to 350 MiB; a `.gdz` archive, which carries its media, has no limit on the desktop.
 
 ## 2. Create a tree
 

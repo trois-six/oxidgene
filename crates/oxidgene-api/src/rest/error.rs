@@ -137,7 +137,7 @@ fn status(error: &OxidGeneError) -> StatusCode {
         OxidGeneError::Unauthenticated => StatusCode::UNAUTHORIZED,
         OxidGeneError::Forbidden => StatusCode::FORBIDDEN,
         OxidGeneError::RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
-        OxidGeneError::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
+        OxidGeneError::TooLarge(_) | OxidGeneError::QuotaExceeded => StatusCode::PAYLOAD_TOO_LARGE,
         OxidGeneError::Database(_) | OxidGeneError::Io(_) | OxidGeneError::Internal(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }

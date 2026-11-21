@@ -138,6 +138,14 @@ spec:
             # container's /tmp.
             - name: OXIDGENE_WORK_DIR
               value: /var/cache/oxidgene
+            # What an import may read and a tree may hold: the same on the
+            # process that takes an upload and on the one that imports it.
+            - name: OXIDGENE_IMPORT_GEDCOM_MAX
+              value: {{ .Values.limits.gedcomMax | quote }}
+            - name: OXIDGENE_MEDIA_QUOTA
+              value: {{ .Values.limits.mediaQuota | quote }}
+            - name: OXIDGENE_IMPORT_ARCHIVE_ENTRIES
+              value: {{ .Values.limits.archiveEntries | quote }}
             {{- with .Values.backend.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

@@ -4394,3 +4394,285 @@ async fn a_region_cut_for_an_event_reaches_the_persons_page_with_its_document() 
     let (_, bundle) = send(&h.app, Method::GET, &detail, None).await;
     assert_eq!(bundle["event_vignettes"], json!([]), "{bundle}");
 }
+
+// ── Intake limits (docs/api.md, Intake limits) ────────────────────────
+
+/// A router and a worker over `db` and `root`, taking in within `limits`.
+fn bounded(
+    db: &sea_orm::DatabaseConnection,
+    root: &TempRoot,
+    limits: oxidgene_api::limits::IntakeLimits,
+) -> (
+    axum::Router,
+    oxidgene_api::service::background_job::BackgroundJobWorker,
+) {
+    let app = build_router(AppState::new(db.clone(), &root.0).with_intake_limits(limits));
+    let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(
+        db.clone(),
+        std::sync::Arc::new(oxidgene_api::profile::ProfileService::new(db.clone())),
+        std::sync::Arc::new(oxidgene_api::media::FsStore::new(&root.0)),
+        "intake-limits-test-worker",
+    )
+    .with_intake_limits(limits);
+    (app, worker)
+}
+
+async fn new_tree(app: &axum::Router, name: &str) -> Uuid {
+    let (status, tree) = send(
+        app,
+        Method::POST,
+        "/api/v1/trees",
+        Some(json!({ "name": name })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{tree}");
+    Uuid::parse_str(tree["id"].as_str().unwrap()).unwrap()
+}
+
+/// A GEDZIP of one fictitious person and `pictures`, each named by an
+/// `OBJE` record.
+fn gedzip_with(pictures: &[Vec<u8>]) -> Vec<u8> {
+    use std::io::Write as _;
+
+    let mut gedcom =
+        String::from("0 HEAD\n1 GEDC\n2 VERS 7.0\n0 @I1@ INDI\n1 NAME person_a /BRANCH_A/\n");
+    for index in 0..pictures.len() {
+        gedcom.push_str(&format!("1 OBJE @O{index}@\n"));
+    }
+    for index in 0..pictures.len() {
+        gedcom.push_str(&format!(
+            "0 @O{index}@ OBJE\n1 FILE media/picture-{index}.png\n2 FORM image/png\n"
+        ));
+    }
+    gedcom.push_str("0 TRLR\n");
+    let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    archive.start_file("gedcom.ged", options).unwrap();
+    archive.write_all(gedcom.as_bytes()).unwrap();
+    for (index, picture) in pictures.iter().enumerate() {
+        archive
+            .start_file(format!("media/picture-{index}.png"), options)
+            .unwrap();
+        archive.write_all(picture).unwrap();
+    }
+    archive.finish().unwrap().into_inner()
+}
+
+/// The bytes of the files tree `tree_id` holds: what its quota counts.
+async fn held_bytes(db: &sea_orm::DatabaseConnection, tree_id: Uuid) -> usize {
+    let bytes = oxidgene_db::repo::MediaRepo::stored_bytes(db, tree_id)
+        .await
+        .expect("the tree's stored bytes");
+    usize::try_from(bytes).unwrap()
+}
+
+/// A picture of noise, which no compression shrinks: `width` × `height`
+/// pixels drawn from `seed`.
+fn noise(width: u32, height: u32, seed: u32) -> Vec<u8> {
+    let mut state = seed.wrapping_mul(2_654_435_761).wrapping_add(1);
+    let mut next = || {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 24) as u8
+    };
+    let mut img = image::RgbImage::new(width, height);
+    for pixel in img.pixels_mut() {
+        *pixel = image::Rgb([next(), next(), next()]);
+    }
+    let mut out = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(img)
+        .write_to(&mut out, image::ImageFormat::Png)
+        .unwrap();
+    out.into_inner()
+}
+
+/// A tree's media stay within its quota on both surfaces: the file that
+/// would pass it is refused and stored nowhere, a smaller one still fits,
+/// and another tree has its own.
+#[tokio::test]
+async fn a_tree_past_its_media_quota_refuses_uploads_on_both_surfaces() {
+    let db = setup_db().await;
+    let root = TempRoot::new();
+    let (first, second, small) = (png(96, 96), png(97, 97), png(8, 8));
+    let limits = oxidgene_api::limits::IntakeLimits {
+        // Room for the first picture and the small one, not for two.
+        tree_media_bytes: Some((first.len() + small.len()) as u64),
+        ..Default::default()
+    };
+    let (app, _) = bounded(&db, &root, limits);
+    let tree_id = new_tree(&app, "quota").await;
+
+    let (status, stored) = upload(&app, tree_id, &[("file", Some("first.png"), &first)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{stored}");
+    // Its thumbnail is not a file of the tree, and is not counted.
+    assert!(stored["thumbnail_key"].is_string(), "{stored}");
+    assert_eq!(held_bytes(&db, tree_id).await, first.len());
+
+    let (status, refused) = upload(&app, tree_id, &[("file", Some("second.png"), &second)]).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{refused}");
+    assert_eq!(refused["error"], "quota_exceeded");
+
+    #[cfg(feature = "graphql")]
+    {
+        use base64::Engine as _;
+
+        let document = new_document(&app, tree_id, None).await;
+        let answer = common::gql(
+            &app,
+            "mutation($tree: ID!, $input: UploadMediaFileInput!) { uploadMediaFile(treeId: $tree, input: $input) { id } }",
+            json!({ "tree": tree_id.to_string(), "input": {
+                "documentId": document,
+                "fileName": "second.png",
+                "contentBase64": base64::engine::general_purpose::STANDARD.encode(&second),
+            }}),
+        )
+        .await;
+        assert_eq!(
+            common::gql_error_code(&answer),
+            "QUOTA_EXCEEDED",
+            "{answer}"
+        );
+    }
+    assert_eq!(held_bytes(&db, tree_id).await, first.len());
+
+    let (status, fits) = upload(&app, tree_id, &[("file", Some("small.png"), &small)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{fits}");
+    assert_eq!(held_bytes(&db, tree_id).await, first.len() + small.len());
+
+    let other = new_tree(&app, "another tree").await;
+    let (status, own) = upload(&app, other, &[("file", Some("second.png"), &second)]).await;
+    assert_eq!(status, StatusCode::CREATED, "{own}");
+}
+
+/// An archive whose media pass the tree's quota fails as a whole, with the
+/// quota's code, and leaves nothing behind; within the quota it imports.
+#[tokio::test]
+async fn an_import_past_the_trees_media_quota_fails_and_keeps_nothing() {
+    let db = setup_db().await;
+    let root = TempRoot::new();
+    let pictures = vec![png(96, 96), png(97, 97), png(98, 98)];
+    let two = (pictures[0].len() + pictures[1].len()) as u64;
+    let limits = oxidgene_api::limits::IntakeLimits {
+        tree_media_bytes: Some(two),
+        ..Default::default()
+    };
+    let (app, worker) = bounded(&db, &root, limits);
+
+    let over = new_tree(&app, "over its quota").await;
+    let job = common::import_job(
+        &app,
+        &worker,
+        &over.to_string(),
+        "format=gedzip",
+        gedzip_with(&pictures),
+    )
+    .await;
+    assert_eq!(job["phase"], "failed", "{job}");
+    assert_eq!(job["error"], "quota_exceeded", "{job}");
+    assert_eq!(held_bytes(&db, over).await, 0);
+    let (_, persons) = send(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{over}/persons"),
+        None,
+    )
+    .await;
+    assert_eq!(persons["total_count"], 0, "{persons}");
+
+    let within = new_tree(&app, "within its quota").await;
+    let job = common::import_job(
+        &app,
+        &worker,
+        &within.to_string(),
+        "format=gedzip",
+        gedzip_with(&pictures[..2]),
+    )
+    .await;
+    assert_eq!(job["phase"], "completed", "{job}");
+    assert_eq!(
+        held_bytes(&db, within).await,
+        pictures[0].len() + pictures[1].len()
+    );
+}
+
+/// A genealogy text past its bound is refused as it uploads, an archive
+/// is not held to that bound, and one whose `gedcom.ged` inflates past it,
+/// or that holds too many files, fails its job as too large.
+#[tokio::test]
+async fn import_sources_are_bounded_by_what_they_are() {
+    use std::io::Write as _;
+
+    let db = setup_db().await;
+    let root = TempRoot::new();
+    let limits = oxidgene_api::limits::IntakeLimits {
+        genealogy_bytes: 64 * 1024,
+        archive_entries: 4,
+        ..Default::default()
+    };
+    let (app, worker) = bounded(&db, &root, limits);
+    let tree_id = new_tree(&app, "bounded").await.to_string();
+    let padded = |bytes: usize| {
+        let mut text = String::from("0 HEAD\n1 GEDC\n2 VERS 7.0\n0 @I1@ INDI\n");
+        while text.len() < bytes {
+            text.push_str(&format!("1 NOTE {}\n", "a".repeat(120)));
+        }
+        text.push_str("0 TRLR\n");
+        text
+    };
+    let start = |query: &'static str, body: Vec<u8>| {
+        let app = app.clone();
+        let uri = format!("/api/v1/trees/{tree_id}/import-jobs?{query}");
+        async move {
+            let response = app
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri(uri)
+                        .header(header::CONTENT_TYPE, "application/octet-stream")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            (
+                status,
+                serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null),
+            )
+        }
+    };
+
+    // A text over the bound: refused while it streams, on both formats.
+    for query in ["format=gedcom", "format=geneweb"] {
+        let (status, refused) = start(query, padded(80 * 1024).into_bytes()).await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{query}: {refused}");
+        assert_eq!(refused["error"], "payload_too_large", "{query}");
+    }
+
+    // The same text deflated in an archive is a few hundred bytes: the
+    // upload passes, and the job refuses it as it inflates.
+    let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let deflated = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    archive.start_file("gedcom.ged", deflated).unwrap();
+    archive.write_all(padded(80 * 1024).as_bytes()).unwrap();
+    let bomb = archive.finish().unwrap().into_inner();
+    assert!(bomb.len() < 4 * 1024, "{} bytes", bomb.len());
+    let job = common::import_job(&app, &worker, &tree_id, "format=gedzip", bomb).await;
+    assert_eq!(job["phase"], "failed", "{job}");
+    assert_eq!(job["error"], "payload_too_large", "{job}");
+
+    // More files than the archive may hold.
+    let crowded = gedzip_with(&[png(8, 8), png(9, 9), png(10, 10), png(11, 11)]);
+    let job = common::import_job(&app, &worker, &tree_id, "format=gedzip", crowded).await;
+    assert_eq!(job["phase"], "failed", "{job}");
+    assert_eq!(job["error"], "payload_too_large", "{job}");
+
+    // An archive larger than the bound on a text, its media included,
+    // imports: only its `gedcom.ged` is held to that bound.
+    let heavy = gedzip_with(&[noise(160, 160, 1), noise(160, 160, 2)]);
+    assert!(heavy.len() > 64 * 1024, "{} bytes", heavy.len());
+    let job = common::import_job(&app, &worker, &tree_id, "format=gedzip", heavy).await;
+    assert_eq!(job["phase"], "completed", "{job}");
+}

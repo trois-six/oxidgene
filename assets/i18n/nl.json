@@ -7220,6 +7220,7 @@
     "error.io": "Een bestand kon niet worden gelezen of geschreven.",
     "error.no_archive": "Geen gecatalogiseerd archief bevat deze akte.",
     "error.not_found": "Dit gegeven bestaat niet meer. Laad de pagina opnieuw.",
+    "error.quota_exceeded": "Deze stamboom heeft de opslaglimiet voor media bereikt. Verwijder media of vraag de beheerder om meer ruimte.",
     "error.rate_limited": "Te veel verzoeken. Wacht even en probeer het opnieuw.",
     "error.server": "Er ging iets mis op de server. Probeer het opnieuw.",
     "error.timeout": "Het verzoek duurde te lang. Probeer het opnieuw.",

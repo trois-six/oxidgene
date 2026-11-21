@@ -329,11 +329,18 @@ pub async fn upload_media(
             )));
         }
     };
+    let within_quota = crate::media::quota::QuotaStore::open(
+        &*state.media,
+        &state.reader,
+        tree_id,
+        state.limits.tree_media_bytes,
+    )
+    .await?;
     let (page, created) = media_service::upload(
         &viewer,
         &state.db,
         &state.profiles,
-        &*state.media,
+        &within_quota,
         tree_id,
         NewUpload {
             file_name,

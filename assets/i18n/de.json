@@ -7220,6 +7220,7 @@
     "error.io": "Eine Datei konnte nicht gelesen oder geschrieben werden.",
     "error.no_archive": "Kein katalogisiertes Archiv enthält diesen Eintrag.",
     "error.not_found": "Dieser Eintrag existiert nicht mehr. Laden Sie die Seite neu.",
+    "error.quota_exceeded": "Dieser Stammbaum hat sein Speicherlimit für Medien erreicht. Entfernen Sie Medien oder bitten Sie den Administrator um mehr Speicherplatz.",
     "error.rate_limited": "Zu viele Anfragen. Warten Sie einen Moment und versuchen Sie es erneut.",
     "error.server": "Auf dem Server ist ein Fehler aufgetreten. Versuchen Sie es erneut.",
     "error.timeout": "Die Anfrage hat zu lange gedauert. Versuchen Sie es erneut.",

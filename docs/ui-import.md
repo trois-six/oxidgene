@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Import"
 description: "The import modal for GEDCOM, GEDZIP, GeneWeb, and Geneanet trees with media."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T12:40:00Z }
 ---
 
 
@@ -243,10 +243,18 @@ file it does not hold).
 
 ## 6. File size handling
 
-| File size | Behavior |
+| File | Behavior |
 |---|---|
-| Up to 1 GiB | Native streamed upload, then an asynchronous server job with phase progress |
-| Over 1 GiB | Rejected while streaming; any partial upload is removed |
+| A `.ged` or a `.gw` up to 350 MiB | Native streamed upload, then an asynchronous server job with phase progress |
+| A `.gdz` of any size on the desktop; on the web, up to what the tree's media quota can hold (10 GiB and its GEDCOM by default) | The same: the archive is spooled to disk and read entry by entry, so its size costs disk and time, not memory |
+| Over its bound | Rejected while streaming, with *The file is too large* (`error.too_large`); any partial upload is removed |
+| A `.gdz` whose `gedcom.ged` inflates past 350 MiB, or that holds more than 100,000 files (1,000,000 on the desktop) | The job fails with *The file is too large*; nothing is imported |
+| Media past the tree's quota (web) | The job fails with *This tree has reached its media storage limit* (`error.quota_exceeded`); nothing is imported |
+
+The bounds are the server's settings
+([API Contract, Intake limits](api.md#intake-limits)); the desktop has no
+quota. A photograph added to a tree at its quota is refused with the same
+message.
 
 The asynchronous path applies equally to `.ged`, `.gw`, and `.gdz`. Large text
 exports are real product inputs: Geneanet accepts GEDCOM uploads up to 350 MB,

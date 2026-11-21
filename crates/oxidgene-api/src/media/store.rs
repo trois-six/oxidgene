@@ -105,6 +105,18 @@ pub trait MediaStore: Send + Sync + std::fmt::Debug {
         self.put_content(&key, sha256, bytes).await
     }
 
+    /// Write a picture derived from a stored file — a thumbnail, a card —
+    /// as [`Self::put`] writes a file. Kept apart so that a store counting
+    /// what a tree holds counts its files, not what is made from them.
+    async fn put_rendition(
+        &self,
+        tree_id: Uuid,
+        extension: &str,
+        bytes: Bytes,
+    ) -> Result<StoredObject, OxidGeneError> {
+        self.put(tree_id, extension, bytes).await
+    }
+
     /// Write `bytes`, whose SHA-256 is `sha256`, at their content key `key`
     /// (`{tree_id}/{aa}/{bb}/{digest}.{ext}`), unless an object is there already.
     async fn put_content(

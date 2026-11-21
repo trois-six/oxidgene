@@ -129,6 +129,7 @@ pub fn build_schema(
         media,
         WorkDir::temporary(),
         Arc::new(ArchivePortals::native()),
+        crate::limits::IntakeLimits::default(),
     )
 }
 
@@ -145,6 +146,7 @@ pub(crate) fn build_schema_on(
     media: Arc<dyn MediaStore>,
     work_dir: WorkDir,
     archives: Arc<ArchivePortals>,
+    limits: crate::limits::IntakeLimits,
 ) -> OxidGeneSchema {
     Schema::build(
         QueryRoot::default(),
@@ -164,6 +166,7 @@ pub(crate) fn build_schema_on(
     .data(media)
     .data(work_dir)
     .data(archives)
+    .data(limits)
     .finish()
 }
 

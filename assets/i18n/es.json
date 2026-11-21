@@ -7220,6 +7220,7 @@
     "error.io": "No se pudo leer o escribir un archivo.",
     "error.no_archive": "Ningún archivo catalogado contiene este registro.",
     "error.not_found": "Este registro ya no existe. Vuelva a cargar la página.",
+    "error.quota_exceeded": "Este árbol ha alcanzado su límite de almacenamiento de medios. Elimine algunos medios o pida más espacio al administrador.",
     "error.rate_limited": "Demasiadas solicitudes. Espere un momento e inténtelo de nuevo.",
     "error.server": "Se produjo un error en el servidor. Inténtelo de nuevo.",
     "error.timeout": "La solicitud tardó demasiado. Inténtelo de nuevo.",

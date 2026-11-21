@@ -18,7 +18,7 @@ Servez-vous de la fonction d’export de votre logiciel actuel, en choisissant l
 
 Avec un simple fichier GEDCOM, vos photos restent en arrière : OxidGene crée une fiche pour chacune, avec le nom de son fichier, mais sans l’image. Conservez votre dossier de médias ; vous pourrez joindre chaque fichier à sa fiche plus tard (voir [Médias](@/guide/media.fr.md)).
 
-Le fichier peut atteindre 1 Gio.
+Un fichier `.ged` ou `.gw` peut atteindre 350 Mio ; une archive `.gdz`, qui emporte ses médias, n’a pas de limite sur l’application de bureau.
 
 ## 2. Créer un arbre
 

@@ -635,6 +635,28 @@ impl MediaRepo {
 }
 
 impl MediaRepo {
+    /// The bytes of the files tree `tree_id` holds in the media store: the
+    /// sizes of its rows that hold one, deleted or not — a row keeps its
+    /// file until it is purged. What a storage quota counts.
+    pub async fn stored_bytes(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<u64, OxidGeneError> {
+        let bytes: Option<i64> = Entity::find()
+            .select_only()
+            .column_as(
+                Expr::cust("CAST(COALESCE(SUM(file_size), 0) AS BIGINT)"),
+                "bytes",
+            )
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::StorageKey.is_not_null())
+            .into_tuple()
+            .one(db)
+            .await
+            .map_err(db_err)?;
+        Ok(u64::try_from(bytes.unwrap_or(0)).unwrap_or(0))
+    }
+
     /// Of the store keys `keys`, all under tree `tree_id`, those a media row
     /// of the tree names as its file, its thumbnail or its card rendition,
     /// deleted or not. A key

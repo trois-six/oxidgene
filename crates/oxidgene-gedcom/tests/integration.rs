@@ -9,3 +9,4 @@
 mod conformance_round_trip;
 mod export_fidelity;
 mod gedcom_test;
+mod gedzip_limits;

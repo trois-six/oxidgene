@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T12:57:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T13:02:00Z }
 ---
 
 # Development Environment and Workflows
@@ -1084,7 +1084,13 @@ or imposing an arbitrary limit that rejects valid large exports.
 - Prefer structural and per-entry limits plus sequential processing over a
    cumulative archive cap. A GEDZIP may legitimately contain a large media
    collection, so process one medium at a time instead of retaining every
-   decompressed entry in memory.
+   decompressed entry in memory; what bounds the whole is the quota of the
+   tree it fills ([API Contract, Intake limits](api.md#intake-limits)).
+- Bound an archive's directory before counting its entries. A ZIP reader
+   builds a record per entry as it opens, so an archive made of entries
+   alone exhausts memory before any count can refuse it: open it through
+   `oxidgene_core::archive::Budgeted`, within the bytes the accepted
+   entries take, then count.
 - A compressed-size bound does not by itself prevent decompression bombs.
    Bound expanded output independently and reject declared/decoded size
    mismatches where the format provides both values.

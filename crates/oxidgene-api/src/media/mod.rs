@@ -9,6 +9,7 @@
 pub mod crops;
 pub(crate) mod job_objects;
 pub mod pages;
+pub mod quota;
 pub mod store;
 pub mod thumbnail;
 
@@ -317,7 +318,7 @@ async fn store_rendition(
 ) -> Option<String> {
     let rendition = rendition?;
     match store
-        .put(tree_id, rendition.extension, rendition.bytes.into())
+        .put_rendition(tree_id, rendition.extension, rendition.bytes.into())
         .await
     {
         Ok(stored) => Some(stored.key),

@@ -251,13 +251,15 @@ pub(crate) async fn prepare_gedzip_file(
     store: &dyn crate::media::MediaStore,
     tree_id: Uuid,
     archive_path: &Path,
+    limits: &oxidgene_gedcom::import::GedzipLimits,
     progress: &FileImportProgress,
 ) -> Result<oxidgene_gedcom::ImportResult, OxidGeneError> {
     progress.enter(FileImportPhase::Parsing);
 
     let file = std::fs::File::open(archive_path).map_err(OxidGeneError::Io)?;
+    let limits = *limits;
     let (mut reader, plan) = parse_off_thread("gedzip", move || {
-        oxidgene_gedcom::import::prepare_gedzip(file, tree_id).map_err(OxidGeneError::from)
+        oxidgene_gedcom::import::prepare_gedzip(file, tree_id, &limits).map_err(OxidGeneError::from)
     })
     .await?;
     let oxidgene_gedcom::import::GedzipImportPlan { mut result, files } = plan;
@@ -309,6 +311,9 @@ pub(crate) async fn prepare_gedzip_file(
                         apply_ingested_media(media, ingested);
                     }
                 }
+                // Past the tree's quota no further medium fits: the import
+                // fails here rather than inflate the rest of the archive.
+                Err(error @ OxidGeneError::QuotaExceeded) => return Err(error),
                 Err(error) => result
                     .warnings
                     .push(format!("GEDZIP: '{display_name}' was not stored: {error}")),

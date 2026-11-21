@@ -24,7 +24,7 @@ An import always goes into an existing tree. Create the tree first (see [Trees](
 
 1. On the home page, open the tree card's three-dot menu and choose **Import**.
 2. The window **Import into “…”** opens on the **A file** tab.
-3. Drop your file onto **Drop a file here, or click to browse**, or click it to pick the file. It accepts `.ged`, `.gdz` and `.gw` files up to 1 GiB.
+3. Drop your file onto **Drop a file here, or click to browse**, or click it to pick the file. It accepts `.ged` and `.gw` files up to 350 MiB, and `.gdz` archives of any size on the desktop; on a web server, up to what the tree's media storage allows (10 GiB by default).
 4. Click **Import**.
 5. Wait while the progress bar goes through its stages: the upload, **Reading genealogy…**, **Storing media** for a GEDZIP, **Writing genealogy…** and **Preparing the tree…**. The window cannot be closed while the import runs, but the import can be cancelled (see below).
 6. When **Import complete** appears, read the counts: people, families, events, sources, places, images and documents.

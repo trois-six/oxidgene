@@ -879,6 +879,11 @@ pub(crate) fn work_dir_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a crate::workdir:
     ctx.data_unchecked::<crate::workdir::WorkDir>()
 }
 
+/// How much the backend takes in.
+pub(crate) fn limits_from_ctx(ctx: &Context<'_>) -> crate::limits::IntakeLimits {
+    *ctx.data_unchecked::<crate::limits::IntakeLimits>()
+}
+
 // ── PageInfo ─────────────────────────────────────────────────────────
 
 /// Relay-style pagination info.

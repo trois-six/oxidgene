@@ -7220,6 +7220,7 @@
     "error.io": "Impossibile leggere o scrivere un file.",
     "error.no_archive": "Nessun archivio catalogato contiene questo atto.",
     "error.not_found": "Questo elemento non esiste più. Ricarica la pagina.",
+    "error.quota_exceeded": "Questo albero ha raggiunto il limite di archiviazione dei media. Rimuovi alcuni media o chiedi più spazio all’amministratore.",
     "error.rate_limited": "Troppe richieste. Attendi un momento e riprova.",
     "error.server": "Si è verificato un errore sul server. Riprova.",
     "error.timeout": "La richiesta ha richiesto troppo tempo. Riprova.",

@@ -72,6 +72,21 @@ backend:
   affinity: {}
   topologySpreadConstraints: []
 
+# What the backend takes in and the worker imports, bounded while it is
+# read (docs/api.md, Intake limits). Sizes are bytes or a number with a
+# binary unit. The defaults are those of Geneanet's own upload.
+limits:
+  # The largest genealogy text: a .ged or a .gw as uploaded, the gedcom.ged
+  # of a .gdz once inflated. It is parsed whole: this is what an import
+  # costs in memory, to weigh against worker.resources.
+  gedcomMax: 350M
+  # The media a tree may hold in the store, and so the largest archive it
+  # can import; "0" for no quota. The working directory (an emptyDir) must
+  # hold an archive being uploaded and imported.
+  mediaQuota: 10G
+  # The most files an archive may hold.
+  archiveEntries: 100000
+
 worker:
   replicaCount: 1
   image:

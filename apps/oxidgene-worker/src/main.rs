@@ -72,8 +72,18 @@ async fn main() {
     if let Some(mail) = &mail {
         mail.spawn_sender(db.clone());
     }
+    // The bounds of the server that took the uploads: the same settings.
+    let limits = config.intake_limits().unwrap_or_else(|variable| {
+        tracing::error!(
+            error = "intake_limits",
+            variable,
+            "Invalid size limit: expected a size such as 350M or 10G"
+        );
+        std::process::exit(1)
+    });
     let worker = BackgroundJobWorker::new(db, profiles, media, worker_id)
         .with_work_dir(config.work_dir())
+        .with_intake_limits(limits)
         .with_access_log_retention(retention)
         .with_mailing(mail.is_some());
     tokio::select! {

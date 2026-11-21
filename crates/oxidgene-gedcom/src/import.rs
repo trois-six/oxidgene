@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek};
 
 use chrono::{DateTime, Utc};
-use oxidged::gedzip::GedzipReader;
+use oxidged::gedzip::{GedzipError, GedzipReader};
 use oxidged::model::{
     Address, Age, Association, Certainty, Citation as GedCitation, CitationSource, Crop, Dataset,
     Date, EnumList, Event as GedEvent, EventKind, EventSpouse, Family as GedFamily, File, Handle,
@@ -28,9 +28,10 @@ use oxidged::model::{
     Restriction, Sex as GedSex, SharedNote, Source as GedSource, Store, TagId, Text, TextRef, View,
 };
 use oxidged::tree::{Payload, Structure};
-use oxidged::{GedcomBuilder, GedcomVersion};
+use oxidged::{GedcomBuilder, GedcomError, GedcomVersion};
 use uuid::Uuid;
 
+use oxidgene_core::archive::{Budget, Budgeted, directory_budget};
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::search::fold_words;
 use oxidgene_core::types::{
@@ -43,11 +44,46 @@ use oxidgene_core::{ChildType, Confidence, EventType, NameType, Privacy, Sex, Sp
 
 use crate::{DocumentExtension, ImportResult, MediaMetadataExtension, TagExtension};
 
-/// The largest `gedcom.ged` a GEDZIP may hold, uncompressed.
-const GEDZIP_GEDCOM_LIMIT: u64 = 1024 * 1024 * 1024;
+/// The largest genealogy text taken in, in bytes (350 MiB): a `.ged` or a
+/// `.gw` as uploaded, and the `gedcom.ged` of a GEDZIP once inflated. It is
+/// the size Geneanet accepts for a GEDCOM (docs/geneanet-upload-api.md),
+/// several times the largest trees met, and what bounds the memory the
+/// parser takes: a text is read whole.
+pub const GENEALOGY_TEXT_LIMIT: u64 = 350 * 1024 * 1024;
 /// The largest media file a GEDZIP may hold, uncompressed: the upload limit
 /// of a single file.
-const GEDZIP_MEDIA_LIMIT: u64 = 128 * 1024 * 1024;
+pub const GEDZIP_MEDIA_LIMIT: u64 = 128 * 1024 * 1024;
+/// The most entries a GEDZIP may hold: its `gedcom.ged` and its media.
+pub const GEDZIP_ENTRIES_LIMIT: usize = 100_000;
+
+/// The bounds a GEDZIP is read within. An archive comes from outside and
+/// says itself how much it holds: each bound is enforced while reading,
+/// never taken from what the archive declares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GedzipLimits {
+    /// The largest `gedcom.ged`, uncompressed: refused once inflating it
+    /// passes the bound, however little the archive weighs.
+    pub gedcom_bytes: u64,
+    /// The largest media file, uncompressed.
+    pub media_bytes: u64,
+    /// The most entries the archive may hold: its directory is read within
+    /// what that many entries take, so that an archive made of entries
+    /// alone is refused before a record is built for each.
+    pub entries: usize,
+}
+
+impl Default for GedzipLimits {
+    fn default() -> Self {
+        Self {
+            gedcom_bytes: GENEALOGY_TEXT_LIMIT,
+            media_bytes: GEDZIP_MEDIA_LIMIT,
+            entries: GEDZIP_ENTRIES_LIMIT,
+        }
+    }
+}
+
+/// A GEDZIP opened within its bounds ([`prepare_gedzip`]).
+pub type GedzipArchive<R> = GedzipReader<Budgeted<R>>;
 
 /// Import a GEDCOM text into OxidGene domain model entities.
 ///
@@ -393,21 +429,35 @@ pub struct GedzipImport {
 }
 
 /// Why a GEDZIP archive could not be read: the file's fault, never the
-/// server's, so the API answers it as invalid genealogy data.
+/// server's, so the API answers it as invalid genealogy data — or as too
+/// large, when it is one of the bounds it passes.
 #[derive(Debug, thiserror::Error)]
 pub enum GedzipReadError {
-    /// The archive is no ZIP, holds no `gedcom.ged`, or an entry is larger
-    /// than the limit.
+    /// The archive is no ZIP or holds no `gedcom.ged`.
     #[error("GEDZIP read error: {0}")]
-    Archive(#[source] oxidged::gedzip::GedzipError),
+    Archive(#[source] GedzipError),
     /// Its `gedcom.ged` could not be read out of it.
     #[error("GEDZIP read error: {0}")]
-    Gedcom(#[source] oxidged::GedcomError),
+    Gedcom(#[source] GedcomError),
+    /// It holds more entries than [`GedzipLimits::entries`].
+    #[error("GEDZIP read error: the archive holds more than {limit} files")]
+    TooManyEntries { limit: usize },
+    /// Its `gedcom.ged` is larger, once inflated, than
+    /// [`GedzipLimits::gedcom_bytes`].
+    #[error("GEDZIP read error: gedcom.ged exceeds the {limit}-byte limit")]
+    GedcomTooLarge { limit: u64 },
 }
 
 impl From<GedzipReadError> for oxidgene_core::OxidGeneError {
     fn from(error: GedzipReadError) -> Self {
-        Self::Gedcom(error.to_string())
+        match error {
+            GedzipReadError::TooManyEntries { .. } | GedzipReadError::GedcomTooLarge { .. } => {
+                Self::TooLarge(error.to_string())
+            }
+            GedzipReadError::Archive(_) | GedzipReadError::Gedcom(_) => {
+                Self::Gedcom(error.to_string())
+            }
+        }
     }
 }
 
@@ -425,9 +475,14 @@ pub struct GedzipImportPlan {
 /// Parse the genealogy and resolve each media record to its archive entry
 /// without extracting those entries.
 ///
-/// The returned reader refuses any media entry larger than the upload limit
-/// of a single file, checked against the size the archive declares and
-/// enforced while reading; `gedcom.ged` itself is read within a larger one.
+/// The archive is read within `limits`, each enforced while reading: its
+/// directory within what [`GedzipLimits::entries`] entries take, so its
+/// entries are counted before any is read; `gedcom.ged` within
+/// [`GedzipLimits::gedcom_bytes`] as it inflates, whatever size the archive
+/// declares for it; and the returned reader refuses any media entry larger
+/// than [`GedzipLimits::media_bytes`] the same way. The source is read
+/// where it lies, one entry at a time: an archive of any size opens in the
+/// memory of its directory and its `gedcom.ged`.
 /// A `FILE` names its entry the way its producer wrote it — backslashes, a
 /// leading `./`, percent-encoding, another letter case — and `oxidged` matches
 /// it to the archive's own spelling.
@@ -435,20 +490,42 @@ pub struct GedzipImportPlan {
 /// # Errors
 ///
 /// [`GedzipReadError`] if `source` is not a readable ZIP, if it holds no
-/// `gedcom.ged`, or if that entry is larger than the limit.
+/// `gedcom.ged`, more entries than the limit, or a `gedcom.ged` larger than
+/// the limit.
 pub fn prepare_gedzip<R: Read + Seek>(
     source: R,
     tree_id: Uuid,
-) -> Result<(GedzipReader<R>, GedzipImportPlan), GedzipReadError> {
-    let mut reader = GedzipReader::new(source)
-        .map_err(GedzipReadError::Archive)?
-        .max_entry_size(GEDZIP_GEDCOM_LIMIT);
+    limits: &GedzipLimits,
+) -> Result<(GedzipArchive<R>, GedzipImportPlan), GedzipReadError> {
+    let too_many = || GedzipReadError::TooManyEntries {
+        limit: limits.entries,
+    };
+    let budget = Budget::new(directory_budget(limits.entries));
+    let reader = GedzipReader::new(Budgeted::new(source, budget.clone())).map_err(|error| {
+        if budget.is_spent() {
+            too_many()
+        } else {
+            GedzipReadError::Archive(error)
+        }
+    })?;
+    if reader.len() > limits.entries {
+        return Err(too_many());
+    }
+    budget.lift();
+    let mut reader = reader.max_entry_size(limits.gedcom_bytes);
     let data = reader
         .read_dataset(&GedcomBuilder::new())
-        .map_err(GedzipReadError::Gedcom)?;
+        .map_err(|error| match error {
+            GedcomError::Gedzip(GedzipError::EntryTooLarge { .. }) => {
+                GedzipReadError::GedcomTooLarge {
+                    limit: limits.gedcom_bytes,
+                }
+            }
+            error => GedzipReadError::Gedcom(error),
+        })?;
 
     let (mut result, kept) = import_dataset_keeping(data, tree_id);
-    let reader = reader.max_entry_size(GEDZIP_MEDIA_LIMIT);
+    let reader = reader.max_entry_size(limits.media_bytes);
 
     let mut wanted: Vec<(Uuid, String)> = Vec::new();
     for media in &result.media {
@@ -502,10 +579,14 @@ pub fn prepare_gedzip<R: Read + Seek>(
 /// # Errors
 ///
 /// [`GedzipReadError`] if `archive` is not a readable ZIP, if it holds no
-/// `gedcom.ged`, or if that entry is larger than the limit. A media file that
-/// is missing or unreadable is a warning, not an error.
+/// `gedcom.ged`, or if it passes one of the default [`GedzipLimits`]. A
+/// media file that is missing or unreadable is a warning, not an error.
 pub fn import_gedzip(archive: &[u8], tree_id: Uuid) -> Result<GedzipImport, GedzipReadError> {
-    let (mut reader, plan) = prepare_gedzip(std::io::Cursor::new(archive), tree_id)?;
+    let (mut reader, plan) = prepare_gedzip(
+        std::io::Cursor::new(archive),
+        tree_id,
+        &GedzipLimits::default(),
+    )?;
     let GedzipImportPlan {
         mut result,
         files: wanted,

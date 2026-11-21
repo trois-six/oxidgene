@@ -44,6 +44,11 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
             message: "The request exceeds the size limit",
             unexpected: false,
         },
+        OxidGeneError::QuotaExceeded => ErrorContract {
+            code: "quota_exceeded",
+            message: "The tree's media storage quota is exceeded",
+            unexpected: false,
+        },
         OxidGeneError::Database(_) => ErrorContract {
             code: "database_error",
             message: "The request could not be completed",
@@ -101,6 +106,7 @@ pub(crate) fn error_kind(error: &OxidGeneError) -> &'static str {
         OxidGeneError::Forbidden => "forbidden",
         OxidGeneError::RateLimited { .. } => "rate_limited",
         OxidGeneError::TooLarge(_) => "too_large",
+        OxidGeneError::QuotaExceeded => "quota_exceeded",
         OxidGeneError::Gedcom(_) => "gedcom",
         OxidGeneError::Database(message) => database_kind(message),
         OxidGeneError::Io(error) => io_kind(error.kind()),

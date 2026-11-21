@@ -7275,6 +7275,7 @@
     "error.io": "Nie udało się odczytać ani zapisać pliku.",
     "error.no_archive": "Żadne skatalogowane archiwum nie zawiera tego aktu.",
     "error.not_found": "Ten wpis już nie istnieje. Odśwież stronę.",
+    "error.quota_exceeded": "To drzewo osiągnęło limit miejsca na multimedia. Usuń część multimediów lub poproś administratora o więcej miejsca.",
     "error.rate_limited": "Zbyt wiele żądań. Odczekaj chwilę i spróbuj ponownie.",
     "error.server": "Na serwerze wystąpił błąd. Spróbuj ponownie.",
     "error.timeout": "Żądanie trwało zbyt długo. Spróbuj ponownie.",

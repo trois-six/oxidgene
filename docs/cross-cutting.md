@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T19:05:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T19:10:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -195,7 +195,8 @@ error (a `500`), and names the server log line that records it.
 | 403 | `forbidden` | A browser page on another origin attempted a write, or a request named a host the server does not answer under (§7.1); with EPIC G, a viewer who sees the tree but lacks the permission, or a failed CSRF check. |
 | 404 | `not_found` | Missing or soft-deleted resource. |
 | 409 | `conflict` | State conflicts with an invariant or concurrent change, such as starting an import or export while another runs on the tree. |
-| 413 | `payload_too_large` | Request body exceeds the route's limit. |
+| 413 | `payload_too_large` | Request body exceeds the route's limit, or a file, an archive or what it expands to its size limit ([API Contract, Intake limits](api.md#intake-limits)). |
+| 413 | `quota_exceeded` | A file would take a tree's media past its storage quota. |
 | 429 | `rate_limited` | A client exceeded a rate limit — today the owner's lookups by email or username when sharing ([Authorization §6.1](authorization.md#61-sharing-with-a-user-of-the-instance)); `Retry-After` says when to retry ([Authentication §9.2](authentication.md#92-rate-limits-and-brute-force)). |
 | 415 | `unsupported_media_type` | Payload format is unsupported, such as a body without a JSON content type on a JSON route. |
 | 422 | `not_an_archive_citation`, `no_adapter` | A source asked for its archive target is not an archive citation, or cites an act no catalogued collection holds ([API Contract](api.md#sources)). |

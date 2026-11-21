@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-21T12:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T12:40:00Z }
 ---
 
 
@@ -230,7 +230,10 @@ uploads on both surfaces wait for one of four intake slots first, and a
 signed-in user's for their previous one
 ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
 A file, an archive or what it expands to past its size limit answers
-`413 payload_too_large` (GraphQL `PAYLOAD_TOO_LARGE`).
+`413 payload_too_large` (GraphQL `PAYLOAD_TOO_LARGE`), and a file that
+would take a tree's media past its storage quota `413 quota_exceeded`
+(GraphQL `QUOTA_EXCEEDED`); an import job that meets either ends `failed`
+with the same code as its `error` ([Intake limits](#intake-limits)).
 
 Mutations refresh affected projections in the same database transaction as the
 normalized write. A successful response guarantees read-after-write
@@ -1568,7 +1571,7 @@ writes one to a `.gw`.
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/trees/{tree_id}/import-jobs?format=gedcom\|gedzip\|geneweb&filename=name.gw` | Stream a raw genealogy file to durable job storage and create an asynchronous import. Returns `202 { "job_id": UUID }` after the source is stored and the job is committed. `filename` is optional GeneWeb provenance metadata only. The 1 GiB limit is enforced while streaming. Workers copy the source to disposable scratch space; media extracted from GEDZIP are persisted through `MediaStore` |
+| `POST` | `/trees/{tree_id}/import-jobs?format=gedcom\|gedzip\|geneweb&filename=name.gw` | Stream a raw genealogy file to durable job storage and create an asynchronous import. Returns `202 { "job_id": UUID }` after the source is stored and the job is committed. `filename` is optional GeneWeb provenance metadata only. The source is bounded while it streams, by what it is ([Intake limits](#intake-limits)): a GEDCOM or a GeneWeb text at 350 MiB, a GEDZIP by what its tree's quota can hold, and not at all on the desktop; past it the upload answers `413 payload_too_large` and what was spooled is removed. Workers copy the source to disposable scratch space; media extracted from GEDZIP are persisted through `MediaStore` |
 | `GET` | `/trees/{tree_id}/import-jobs/{job_id}?since=version&wait=seconds` | Poll `{ phase, version, done, total, result?, geneanet_result?, error? }`; `since` and `wait` make it a [long poll](#waiting-for-a-job). File-import phases are `starting`, `parsing`, `media`, `database`, `projections`, `completed`, and `failed`; Geneanet additionally uses `people` and `matching`. A job asked to stop reads `cancelling` while it undoes its work, then `cancelled` (see the cancel row below). A completed status retains the import receipt, `result` for a file import: `{ persons_count, families_count, events_count, sources_count, places_count, notes_count, images_count, documents_count, document_pages_count, warnings }`, or `geneanet_result` for a Geneanet import, the same fields and its own. Media are counted alike for every import, over the records it stored: a record of one page is an image, any other a document, whose pages `document_pages_count` totals. GraphQL: `importJobStatus`, with the same fields in camel case; failure exposes a stable error code rather than internal details |
 | `POST` | `/trees/{tree_id}/import-jobs/{job_id}/cancel` | Cancel an import and undo it. A queued job ends `cancelled` at once, unrun. A running job stops at its next unit of work — a batch of rows, a medium — and rolls back everything it wrote: its persons phase and media phase are one database transaction, projections and history entry included, and the media files it stored are deleted ([Architecture §6.3](architecture.md#63-job-cancellation)); its phase reads `cancelling` until then, `cancelled` after. Cancelling a job that has ended changes nothing. Answers `200` with the job's status, as `GET /import-jobs/{job_id}`, waiting for nothing the running job holds. GraphQL: `cancelImportJob(treeId, jobId)` |
 | `POST` | `/trees/{tree_id}/export-jobs?include_notes_and_sources=bool&include_media=bool&scope=json&leave_out_private=bool&leave_out_excluded=bool&apply_visitor_rules=bool` | Create a durable asynchronous GEDZIP export. Returns `202 { "job_id": UUID }`; archive creation and media reads run in the worker. The options are those `GET /gedcom/export` below reads for a GEDZIP; the job keeps them until its worker packs the archive, with its `scope` ([Export scope](#export-scope)), validated when the job is created. A GEDZIP takes no destination: it is standard GEDCOM 7.0 (see [GEDZIP](#gedzip)) |
@@ -1638,12 +1641,54 @@ the archive by design, is restored as an unheld record without a warning (see
 producer's `.\Media\Photo.JPG` still finds `media/photo.jpg`, and a GEDCOM 7.0
 `media/my%20photo.jpg` finds `media/my photo.jpg`. A medium already
 compressed (JPEG, PNG, PDF, …) is stored in an exported archive as it is,
-any other deflated. The `gedcom.ged` entry has a 1 GiB limit and
-each decompressed medium the ordinary 128 MiB per-file limit; media are read
-sequentially. A GeneWeb `.gw` is uploaded as raw bytes because it is
+any other deflated. The archive is read where it was spooled, one entry at
+a time, so its size costs disk, not memory: its `gedcom.ged` is refused
+once it inflates past 350 MiB, whatever size the archive declares for it,
+each decompressed medium has the ordinary 128 MiB per-file limit, and the
+archive holds at most 100,000 entries, counted as its directory is read
+([Intake limits](#intake-limits)). A GeneWeb `.gw` is uploaded as raw bytes because it is
 ISO-8859-1 unless the file opts into UTF-8 with an `encoding:` directive, and
 the switch can happen mid-file, so only the reader can decode it; `filename`
 (default `import.gw`) is recorded on every family and quoted in warnings.
+
+#### Intake limits
+
+What a backend takes in is bounded where it enters, while it is read, never
+from what a file says of itself. The standalone server's bounds are its
+operator's settings, with the sizes Geneanet's own upload accepts
+([Geneanet upload API](geneanet-upload-api.md)) as defaults; the desktop,
+whose one user fills their own disk, keeps those that bound memory and
+drops the others.
+
+| Bound | Server default | Setting | Desktop |
+|---|---|---|---|
+| A genealogy text: a `.ged` or a `.gw` as uploaded, the `gedcom.ged` of a GEDZIP once inflated | 350 MiB | `OXIDGENE_IMPORT_GEDCOM_MAX` | 350 MiB |
+| A media file, uploaded or inflated from an archive | 128 MiB | — | 128 MiB |
+| The entries of a GEDZIP | 100,000 | `OXIDGENE_IMPORT_ARCHIVE_ENTRIES` | 1,000,000 |
+| The entries of a saved Geneanet session | 100,000 | — | 100,000 |
+| The media a tree holds in the store | 10 GiB | `OXIDGENE_MEDIA_QUOTA` (`0`: none) | None |
+| An archive as uploaded: a GEDZIP, a saved Geneanet session | The tree's quota and a genealogy text: 10 GiB + 350 MiB | — | None |
+
+- **A genealogy text** is parsed whole, so its bound is what an import
+  costs in memory. In a GEDZIP it is enforced as the entry inflates: a few
+  kilobytes that expand to gigabytes are refused at the bound, not after.
+- **A media file** keeps the upload limit, above Geneanet's 50 MB per file
+  on purpose (a 1200 dpi scan or a long PDF clears it), with no page limit
+  on a PDF; audio and video are not accepted at all.
+- **An archive** is never held in memory and has no size of its own to
+  respect: it is spooled to disk, opened within the directory its accepted
+  entries take — so one made of entries alone is refused before a record
+  is built for each — and read entry by entry. What bounds it is the quota
+  of the tree it fills.
+- **The quota is a tree's**: the sizes of the files its media rows hold,
+  one sum over its own rows. A tree outlives its owner — ownership is
+  transferred, a tree may have none, the `none` mode has no account — and
+  what an instance holds in all is bounded by who may create trees. It is
+  checked where bytes enter the store, whatever brings them: an upload
+  answers `413 quota_exceeded` and stores nothing; an import that meets it
+  ends `failed` with `quota_exceeded`, everything it wrote taken back.
+- A job that fails on a bound is not run again: the file would fail the
+  same way.
 
 Used by: [Homepage](ui-home.md) (card menu import) · [Settings](ui-settings.md) (export section)
 

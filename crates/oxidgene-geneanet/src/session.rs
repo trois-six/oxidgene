@@ -45,6 +45,8 @@
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 
+use oxidgene_core::archive::{Budget, Budgeted, directory_budget};
+
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 
@@ -270,13 +272,28 @@ fn read_base64(reader: &mut dyn Read) -> Result<String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(body))
 }
 
+/// The most entries a session archive may hold: its manifest and one file
+/// per medium of the account.
+const MAX_ENTRIES: usize = 100_000;
+
 fn decode_zip_with_limits<R: Read + Seek>(
     reader: R,
     limits: DecodeLimits,
     store: &mut impl FnMut(&mut dyn Read) -> Result<String>,
 ) -> Result<Session> {
-    let mut zip =
-        zip::ZipArchive::new(reader).context("the session file is not a readable archive")?;
+    // Opened within the directory its accepted entries take: an archive
+    // made of entries alone is refused before a record is built for each
+    // (`oxidgene_core::archive`).
+    let budget = Budget::new(directory_budget(MAX_ENTRIES));
+    let opened = zip::ZipArchive::new(Budgeted::new(reader, budget.clone()));
+    if budget.is_spent() {
+        bail!("the session holds more than {MAX_ENTRIES} files");
+    }
+    let mut zip = opened.context("the session file is not a readable archive")?;
+    if zip.len() > MAX_ENTRIES {
+        bail!("the session holds more than {MAX_ENTRIES} files");
+    }
+    budget.lift();
     let manifest = read_manifest(&mut zip, limits.manifest_bytes)?;
     let manifest = std::str::from_utf8(&manifest).context("the session manifest is not UTF-8")?;
     // Resolve manifest references after reading the archive's media entries.
@@ -414,6 +431,37 @@ fn decode_manifest(json: &str, bodies: &HashMap<String, String>) -> Result<Sessi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A session of one file more than it may hold — its manifest and as
+    /// many media as the bound — is refused once its entries are counted,
+    /// before any is read.
+    #[test]
+    fn a_session_of_more_files_than_it_may_hold_is_refused_as_it_opens() {
+        use std::io::Write as _;
+
+        let mut buffer = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buffer);
+            let stored = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            zip.start_file(MANIFEST_ENTRY, stored).unwrap();
+            zip.write_all(br#"{"deposits":[],"references":[],"view_references":{}}"#)
+                .unwrap();
+            for index in 0..MAX_ENTRIES {
+                zip.start_file(format!("{MEDIA_DIR}/{index:06}.bin"), stored)
+                    .unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        let mut stored = 0;
+        let refused = decode_with_media(std::io::Cursor::new(buffer.into_inner()), |_| {
+            stored += 1;
+            Ok(String::new())
+        })
+        .expect_err("more files than a session may hold");
+        assert!(refused.to_string().contains("more than"), "{refused}");
+        assert_eq!(stored, 0, "an entry was read");
+    }
 
     fn archive_with_entries(
         entries: &[(&str, &[u8])],

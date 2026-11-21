@@ -84,11 +84,20 @@ async fn main() {
     let uses_sqlite = cfg.database_url.starts_with("sqlite:");
     let embedded_worker = uses_sqlite || cfg.media_backend == MediaBackend::Filesystem;
     let work_dir = cfg.work_dir();
+    // The setting is named, never its value.
+    let limits = cfg.intake_limits().unwrap_or_else(|variable| {
+        error!(
+            error = "intake_limits",
+            variable, "Invalid size limit: expected a size such as 350M or 10G"
+        );
+        std::process::exit(1)
+    });
     // Before any job or upload: what a crashed run left.
     let sweep = work_dir.clone();
     tokio::task::spawn_blocking(move || sweep.sweep(std::time::SystemTime::now()));
     let state = AppState::with_media_store(db, media)
         .with_work_dir(work_dir)
+        .with_intake_limits(limits)
         .with_cache(cfg.cache())
         .with_auth(Arc::clone(&auth))
         .with_access_log_retention(access_log_retention);

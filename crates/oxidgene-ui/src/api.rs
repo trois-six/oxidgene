@@ -3061,6 +3061,7 @@ impl ApiError {
             (Some("forbidden"), _) | (None, 403) => "error.forbidden",
             (Some("not_found"), _) | (None, 404) => "error.not_found",
             (Some("conflict"), _) | (None, 409) => "error.conflict",
+            (Some("quota_exceeded"), _) => "error.quota_exceeded",
             (Some("payload_too_large"), _) | (None, 413) => "error.too_large",
             (Some("unsupported_media_type"), _) | (None, 415) => "error.unsupported_format",
             (Some("rate_limited"), _) | (None, 429) => "error.rate_limited",
@@ -6475,6 +6476,10 @@ mod tests {
             ),
             (api(404, "Not Found"), "error.not_found"),
             (api(413, ""), "error.too_large"),
+            (
+                api(413, r#"{"error":"quota_exceeded"}"#),
+                "error.quota_exceeded",
+            ),
             (api(504, r#"{"error":"timeout"}"#), "error.timeout"),
             (
                 api(502, r#"{"error":"challenged"}"#),
