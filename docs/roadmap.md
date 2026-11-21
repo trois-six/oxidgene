@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-21T15:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -656,6 +656,10 @@ of the whole application called for and that are not delivered:
 - [ ] Split `oxidgene-api` into an application crate and a transport crate.
 - [ ] Remove soft deletion in favour of the change history.
 - [ ] One typed person-search table for both database backends.
+- [ ] Gate the API tests that call GraphQL behind the `graphql` feature, so
+  that the API's suite passes in the desktop's feature set
+  (`just test-desktop-api`) and its weekly job can fail the run
+  ([Development §2.8](development.md#28-guards)).
 - [ ] Extend the data model: citations on names, links and places; a
   status and a confidence on parent-child links; a preferred event among
   conflicting ones.

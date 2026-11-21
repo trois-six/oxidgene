@@ -400,7 +400,7 @@ test-postgres:
 # and creates its bucket, and leaves it running
 # (`docker compose -f docker/docker-compose.yml stop rustfs` stops it).
 test-s3:
-    docker compose -f docker/docker-compose.yml run --rm rustfs-init
+    docker compose -f docker/docker-compose.yml run --rm -T rustfs-init
     cargo nextest run --locked -p oxidgene-api --features s3 --lib --run-ignored only -E 'test(s3_round_trip_deduplication_and_tree_deletion)'
     cargo nextest run --locked -p oxidgene-api --features s3 --test integration --run-ignored only -E 'test(crops_live_and_die_on_the_s3_store_as_on_disk)'
 
@@ -414,7 +414,9 @@ test-redis:
 # `just test` builds the whole workspace, which unifies the server's
 # `graphql`, `auth`, `postgres` and `s3` features into the API: the API the
 # desktop links — `mcp` and the telemetry context, nothing else — is linted
-# by `just clippy-api` and tested only here.
+# by `just clippy-api` and tested only here. The tests that call GraphQL are
+# not compiled out without the `graphql` feature yet and fail in this build
+# (docs/roadmap.md §12c).
 # Run the API's tests in the desktop's feature set
 test-desktop-api:
     cargo nextest run --locked -p oxidgene-api --features mcp,telemetry-context --no-fail-fast

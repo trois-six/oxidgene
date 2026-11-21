@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T17:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -96,7 +96,7 @@ the repository root.
 | `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down, then run the repository and API functional tests on it (§2.7), and follow jobs on it across processes: a cancellation through the database, progress through notifications, a job queued by another process waking an idle worker, and a notification written by another process waking a long poll. |
 | `just test-s3` | Start the Compose stack's RustFS service with its bucket, round-trip media and crops through it, then run the stored crops' lifecycle on it: stored and read back, deleted when a rectangle moves, swept (§3). |
 | `just test-redis` | Keep, index, expire and end sessions in the Redis server `OXIDGENE_TEST_REDIS_URL` names, such as the Compose stack's ([Authentication §4.5](authentication.md#45-session-store)). |
-| `just test-desktop-api` | Run the tests of `oxidgene-api` with the features the desktop gives it, `mcp` and the telemetry context: `just test` builds the workspace, which unifies the server's features into the API, so only this recipe runs the API the desktop links (§2.7). |
+| `just test-desktop-api` | Run the tests of `oxidgene-api` with the features the desktop gives it, `mcp` and the telemetry context: `just test` builds the workspace, which unifies the server's features into the API, so only this recipe runs the API the desktop links (§2.7). The tests that call GraphQL still fail there, until they are gated behind the `graphql` feature (§2.8). |
 | `just fuzz [SECONDS]` | Fuzz the Geneanet session decoder on synthetic inputs for SECONDS, 60 by default, on the nightly toolchain (§5.7). |
 | `just scale-large` | Placeholder for the scale tests on generated trees of 100,000 and 1,000,000 persons, which are being written: it only says so. |
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
@@ -713,7 +713,7 @@ failing).
 | PostgreSQL | 4 | `just test-postgres` | Weekly: PostgreSQL suite | The migrations run up and down and the repository and API functional tests pass on PostgreSQL, the database of the web deployments: every backend-specific branch and raw statement the SQLite suites of tiers 1 and 2 never execute; jobs and notifications cross processes |
 | Redis | 4 | `just test-redis` | Weekly: Redis suite | Sessions are kept, indexed, expired and ended on Redis as in memory |
 | S3 | 4 | `just test-s3` | Weekly: S3 suite | Media and stored crops live and die on an S3 store as on disk |
-| Desktop feature set | 4 | `just test-desktop-api` | Weekly: API tests in the desktop's feature set | The API's tests pass built as the desktop builds it, without the features the workspace build unifies into it |
+| Desktop feature set | 4 | `just test-desktop-api` | Weekly: API tests in the desktop's feature set | The API's tests pass built as the desktop builds it, without the features the workspace build unifies into it. Reported without failing the run for now: the tests that call GraphQL are not compiled out without the `graphql` feature and fail there ([Roadmap §12c](roadmap.md#12c-planned-structural-follow-ups)) |
 | Fuzzing | 4 | `just fuzz 900` | Weekly: Fuzz the session decoder | The Geneanet session decoder survives a quarter of an hour of libFuzzer; a crash leaves its input as an artifact (§5.7) |
 | Other engines | 4 | `E2E_BROWSERS=webkit just e2e --project=webkit` | Weekly: E2E (webkit) | The browser suite passes in WebKit; skipped with a warning while the Playwright configuration defines no such project |
 | Large trees | 4 | `just scale-large` | Weekly: Large trees | Placeholder: the runs on generated trees of 100,000 and 1,000,000 persons are being written, and the recipe only says so |
@@ -832,9 +832,9 @@ The workflows, each a caller of recipes:
 |---|---|---|---|
 | `ci.yml` | Every pull request and push to `main`; gates a release with every job forced on | Tiers 1 and 2: Format, Clippy (five variants), Rustdoc, Unit tests, Functional tests with the SQL plans, Repository guards, Dependencies, Cyclomatic complexity, Code duplication, UI JavaScript tests; on Renovate's pull requests, the image builds and the chart. `CI` gathers them into the one required status check | 5 minutes with a warm cache, 20 after a lockfile change |
 | `nightly.yml` | Every night when `main` moved; on demand; gates a release | Tier 3: E2E (chromium), through `e2e.yml` | 23 minutes |
-| `weekly.yml` | Every week when `main` moved; on demand; gates a release | Tier 4: PostgreSQL, Redis and S3 suites, API tests in the desktop's feature set, Fuzz, E2E (webkit), Large trees, Scaling and import memory, Binary budgets, udeps, Reports, Next toolchains | About 40 minutes, the jobs in parallel and none cached |
+| `weekly.yml` | Every week when `main` moved; on demand; gates a release | Tier 4: PostgreSQL, Redis and S3 suites, API tests in the desktop's feature set, Fuzz, E2E (webkit), Large trees, Scaling and import memory, Binary budgets, udeps, Reports, Next toolchains | An estimated 40 minutes, the jobs in parallel and none cached |
 | `e2e.yml` | Called by the two above with a Playwright project; on demand | E2E | 23 minutes |
-| `release.yml` | A `v*` tag; a `release/**` branch to rehearse | The three tiers as gates, then the images, the suite against them, the chart, the desktop on three platforms and the release (§6) | As long as it takes |
+| `release.yml` | A `v*` tag; a `release/**` branch to rehearse | Every tier as a gate, then the images, the suite against them, the chart, the desktop on three platforms and the release (§6) | As long as it takes |
 | `archives.yml` | Every week; on demand | The live checks of the archive portals (§2.7) | About an hour |
 | `pages.yml` | A push to `main` touching the site, the specifications or the crates | The documentation site (§7) | 3 to 8 minutes |
 | `build-ci-image.yml` | A push to `main` changing the CI image, through `ci.yml`; every month | The image the jobs run in | 2 minutes |
