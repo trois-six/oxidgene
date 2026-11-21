@@ -75,6 +75,15 @@ build:
 build-release:
     cargo build --release
 
+# The `server` profile of the root manifest: the release profile, but a
+# panic unwinds, so that a panicking handler ends its own request and a
+# panicking worker loop is restarted instead of the process ending for every
+# user and job. The binaries land in target/server/, where the images take
+# them.
+# Build the server and the worker as their images ship them
+build-backend-release:
+    cargo build --locked --profile server --package oxidgene-server --package oxidgene-worker
+
 # Ports of the e2e suite's backend and web bundle, away from the 8080/8081 of
 # `just dev-web` so both can run at once.
 e2e_api_port := env("E2E_API_PORT", "18080")
@@ -311,14 +320,14 @@ deps:
     cargo audit
     python3 scripts/budgets.py dependencies
 
-# Build what ships — the desktop, the server, the worker and the web bundle —
-# in release mode, and compare each one's size and the crates it links with
+# Build what ships, each as its release builds it — the desktop alone, the
+# server and the worker with their unwinding profile, the web bundle —
+# and compare each one's size and the crates it links with
 # scripts/budgets.json (docs/development.md §2.8). `just budgets --update`
 # records a growth that was intended. Python comes from uv, as for the
 # other scripts: the CI image has no other.
 # Check the size of the shipped binaries against their budgets
-budgets *args:
-    cargo build --locked --release -p oxidgene-desktop -p oxidgene-server -p oxidgene-worker
+budgets *args: build-desktop-release build-backend-release
     scripts/dx.sh build --package oxidgene-web --platform web --release
     uv run --quiet --no-project scripts/budgets.py binaries {{ args }}
 

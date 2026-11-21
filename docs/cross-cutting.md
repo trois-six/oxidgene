@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T16:00:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -314,10 +314,22 @@ or a portal's answer ([Archive Portals §5.3](archives.md#53-api)).
 ### 5.4 Operational behavior
 
 - Panic and unexpected error boundaries attach a correlation ID and preserve
-  the source chain internally without returning it to clients. The server and
-  desktop routers catch a panicking handler and answer `500 internal_error`
-  with a fresh `request_id`, logged as `request panicked`; the panic payload
-  is free text and is neither logged nor returned.
+  the source chain internally without returning it to clients. Every router
+  carries a panic boundary, and what it does depends on how the binary is
+  built:
+    - **Server and worker.** They are built with the `server` Cargo profile,
+      the release profile with `panic = "unwind"`. A panicking handler ends
+      its own request: the server answers `500 internal_error` with a fresh
+      `request_id`, logged as `request panicked`, and goes on serving every
+      other request and running job. The panic payload is free text and is
+      neither logged nor returned. A guard keeps their images on that profile
+      ([Development §2.8](development.md#28-guards)).
+    - **Desktop.** Its release is built with `panic = "abort"`, for the size
+      of the download: a panic ends the application, whose one user starts
+      it again, and no handler answers. A job claimed by the process that
+      ended is recovered at the next start
+      ([Architecture §6](architecture.md)). The boundary acts there in a
+      development build only, which unwinds.
 - An unexpected-error event (`request failed`, `GraphQL request failed`,
   `request panicked`, `background job failed`) records its correlation ID, its
   public code, and `error.kind`: a category from a fixed list — the database

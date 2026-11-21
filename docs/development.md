@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T16:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -59,6 +59,7 @@ the repository root.
 |---------|---------|
 | `just build` | Build all workspace crates in debug mode. |
 | `just build-release` | Build all workspace crates in release mode. |
+| `just build-backend-release` | Build the server and the worker as their images ship them: the `server` Cargo profile, the release profile with a panic that unwinds, into `target/server/` ([Cross-cutting Rules §5.4](cross-cutting.md#54-operational-behavior)). |
 | `just test` | Run the unit and functional tests (§2.7). |
 | `just test-unit` | Run the unit tests and the documentation examples (§2.7). |
 | `just test-functional` | Run the functional tests (§2.7). |
@@ -76,7 +77,7 @@ the repository root.
 | `just wasm` | Run Clippy on the browser application for the `wasm32-unknown-unknown` target and deny warnings, the check that the shared UI still compiles to WebAssembly; run it after changing `oxidgene-ui` or its dependencies. The browser binary declares its dependencies for `wasm32` only, so the native `just clippy` does not see its code. Part of `just check`. |
 | `just deps` | Check the dependency graph: no unused dependency (`cargo machete`), nothing `deny.toml` refuses (`cargo deny check`: advisories, licences, bans, sources), no known vulnerability (`cargo audit`), and no more duplicated crates than `scripts/budgets.json` allows (§2.8). |
 | `just sql-plans` | Read the query plan of every statement the API runs over a populated tree and fail on a full scan of a large table (§2.8). It is one more test of the build `just test-functional` leaves. |
-| `just budgets [--update]` | Build the desktop, the server, the worker and the web bundle in release mode and compare each one's size and crate count with `scripts/budgets.json`; `--update` records an intended growth (§2.8). |
+| `just budgets [--update]` | Build what ships as its release builds it — the desktop alone (`just build-desktop-release`), the server and the worker with their unwinding profile (`just build-backend-release`), the web bundle — and compare each one's size and crate count with `scripts/budgets.json`; `--update` records an intended growth (§2.8). |
 | `just udeps` | Look for dependencies declared and never used with `cargo-udeps`, on the nightly toolchain (§2.8). |
 | `just next-toolchain TOOLCHAIN` | Run Clippy on `beta` or `nightly`, to see the next releases' lints coming (§2.8). |
 | `just future-incompat [TOOLCHAIN]` | Report what the next Rust release (`beta` by default) will refuse in the dependencies. |
@@ -675,7 +676,7 @@ failing).
 | Select styling | 1 | `just test` (`oxidgene-guards`) | Repository guards | One global rule draws every select without its native appearance; no rule restyling a select erases its arrow (`background` shorthand) or takes back the arrow's room (`padding`) |
 | Raw HTML | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every `dangerous_inner_html` is declared with its sanitizer |
 | UI tracing coverage | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every route opens its page's load trace; no plain `use_resource` |
-| Docker image assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file under `assets/` that a crate of the server's, the worker's or the web frontend's image embeds or reads at build time is copied into that image's builder stage |
+| Docker image assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file under `assets/` that a crate of the server's, the worker's or the web frontend's image embeds or reads at build time is copied into that image's builder stage; the server's and the worker's images are built with the `server` Cargo profile, which unwinds on a panic |
 | Vendored pdf.js | 1 | `just test` (`oxidgene-guards`) | Repository guards | `assets/public/pdfjs/` holds one release of pdf.js's legacy build, in the directory named after the release its `VERSION` names, holding every file the PDF viewer loads and its licences (§2.6) |
 | Versioned assets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every file the web bundle serves under a stable name is the page or the deployment's configuration: the rest are `dx`'s hashed files and the files of `assets/public/` under a release directory; nginx answers those immutable and the page `no-cache`; every picture the UI addresses carries its version ([Architecture §4.3](architecture.md#43-versioned-assets)) |
 | Continuous listeners | 1 | `just test` (`oxidgene-guards`) | Repository guards | No markup listens to pointer moves, hovers or wheel turns (`onmousemove:`, `onpointermove:`, `onwheel:`…) for as long as it is mounted ([Common UI §6.5](ui-common.md)) |

@@ -280,7 +280,23 @@ opt-level = "z"      # optimise for size
 lto = true           # cross-crate dead-code elimination
 codegen-units = 1    # required for full LTO
 strip = true         # remove debug symbols
-panic = "abort"      # no unwinding machinery
+panic = "abort"      # no unwinding machinery: the desktop, one user's process
+
+# The profile the server and the worker are built with (`just
+# build-backend-release`, and their images): the release profile, but a
+# panic unwinds. One process serves every user and runs every job, so
+# a panicking handler must end its own request — the router's panic boundary
+# answers `500 internal_error` (docs/cross-cutting.md §5.4) — and a panicking
+# worker loop must be restarted, neither of which an abort allows.
+# Unwinding costs size — the landing pads that drop what a panic crosses:
+# measured on the same sources, the server is 48.7 MB against 41.4 MB (+17 %)
+# and the worker 20.9 MB against 18.5 MB (+13 %). The desktop keeps `abort`
+# for that reason: its process has one user, who starts it again, and the
+# same share of its download would be some ten megabytes. The binaries land
+# in target/server/.
+[profile.server]
+inherits = "release"
+panic = "unwind"
 
 # The profile `dx build --release` compiles the web bundle with. It is the
 # release profile but for `strip`: since LLVM 23 stripping removes every custom

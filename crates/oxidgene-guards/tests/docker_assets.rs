@@ -10,6 +10,12 @@
 //!
 //! Fixing a failure: add `COPY assets/<dir>/ assets/<dir>/` (or the single
 //! file) to the Dockerfile named, next to the other assets its crates embed.
+//!
+//! The same module keeps the server's and the worker's images on the Cargo
+//! profile that unwinds on a panic (`[profile.server]`): built with the
+//! release profile, which aborts, one panicking handler would end the
+//! server for every user and every running job, and the router's panic
+//! boundary would exist in tests only (docs/cross-cutting.md §5.4).
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -135,6 +141,55 @@ fn every_embedded_asset_is_copied_into_its_image() {
     missing.sort();
     missing.dedup();
     assert!(missing.is_empty(), "{}", missing.join("\n"));
+}
+
+/// The settings of `[profile.<name>]` in the root manifest.
+fn profile(manifest: &str, name: &str) -> String {
+    manifest
+        .split_once(&format!("\n[profile.{name}]\n"))
+        .unwrap_or_else(|| panic!("the root manifest has no [profile.{name}]"))
+        .1
+        .lines()
+        .take_while(|line| !line.starts_with('['))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn the_server_and_the_worker_ship_with_the_unwinding_profile() {
+    let manifest = read("Cargo.toml");
+    let server = profile(&manifest, "server");
+    assert!(
+        server.contains("inherits = \"release\"") && server.contains("panic = \"unwind\""),
+        "[profile.server] must inherit the release profile and unwind on a panic"
+    );
+    assert!(
+        profile(&manifest, "release").contains("panic = \"abort\""),
+        "the release profile no longer aborts: [profile.server] and what the \
+         specifications say of each binary must be reviewed"
+    );
+    let mut problems = Vec::new();
+    for (dockerfile, package) in IMAGES
+        .iter()
+        .filter(|(_, package)| *package != "oxidgene-web")
+    {
+        let text = read(dockerfile);
+        let builds: Vec<&str> = text
+            .lines()
+            .filter(|line| line.contains("cargo build"))
+            .collect();
+        if builds.is_empty() || builds.iter().any(|line| !line.contains("--profile server")) {
+            problems.push(format!(
+                "{dockerfile} does not build {package} with `--profile server`"
+            ));
+        }
+        if !text.contains(&format!("/app/target/server/{package}")) {
+            problems.push(format!(
+                "{dockerfile} does not take {package} from target/server/"
+            ));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
 #[test]

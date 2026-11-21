@@ -21,7 +21,9 @@ COPY assets/citations/ assets/citations/
 # The mail templates the API embeds (docs/messaging.md §3).
 COPY assets/mail/ assets/mail/
 
-RUN cargo build --locked --release --package oxidgene-server
+# The `server` profile: release, but a panic unwinds (the root manifest
+# says why).
+RUN cargo build --locked --profile server --package oxidgene-server
 
 # ── Runtime stage ─────────────────────────────────────────────────────
 FROM debian:trixie-slim AS runtime
@@ -35,7 +37,7 @@ RUN groupadd --gid 1000 oxidgene && \
     useradd --uid 1000 --gid oxidgene --create-home oxidgene && \
     install -d -o oxidgene -g oxidgene /var/cache/oxidgene
 
-COPY --from=builder /app/target/release/oxidgene-server /usr/local/bin/oxidgene-server
+COPY --from=builder /app/target/server/oxidgene-server /usr/local/bin/oxidgene-server
 
 USER oxidgene
 WORKDIR /home/oxidgene

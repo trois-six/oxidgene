@@ -38,6 +38,11 @@ BINARIES = {
     "web": ("oxidgene-web", "wasm32-unknown-unknown"),
 }
 
+# The Cargo profile each native binary ships with, which names its directory
+# under target/: the server and the worker unwind on a panic (`server`), the
+# desktop aborts (`release`).
+PROFILES = {"desktop": "release", "server": "server", "worker": "server"}
+
 
 def cargo(*args):
     return subprocess.run(
@@ -104,7 +109,7 @@ def size(name):
         if not files:
             raise SystemExit(f"no web bundle under {public}: run `just budgets`, which builds it")
         return sum(p.stat().st_size for p in files)
-    binary = ROOT / "target" / "release" / BINARIES[name][0]
+    binary = ROOT / "target" / PROFILES[name] / BINARIES[name][0]
     if not binary.exists():
         raise SystemExit(f"{binary} is missing: run `just budgets`, which builds it")
     return binary.stat().st_size

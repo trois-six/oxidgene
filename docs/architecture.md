@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T16:00:00Z }
 ---
 
 
@@ -613,11 +613,14 @@ and flow — are listed in the [specification index](index.md).
 - A crafted file cannot stop the queue. Readers parse on the blocking pool
     behind a task boundary, so a reader that panics fails its job as
     unreadable input (`invalid_job_input`) instead of reaching the worker. The
-    worker loop runs on a task of its own and is restarted if it panics. A
-    release build aborts on panic, so a job is also failed unrun
-    (`job_attempts_exhausted`) once it has been claimed more than three times:
-    a job that brings the process down is retried at the next starts, not
-    forever. Other failures report `job_failed`.
+    worker loop runs on a task of its own and is restarted if it panics: so
+    it is in the web worker, built to unwind on a panic (the `server` Cargo
+    profile, [Cross-cutting Rules §5.4](cross-cutting.md#54-operational-behavior)).
+    The desktop's release aborts on panic, and any process can be killed, so
+    a job is also failed unrun (`job_attempts_exhausted`) once it has been
+    claimed more than three times: a job that brings the process down is
+    retried at the next starts, not forever. Other failures report
+    `job_failed`.
 - An import is all or nothing. Its rows — persons phase and media phase —
     their projections, its history entry and the job's completion are
     written in one database transaction, which a cancellation or a failure
