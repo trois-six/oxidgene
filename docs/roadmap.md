@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-21T18:29:03Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:54:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -675,6 +675,30 @@ of the whole application called for, ticked once delivered:
 - [ ] Extend the data model: citations on names, links and places; a
   status and a confidence on parent-child links; a preferred event among
   conflicting ones.
+- [ ] Keep a record's tags, media links, photo identifications, kept
+  GEDCOM and "distinct person" confirmations in its history snapshot, so
+  that restoring a deleted record brings them back
+  ([Data Model §5](data-model.md#5-change-history)).
+- [ ] Report a dangling reference found by the desktop's integrity check
+  as a warning instead of refusing changes: the daily copy is still
+  taken, the log names the table and row, and the reader sees a notice at
+  start-up and in the settings; only damaged pages refuse changes
+  ([Architecture §8.4](architecture.md#84-desktop-database-safety)).
+- [ ] Stream imports through `GedcomStreamParser` and the GEDZIP entry
+  streams of `oxidged` 0.3.4 (`open_media_file`, `add_media_file_from`),
+  bumping the dependency, and drop the synchronous `.ged` export.
+- [ ] Compute statistics, anomalies and duplicates over pages of rows for a
+  tree above the cache budget, instead of decoding it whole per request.
+- [ ] Frontend: one client-cache specification with a write signal instead
+  of hand-threaded refreshes; a smaller web bundle (locales loaded lazily,
+  fonts as files, no `EnvFilter` or tokio in WebAssembly); search state in
+  the URL and history; WebKit and touch Playwright projects; the CSS in
+  files; tests of the browser glue; `pedigree_chart.rs` and
+  `media_gallery.rs` split.
+- [ ] Re-baseline the binary size budgets once (`just budgets --update`).
+- [ ] Make `e2e/tests/request-budgets.spec.ts` independent of the
+  machine's load: it fails when a loaded client starts the second request
+  of a page after the first has answered.
 
 ## 13. Definition of done
 
