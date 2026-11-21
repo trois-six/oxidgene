@@ -889,3 +889,128 @@ async fn hide_from_viewers(local: &Router, db: &DatabaseConnection, tree: &str, 
         .unwrap();
     }
 }
+
+/// A restricted viewer's tree-wide pages are computed over the projections
+/// their replica keeps, patched after each write, and over their kept
+/// redaction, rebuilt after each: after an edit, a creation, a deletion, a
+/// restore and a merge made on another replica, a Guest reads the
+/// statistics that a replica keeping nothing computes for them — while the
+/// replica decoded the rows written, not the tree.
+#[tokio::test]
+async fn a_restricted_viewer_reads_every_write_through_the_patched_projections() {
+    let mut f = Fixture::new().await;
+    let user = MockUser::new("guestone");
+    let (reading, reading_profiles) = f.provider.app_with_profiles(&f.db);
+    reading_profiles
+        .cache()
+        .configure(CacheSettings::shared(0, Duration::from_secs(300)));
+    let mut guest = Browser::new(&f.app);
+    let mut guest_reading = Browser::new(&reading);
+    for browser in [&mut guest, &mut guest_reading] {
+        let answer = browser.sign_in(&f.provider, &user).await;
+        assert_eq!(answer.status, StatusCode::SEE_OTHER, "{}", answer.json);
+    }
+    f.owner_writes(
+        Method::POST,
+        "/members",
+        json!({ "username": "guestone", "role": "guest" }),
+    )
+    .await;
+
+    let pages = ["/statistics?lang=en"];
+    let (mut decoded, mut persons) = (0, 0);
+    for step in 0..6 {
+        let what = match step {
+            0 => "at first",
+            1 => {
+                let ashby = f.person("Ashby");
+                f.owner_writes(
+                    Method::PUT,
+                    &format!("/persons/{ashby}"),
+                    json!({ "sex": "unknown" }),
+                )
+                .await;
+                "after an edit"
+            }
+            2 => {
+                for given in ["Given_p", "Given_q"] {
+                    let created = f
+                        .owner_writes(Method::POST, "/persons", json!({ "sex": "female" }))
+                        .await;
+                    let id = created["id"].as_str().unwrap().to_owned();
+                    f.owner_writes(
+                        Method::POST,
+                        &format!("/persons/{id}/names"),
+                        json!({
+                            "name_type": "birth",
+                            "given_names": given,
+                            "surname": WRENFIELD,
+                            "is_primary": true,
+                        }),
+                    )
+                    .await;
+                    f.canaries.persons.insert(given.to_owned(), id);
+                }
+                "after two creations"
+            }
+            3 => {
+                let gone = f.person("Given_q");
+                let uri = f.uri(&format!("/persons/{gone}"));
+                let answer = f.owner.send(Method::DELETE, &uri, None, None).await;
+                assert!(answer.status.is_success(), "{}", answer.json);
+                "after a deletion"
+            }
+            4 => {
+                let back = f.person("Given_q");
+                let uri = f.uri(&format!("/history/person/{back}?first=100"));
+                let versions = f.owner.get(&uri).await.json;
+                let named = versions["edges"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|edge| &edge["node"])
+                    .find(|version| version["deleted"] == false && version["current"] != true)
+                    .expect("a state before the deletion")["version"]
+                    .clone();
+                f.owner_writes(
+                    Method::POST,
+                    &format!("/history/person/{back}/revert"),
+                    json!({ "version": named }),
+                )
+                .await;
+                "after a restore"
+            }
+            _ => {
+                let (kept, duplicate) = (f.person("Given_p"), f.person("Given_q"));
+                f.owner_writes(
+                    Method::POST,
+                    &format!("/persons/{kept}/merge"),
+                    json!({ "duplicate_id": duplicate }),
+                )
+                .await;
+                "after a merge"
+            }
+        };
+        for page in pages {
+            let uri = f.uri(page);
+            let kept = guest.get(&uri).await;
+            let read = guest_reading.get(&uri).await;
+            assert_eq!(kept.status, StatusCode::OK, "{what} {page}: {}", kept.json);
+            assert_eq!(kept.json, read.json, "{what}: {page}");
+        }
+        // The first read decodes the tree, and the edit of a person every
+        // other of this small family names rewrites it whole; each later
+        // read decodes fewer rows than the tree holds, those written.
+        let now = f.profiles.decoded_profiles();
+        if step == 0 {
+            persons = now;
+        } else if step > 1 {
+            assert!(
+                now - decoded < persons,
+                "{what}: {} rows decoded of {persons}, the tree read again",
+                now - decoded
+            );
+        }
+        decoded = now;
+    }
+}

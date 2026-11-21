@@ -156,19 +156,26 @@ before adding a crate or a dependency between crates.
   (`oxidgene-api::tree_cache`, `architecture.md` §4.1), which holds per tree
   the place dictionary's reading of each place label the tree uses — a value
   of the label alone, which no write makes wrong — and the tree's decoded
-  projections, used only while `projection_state.generation`, which triggers
-  move in the transaction of every `person_denorm` write, has not moved since
-  they were read; and on the web the redactions of restricted viewers, one
-  per viewer class (the access's redacting permissions, its scope and the
-  year, never anything a client sends), used only while
-  `projection_state.redaction_generation`, which triggers move in the
-  transaction of every write to a table a redaction reads, has not moved,
-  their per-request pseudonyms never kept. Never bypass those triggers,
-  copy the cached projections or redactions (share the `Arc`), or let a
-  redaction's build read anything about the viewer but its class. It keeps one tree at a time
-  on the desktop and trees within a byte budget (least recently used dropped
-  first) on the web, drops a tree after an idle delay, and hands what it
-  drops back to the system. The place dictionary's index, built by the first
+  projections, used as they are only while `projection_state.generation`,
+  which triggers move in the transaction of every `person_denorm` write, has
+  not moved since they were read, and otherwise patched with the rows written
+  since — the same triggers stamp each row with the generation of its last
+  write (`person_denorm.generation`) — read with the generation and the
+  tree's row count in one snapshot, so that the set is the table as of that
+  generation exactly, deletions included; and on the web the redactions of
+  restricted viewers, one per viewer class (the access's redacting
+  permissions, its scope and the year, never anything a client sends), used
+  only while `projection_state.redaction_generation`, which triggers move in
+  the transaction of every write to a table a redaction reads, has not
+  moved, rebuilt whole otherwise and never patched, their per-request
+  pseudonyms never kept. Never bypass those triggers, copy the cached
+  projections or redactions (share the `Arc`s: a patched set shares every
+  projection it did not replace), or let a redaction's build read anything
+  about the viewer but its class. It keeps one tree at a time on the desktop
+  and trees on the web, within a byte budget on both (least recently used
+  dropped first on the web; a tree past the budget alone is not kept, only
+  shared by the requests reading it at once), drops a tree after an idle
+  delay, and hands what it drops back to the system. The place dictionary's index, built by the first
   place search, is released after the same idle delay. Cache nothing else,
   there or elsewhere, without specifying what, its bound and its
   invalidation first.

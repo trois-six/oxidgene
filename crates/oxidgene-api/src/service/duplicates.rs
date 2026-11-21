@@ -896,10 +896,11 @@ impl Ord for Found<'_> {
 /// Every pair found is counted; only the [`MAX_DUPLICATE_PAIRS`] best are
 /// kept while the tree is read, the worst of them leaving as a better one
 /// comes.
-pub fn potential_duplicates(
-    profiles: &[PersonProfile],
+pub fn potential_duplicates<P: std::borrow::Borrow<PersonProfile>>(
+    profiles: &[P],
     distinct: &HashSet<(Uuid, Uuid)>,
 ) -> PotentialDuplicates {
+    let profiles: Vec<&PersonProfile> = profiles.iter().map(std::borrow::Borrow::borrow).collect();
     let names: HashMap<Uuid, String> = profiles
         .iter()
         .map(|p| {
@@ -912,7 +913,7 @@ pub fn potential_duplicates(
         })
         .collect();
     let mut blocks: HashMap<(String, String), Vec<Record<'_>>> = HashMap::new();
-    for profile in profiles {
+    for profile in profiles.iter().copied() {
         if let Some(record) = Record::new(profile, &names) {
             blocks.entry(record.key.clone()).or_default().push(record);
         }

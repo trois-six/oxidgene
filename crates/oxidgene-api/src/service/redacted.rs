@@ -35,7 +35,8 @@ pub fn shown_profiles(redaction: &Redaction, profiles: Arc<TreeProfiles>) -> Arc
 
 /// The ids of `profiles`: the persons a computation may name.
 #[must_use]
-pub fn ids(profiles: &[PersonProfile]) -> HashSet<Uuid> {
+pub fn ids<P: std::borrow::Borrow<PersonProfile>>(profiles: &[P]) -> HashSet<Uuid> {
+    let profiles: Vec<&PersonProfile> = profiles.iter().map(std::borrow::Borrow::borrow).collect();
     profiles.iter().map(|profile| profile.person_id).collect()
 }
 

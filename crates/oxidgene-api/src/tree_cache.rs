@@ -20,14 +20,18 @@
 //! - the tree's decoded person projections ([`TreeProfiles`]), which the
 //!   statistics, the anomalies, the duplicates and the ancestry completeness
 //!   would otherwise read from `person_denorm` and decode on every request
-//!   (75 to 125 ms), and which a pedigree reads its window's persons from
-//!   when they are kept. They are shared read-only, never copied, and kept
-//!   with the generation of the tree's projections they were read at
-//!   (`projection_state`, moved by triggers in the transaction of every
-//!   `person_denorm` write, whatever process makes it): a request reads the
-//!   current generation first — one primary-key read — and uses them only
-//!   while it has not moved, so it never sees projections older than what
-//!   it would read from the table.
+//!   (75 to 125 ms for 10,000 persons), and which a pedigree reads its
+//!   window's persons from when they are kept. They are shared read-only,
+//!   never copied, and kept with the generation of the tree's projections
+//!   they were read at (`projection_state`, moved by triggers in the
+//!   transaction of every `person_denorm` write, whatever process makes
+//!   it): a request reads the current generation first — one primary-key
+//!   read — and uses them only while it has not moved, so it never sees
+//!   projections older than what it would read from the table. Once it has
+//!   moved they are no longer used as they are: the rows written since
+//!   their generation — each row carries the generation of its last write
+//!   — are read and decoded, and a new set is made of them and of the
+//!   others, shared with the set it replaces ([`TreeProfiles::patched`]).
 //! - on the web, the redactions of restricted viewers ([`ClassRecords`]),
 //!   one per [`ViewerClass`] — the redacting permissions of the viewer's
 //!   access, its scope and the year — with the redaction generation of the
@@ -40,10 +44,12 @@
 //! What it holds is bounded and given back:
 //!
 //! - **One tree, or a budget.** On the desktop ([`CacheScope::OneTree`]) a
-//!   request about another tree drops everything held for the previous one.
-//!   On the web ([`CacheScope::Shared`]) trees are kept within a budget of
-//!   estimated bytes, the least recently used dropped first; a tree that
-//!   alone exceeds it is not kept.
+//!   request about another tree drops everything held for the previous one,
+//!   and the one tree is kept within a budget of estimated bytes. On the
+//!   web ([`CacheScope::Shared`]) trees are kept within a budget, the least
+//!   recently used dropped first. A tree that alone exceeds the budget is
+//!   not kept: its projections are shared by the requests reading them at
+//!   the same time and go with the last of them.
 //! - **Idleness.** A tree no request has used for [`CacheSettings::idle`]
 //!   is dropped.
 //! - **Classes.** A tree keeps [`MAX_CLASSES`] redactions at most, the
@@ -93,12 +99,21 @@ pub const DEFAULT_BUDGET: usize = 256 * 1024 * 1024;
 /// rather than pile up.
 pub const MAX_CLASSES: usize = 8;
 
+/// The budget of a one-tree cache when the application names none: 512 MiB.
+///
+/// The desktop keeps one tree, for as long as it is worked on: the budget
+/// bounds what a very large one keeps resident. It holds the projections of
+/// about 150,000 persons at the 3.5 KB a person of a real tree; a larger
+/// tree is read again by each tree-wide page instead of staying in memory.
+pub const DEFAULT_ONE_TREE_BUDGET: usize = 512 * 1024 * 1024;
+
 /// Which trees the cache keeps at once.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheScope {
-    /// One: the desktop, where one person works on one tree at a time. A
-    /// request about another tree drops everything held for the previous one.
-    OneTree,
+    /// One, within `budget` estimated bytes: the desktop, where one person
+    /// works on one tree at a time. A request about another tree drops
+    /// everything held for the previous one.
+    OneTree { budget: usize },
     /// As many as fit in `budget` estimated bytes, the least recently used
     /// dropped first: the web, where several people work on several trees.
     Shared { budget: usize },
@@ -124,10 +139,16 @@ impl Default for CacheSettings {
 }
 
 impl CacheSettings {
-    /// One tree at a time, dropped after `idle`: the desktop.
+    /// One tree at a time within [`DEFAULT_ONE_TREE_BUDGET`], dropped after
+    /// `idle`: the desktop.
     pub fn one_tree(idle: Duration) -> Self {
+        Self::one_tree_within(DEFAULT_ONE_TREE_BUDGET, idle)
+    }
+
+    /// One tree at a time within `budget` bytes, dropped after `idle`.
+    pub fn one_tree_within(budget: usize, idle: Duration) -> Self {
         Self {
-            scope: CacheScope::OneTree,
+            scope: CacheScope::OneTree { budget },
             idle,
         }
     }
@@ -206,6 +227,10 @@ struct Entry {
     /// The tree's decoded projections, with the generation they were read
     /// at.
     profiles: Option<KeptProfiles>,
+    /// The projections of a tree too large to keep, for as long as a
+    /// request still holds them, with the generation they were read at:
+    /// the requests reading the tree at the same time share them.
+    passing: Option<(i64, Weak<TreeProfiles>)>,
     /// Held while the tree's projections are read, so that requests
     /// arriving together read them once.
     profiles_gate: Arc<tokio::sync::Mutex<()>>,
@@ -241,6 +266,7 @@ impl Entry {
             place_bytes: 0,
             places_gate: Arc::default(),
             profiles: None,
+            passing: None,
             profiles_gate: Arc::default(),
             redactions: Vec::new(),
             redactions_gate: Arc::default(),
@@ -266,35 +292,119 @@ impl Entry {
     }
 }
 
-/// Every person projection of a tree, decoded once and shared read-only by
-/// the requests that read them, with an index by person.
+/// Every person projection of a tree, decoded and shared read-only by the
+/// requests that read them, in person order, with an index by person.
+///
+/// Each projection is shared on its own, so that a set differing from
+/// another by a few projections shares all the others with it
+/// ([`Self::patched`]): what a write costs the next tree-wide read is the
+/// projections it rewrote, not the tree.
 #[derive(Debug, Default)]
 pub struct TreeProfiles {
-    persons: Vec<PersonProfile>,
-    index: HashMap<Uuid, usize>,
+    persons: Vec<Arc<PersonProfile>>,
+    index: Arc<HashMap<Uuid, usize>>,
+    /// The bytes of each projection's stored payload, in the order of
+    /// `persons`: what the memory they take is estimated from.
+    payload_bytes: Vec<u32>,
 }
 
 impl TreeProfiles {
-    /// The projections `persons`, indexed.
+    /// The projections `persons`, indexed. Their memory is not estimated:
+    /// for a set that is not kept.
     pub fn new(persons: Vec<PersonProfile>) -> Self {
-        let index = persons
+        Self::with_payloads(persons.into_iter().map(|person| (person, 0)).collect())
+    }
+
+    /// The projections `rows`, each with the bytes of its stored payload,
+    /// indexed.
+    pub fn with_payloads(mut rows: Vec<(PersonProfile, usize)>) -> Self {
+        rows.sort_unstable_by_key(|(person, _)| person.person_id);
+        let index = rows
             .iter()
             .enumerate()
-            .map(|(at, person)| (person.person_id, at))
+            .map(|(at, (person, _))| (person.person_id, at))
             .collect();
-        Self { persons, index }
+        let payload_bytes = rows.iter().map(|(_, bytes)| payload_size(*bytes)).collect();
+        let persons = rows
+            .into_iter()
+            .map(|(person, _)| Arc::new(person))
+            .collect();
+        Self {
+            persons,
+            index: Arc::new(index),
+            payload_bytes,
+        }
     }
 
     /// The projection of `person_id`, if the tree has one.
     pub fn get(&self, person_id: &Uuid) -> Option<&PersonProfile> {
-        self.index.get(person_id).map(|at| &self.persons[*at])
+        self.index.get(person_id).map(|at| &*self.persons[*at])
+    }
+
+    /// The bytes these projections take in memory, as the budget counts
+    /// them: [`DECODED_BYTES_PER_PAYLOAD_BYTE`] for each byte stored.
+    pub fn estimated_bytes(&self) -> usize {
+        let stored: usize = self.payload_bytes.iter().map(|bytes| *bytes as usize).sum();
+        stored * DECODED_BYTES_PER_PAYLOAD_BYTE
+    }
+
+    /// This set with the projections `changed` — each with the bytes of its
+    /// stored payload — in place of those of the same persons, the new
+    /// persons among them added, and without the persons `gone`. Every
+    /// other projection is shared with this set, not copied; the index is
+    /// too when no person comes or goes.
+    #[must_use]
+    pub fn patched(&self, changed: Vec<(PersonProfile, usize)>, gone: &HashSet<Uuid>) -> Self {
+        let mut persons = self.persons.clone();
+        let mut payload_bytes = self.payload_bytes.clone();
+        let mut added = Vec::new();
+        for (person, bytes) in changed {
+            match self.index.get(&person.person_id) {
+                Some(&at) => {
+                    persons[at] = Arc::new(person);
+                    payload_bytes[at] = payload_size(bytes);
+                }
+                None => added.push((Arc::new(person), payload_size(bytes))),
+            }
+        }
+        if added.is_empty() && gone.is_empty() {
+            return Self {
+                persons,
+                index: Arc::clone(&self.index),
+                payload_bytes,
+            };
+        }
+        let mut rows: Vec<(Arc<PersonProfile>, u32)> = persons
+            .into_iter()
+            .zip(payload_bytes)
+            .filter(|(person, _)| !gone.contains(&person.person_id))
+            .chain(added)
+            .collect();
+        rows.sort_unstable_by_key(|(person, _)| person.person_id);
+        let index = rows
+            .iter()
+            .enumerate()
+            .map(|(at, (person, _))| (person.person_id, at))
+            .collect();
+        let (persons, payload_bytes) = rows.into_iter().unzip();
+        Self {
+            persons,
+            index: Arc::new(index),
+            payload_bytes,
+        }
     }
 }
 
-impl std::ops::Deref for TreeProfiles {
-    type Target = [PersonProfile];
+/// The bytes of a stored payload as a set keeps them: a payload is a few
+/// kilobytes, and one past 4 GiB counts for that.
+fn payload_size(bytes: usize) -> u32 {
+    u32::try_from(bytes).unwrap_or(u32::MAX)
+}
 
-    fn deref(&self) -> &[PersonProfile] {
+impl std::ops::Deref for TreeProfiles {
+    type Target = [Arc<PersonProfile>];
+
+    fn deref(&self) -> &[Arc<PersonProfile>] {
         &self.persons
     }
 }
@@ -391,7 +501,7 @@ impl TreeCache {
         let (result, dropped) = {
             let mut inner = self.lock();
             let dropped = match inner.settings.scope {
-                CacheScope::OneTree => {
+                CacheScope::OneTree { .. } => {
                     let others: Vec<Uuid> = inner
                         .trees
                         .keys()
@@ -418,13 +528,11 @@ impl TreeCache {
         result
     }
 
-    /// Make room for `extra` more bytes for `tree_id` within a shared
-    /// budget, dropping the least recently used other trees into `dropped`:
+    /// Make room for `extra` more bytes for `tree_id` within the budget,
+    /// dropping the least recently used other trees into `dropped`:
     /// whether they fit, `tree_id`'s current bytes counted.
     fn make_room(inner: &mut Inner, tree_id: Uuid, extra: usize, dropped: &mut Vec<Entry>) -> bool {
-        let CacheScope::Shared { budget } = inner.settings.scope else {
-            return true;
-        };
+        let (CacheScope::Shared { budget } | CacheScope::OneTree { budget }) = inner.settings.scope;
         let own = inner.trees.get(&tree_id).map_or(0, Entry::bytes);
         if own + extra > budget {
             return false;
@@ -562,16 +670,24 @@ impl TreeCache {
         self.release(dropped);
     }
 
-    /// The projections kept for tree `tree_id`, with the generation they
-    /// were read at, noting a request about the tree: with one tree at a
-    /// time, every other tree is dropped. The caller checks the generation
-    /// is still the table's before using them.
+    /// The projections kept for tree `tree_id` — or, for a tree too large
+    /// to keep, those another request still holds — with the generation
+    /// they were read at, noting a request about the tree: with one tree at
+    /// a time, every other tree is dropped. The caller checks the
+    /// generation is still the table's before using them as they are.
     pub fn kept_profiles(self: &Arc<Self>, tree_id: Uuid) -> Option<(i64, Arc<TreeProfiles>)> {
         self.enter(tree_id, |entry| {
-            entry
-                .profiles
-                .as_ref()
-                .map(|kept| (kept.generation, Arc::clone(&kept.profiles)))
+            if let Some(kept) = &entry.profiles {
+                return Some((kept.generation, Arc::clone(&kept.profiles)));
+            }
+            let (generation, passing) = entry.passing.as_ref()?;
+            match passing.upgrade() {
+                Some(profiles) => Some((*generation, profiles)),
+                None => {
+                    entry.passing = None;
+                    None
+                }
+            }
         })
     }
 
@@ -604,8 +720,10 @@ impl TreeCache {
     }
 
     /// Keep tree `tree_id`'s projections, read at `generation` and taking
-    /// about `bytes`, unless the tree was dropped meanwhile or they do not
-    /// fit the budget.
+    /// about `bytes`, in place of those kept before, unless the tree was
+    /// dropped meanwhile. Projections that do not fit the budget are not
+    /// kept: they are only remembered for as long as a request holds them,
+    /// for the requests arriving meanwhile.
     pub fn keep_profiles(
         &self,
         tree_id: Uuid,
@@ -620,14 +738,18 @@ impl TreeCache {
                 return;
             };
             let replaced = entry.profiles.take();
-            if Self::make_room(&mut inner, tree_id, bytes, &mut dropped)
-                && let Some(entry) = inner.trees.get_mut(&tree_id)
-            {
-                entry.profiles = Some(KeptProfiles {
-                    generation,
-                    profiles,
-                    bytes,
-                });
+            entry.passing = None;
+            let fits = Self::make_room(&mut inner, tree_id, bytes, &mut dropped);
+            if let Some(entry) = inner.trees.get_mut(&tree_id) {
+                if fits {
+                    entry.profiles = Some(KeptProfiles {
+                        generation,
+                        profiles,
+                        bytes,
+                    });
+                } else {
+                    entry.passing = Some((generation, Arc::downgrade(&profiles)));
+                }
             }
             replaced
         };
@@ -941,10 +1063,113 @@ mod tests {
         cache.keep_profiles(b, 1, Arc::clone(&profiles), 600);
         assert!(cache.kept_profiles(a).is_none());
         assert!(cache.kept_profiles(b).is_some());
-        // Projections larger than the whole budget are not kept.
-        cache.keep_profiles(b, 2, profiles, 1001);
-        assert!(cache.kept_profiles(b).is_none());
+        // Projections larger than the whole budget are not kept: they are
+        // shared for as long as a request holds them, and go with it.
+        let large = Arc::new(TreeProfiles::default());
+        cache.keep_profiles(b, 2, Arc::clone(&large), 1001);
         assert_eq!(cache.estimated_bytes(), 0);
+        let (generation, passing) = cache.kept_profiles(b).expect("still held");
+        assert_eq!(generation, 2);
+        assert!(Arc::ptr_eq(&passing, &large));
+        drop((passing, large));
+        assert!(cache.kept_profiles(b).is_none());
+    }
+
+    #[tokio::test]
+    async fn the_one_tree_is_kept_within_its_budget() {
+        let cache = Arc::new(TreeCache::new(CacheSettings::one_tree_within(
+            1000,
+            DEFAULT_IDLE,
+        )));
+        let tree = tree();
+        cache.kept_profiles(tree);
+        cache.keep_profiles(tree, 1, Arc::default(), 600);
+        assert_eq!(cache.estimated_bytes(), 600);
+        // The same tree grown past the budget is not kept any more.
+        cache.keep_profiles(tree, 2, Arc::default(), 1001);
+        assert_eq!(cache.estimated_bytes(), 0);
+        assert!(cache.kept_profiles(tree).is_none(), "nobody holds them");
+    }
+
+    fn profile(person_id: Uuid, given: &str) -> PersonProfile {
+        PersonProfile {
+            placeholder: None,
+            tags: Vec::new(),
+            person_id,
+            tree_id: Uuid::nil(),
+            sex: oxidgene_core::Sex::Unknown,
+            primary_name: Some(oxidgene_core::projection::ProfileName {
+                name_id: Uuid::nil(),
+                name_type: oxidgene_core::NameType::Birth,
+                display_name: given.to_string(),
+                given_names: Some(given.to_string()),
+                surname: None,
+            }),
+            other_names: Vec::new(),
+            birth: None,
+            death: None,
+            baptism: None,
+            burial: None,
+            other_events: Vec::new(),
+            families_as_spouse: Vec::new(),
+            family_as_child: None,
+            primary_media: None,
+            media_count: 0,
+            citation_count: 0,
+            note_count: 0,
+            updated_at: chrono::Utc::now(),
+            built_at: chrono::Utc::now(),
+        }
+    }
+
+    fn names(profiles: &TreeProfiles) -> Vec<String> {
+        profiles
+            .iter()
+            .map(|p| p.primary_name.as_ref().unwrap().display_name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_patched_set_shares_what_did_not_change() {
+        let ids: Vec<Uuid> = (1..=4).map(Uuid::from_u128).collect();
+        let first = TreeProfiles::with_payloads(vec![
+            (profile(ids[2], "Given_c"), 30),
+            (profile(ids[0], "Given_a"), 10),
+            (profile(ids[1], "Given_b"), 20),
+        ]);
+        assert_eq!(names(&first), ["Given_a", "Given_b", "Given_c"]);
+        assert_eq!(first.estimated_bytes(), 60 * DECODED_BYTES_PER_PAYLOAD_BYTE);
+
+        // A projection rewritten: the others and the index are shared.
+        let renamed = first.patched(vec![(profile(ids[1], "Given_b2"), 25)], &HashSet::new());
+        assert_eq!(names(&renamed), ["Given_a", "Given_b2", "Given_c"]);
+        assert!(Arc::ptr_eq(&first[0], &renamed[0]));
+        assert!(!Arc::ptr_eq(&first[1], &renamed[1]));
+        assert!(Arc::ptr_eq(&first.index, &renamed.index));
+        assert_eq!(
+            renamed.estimated_bytes(),
+            65 * DECODED_BYTES_PER_PAYLOAD_BYTE
+        );
+        assert_eq!(
+            names(&first),
+            ["Given_a", "Given_b", "Given_c"],
+            "untouched"
+        );
+
+        // A person gone and one come: in person order, found by id.
+        let moved = renamed.patched(
+            vec![(profile(ids[3], "Given_d"), 40)],
+            &HashSet::from([ids[0]]),
+        );
+        assert_eq!(names(&moved), ["Given_b2", "Given_c", "Given_d"]);
+        assert!(moved.get(&ids[0]).is_none());
+        assert_eq!(
+            moved.get(&ids[3]).unwrap().person_id,
+            ids[3],
+            "the index follows"
+        );
+        assert!(Arc::ptr_eq(&renamed[2], &moved[1]));
+        assert_eq!(moved.estimated_bytes(), 95 * DECODED_BYTES_PER_PAYLOAD_BYTE);
     }
 
     #[tokio::test]

@@ -281,3 +281,225 @@ async fn the_desktop_keeps_one_tree_at_a_time() {
     assert_eq!(cache.cached_trees(), [b.parse::<uuid::Uuid>().unwrap()]);
     assert_eq!(cache.releases(), releases + 1);
 }
+
+/// Every projection of `tree` as `state`'s process uses it for a tree-wide
+/// read, in person order.
+async fn tree_set(state: &AppState, tree: uuid::Uuid) -> Vec<Value> {
+    let profiles = state.profiles.get_all_persons(tree).await.unwrap();
+    profiles
+        .iter()
+        .map(|profile| serde_json::to_value(&**profile).unwrap())
+        .collect()
+}
+
+/// The projections a process keeps are patched after a write, not read
+/// again, and are then exactly the table's. After an edit, a creation, a
+/// deletion, a merge, a restore, an import, a raw write and a rebuild, the
+/// set the keeping process computes over equals, projection for
+/// projection, the one a process that keeps nothing reads from the table;
+/// and but for the rebuild it decoded the rows the write rewrote, not the
+/// tree.
+#[tokio::test]
+async fn kept_projections_are_patched_to_what_the_table_holds_after_each_write() {
+    const BLOCKS: usize = 20;
+    let db = setup_db().await;
+    let [(keeping, app), (reading, other)] = two_processes(&db);
+    reading.profiles.cache().configure(CacheSettings::shared(
+        0,
+        oxidgene_api::tree_cache::DEFAULT_IDLE,
+    ));
+    let (tree, anchor) = family_blocks_tree(&app, &db, BLOCKS).await;
+    let tree_id: uuid::Uuid = tree.parse().unwrap();
+    let t = |path: &str| format!("/api/v1/trees/{tree}{path}");
+    let named = |given: &'static str| {
+        let (other, tree) = (other.clone(), tree.clone());
+        async move {
+            let person = new_person(&other, &tree).await;
+            let name = json!({
+                "name_type": "birth",
+                "given_names": given,
+                "surname": "BRANCH_P",
+                "is_primary": true,
+            });
+            let names = format!("/api/v1/trees/{tree}/persons/{person}/names");
+            ok(&other, Method::POST, &names, Some(name)).await;
+            person
+        }
+    };
+
+    let whole = tree_set(&keeping, tree_id).await;
+    assert_eq!(whole.len(), BLOCKS * 10);
+    assert_eq!(keeping.profiles.decoded_profiles(), (BLOCKS * 10) as u64);
+
+    // After each write of the other process: the set kept, patched, is the
+    // table's, and it took decoding as many rows as `rows` says.
+    let decoded = std::cell::Cell::new(keeping.profiles.decoded_profiles());
+    let check = |what: &'static str, rows: std::ops::RangeInclusive<u64>| {
+        let (keeping, reading, decoded) = (&keeping, &reading, &decoded);
+        async move {
+            let kept = tree_set(keeping, tree_id).await;
+            let read = tree_set(reading, tree_id).await;
+            assert_eq!(kept.len(), read.len(), "{what}");
+            for (kept, read) in kept.iter().zip(&read) {
+                assert_eq!(kept, read, "{what}");
+            }
+            let now = keeping.profiles.decoded_profiles();
+            let decoded = now - decoded.replace(now);
+            assert!(rows.contains(&decoded), "{what}: {decoded} rows decoded");
+        }
+    };
+
+    // An edit: the person and the relatives naming them.
+    let edit = json!({ "sex": "unknown" });
+    ok(
+        &other,
+        Method::PUT,
+        &t(&format!("/persons/{anchor}")),
+        Some(edit),
+    )
+    .await;
+    check("an edit", 1..=12).await;
+
+    // Two persons created, each named.
+    let first = named("Given_p").await;
+    let second = named("Given_p").await;
+    check("creations", 2..=4).await;
+
+    // A deletion leaves no row to read: the count tells.
+    ok(
+        &other,
+        Method::DELETE,
+        &t(&format!("/persons/{second}")),
+        None,
+    )
+    .await;
+    check("a deletion", 0..=0).await;
+
+    // The deleted person restored to their named state.
+    let versions = ok(
+        &other,
+        Method::GET,
+        &t(&format!("/history/person/{second}?first=100")),
+        None,
+    )
+    .await;
+    let named_state = versions["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|edge| &edge["node"])
+        .find(|version| version["deleted"] == false && version["current"] != true)
+        .expect("a state before the deletion")["version"]
+        .clone();
+    ok(
+        &other,
+        Method::POST,
+        &t(&format!("/history/person/{second}/revert")),
+        Some(json!({ "version": named_state })),
+    )
+    .await;
+    check("a restore", 1..=4).await;
+
+    // A merge: one record absorbed, the other rewritten.
+    ok(
+        &other,
+        Method::POST,
+        &t(&format!("/persons/{first}/merge")),
+        Some(json!({ "duplicate_id": second })),
+    )
+    .await;
+    check("a merge", 1..=4).await;
+
+    // An import, run by a worker with a cache of its own: ten persons more
+    // rewrite every row of a tree... of their own blocks only.
+    import_gedcom(&app, &db, &tree, &family_blocks_gedcom(1)).await;
+    let imported = tree_set(&keeping, tree_id).await;
+    assert_eq!(imported, tree_set(&reading, tree_id).await, "an import");
+    assert_eq!(imported.len(), BLOCKS * 10 + 11);
+    decoded.set(keeping.profiles.decoded_profiles());
+
+    // A raw delete on another connection: the trigger moves the generation.
+    let anchor_id: uuid::Uuid = anchor.parse().unwrap();
+    db.execute_raw(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        "DELETE FROM person_denorm WHERE person_id = $1",
+        [anchor_id.into()],
+    ))
+    .await
+    .unwrap();
+    let after_delete = tree_set(&keeping, tree_id).await;
+    assert_eq!(
+        after_delete,
+        tree_set(&reading, tree_id).await,
+        "a raw delete"
+    );
+    assert_eq!(after_delete.len(), BLOCKS * 10 + 10);
+    assert_eq!(
+        keeping.profiles.decoded_profiles(),
+        decoded.get(),
+        "a deletion alone decodes nothing"
+    );
+
+    // The administrative rebuild rewrites every row: the tree is read again.
+    ok(&other, Method::POST, &t("/profiles/rebuild"), None).await;
+    let rebuilt = tree_set(&keeping, tree_id).await;
+    assert_eq!(rebuilt, tree_set(&reading, tree_id).await, "a rebuild");
+    assert_eq!(
+        keeping.profiles.decoded_profiles() - decoded.get(),
+        rebuilt.len() as u64
+    );
+
+    // The tree deleted: no read answers from what was kept.
+    ok(
+        &other,
+        Method::DELETE,
+        &format!("/api/v1/trees/{tree}"),
+        None,
+    )
+    .await;
+    let (status, _) = common::send(&app, Method::GET, &t("/statistics?lang=en"), None).await;
+    assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
+}
+
+/// A patch reads the tree as of one moment: a writer committing while a
+/// tree-wide read patches its set leaves it as the table was before or
+/// after the write, never a mix — whatever is missed is patched in by the
+/// next read.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reads_patching_while_writes_commit_end_on_what_the_table_holds() {
+    let directory = tempfile::tempdir().unwrap();
+    let connections = common::setup_file_db(directory.path()).await;
+    let state = offline(AppState::new(connections.clone(), test_media_root()))
+        .with_cache(CacheSettings::default());
+    let reading = offline(AppState::new(connections, test_media_root())).with_cache(
+        CacheSettings::shared(0, oxidgene_api::tree_cache::DEFAULT_IDLE),
+    );
+    let app = build_router(state.clone());
+    let (tree, _anchor) = family_blocks_tree(&app, &state.db, 10).await;
+    let tree_id: uuid::Uuid = tree.parse().unwrap();
+    tree_set(&state, tree_id).await;
+
+    let persons: Vec<String> = common::all_profiles(&app, &tree)
+        .await
+        .iter()
+        .map(|profile| profile["person_id"].as_str().unwrap().to_owned())
+        .collect();
+    let writer = {
+        let (app, tree) = (app.clone(), tree.clone());
+        tokio::spawn(async move {
+            for (at, person) in persons.iter().enumerate() {
+                let sex = if at % 2 == 0 { "male" } else { "female" };
+                let uri = format!("/api/v1/trees/{tree}/persons/{person}");
+                ok(&app, Method::PUT, &uri, Some(json!({ "sex": sex }))).await;
+            }
+        })
+    };
+    while !writer.is_finished() {
+        tree_set(&state, tree_id).await;
+    }
+    writer.await.unwrap();
+    assert_eq!(
+        tree_set(&state, tree_id).await,
+        tree_set(&reading, tree_id).await
+    );
+}

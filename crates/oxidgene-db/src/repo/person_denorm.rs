@@ -343,6 +343,56 @@ impl PersonDenormRepo {
             .map_err(db_err)
     }
 
+    /// The rows of a tree written since its projections were at generation
+    /// `since`: each row carries the generation of its last write, which
+    /// triggers set past every generation committed before it. Read in the
+    /// transaction that read the tree's generation, they are exactly the
+    /// rows that differ from the tree as it was at `since`, the rows
+    /// deleted since aside ([`Self::person_ids`] tells those).
+    pub async fn changed_since(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        since: i64,
+    ) -> Result<EncodedProfiles, OxidGeneError> {
+        let models = Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::Generation.gt(since))
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(EncodedProfiles(models))
+    }
+
+    /// How many rows [`Self::changed_since`] would read: an index range
+    /// count.
+    pub async fn count_changed_since(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        since: i64,
+    ) -> Result<u64, OxidGeneError> {
+        Entity::find()
+            .filter(Column::TreeId.eq(tree_id))
+            .filter(Column::Generation.gt(since))
+            .count(db)
+            .await
+            .map_err(db_err)
+    }
+
+    /// The persons a tree has a projection row for, read from the index.
+    pub async fn person_ids(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        Entity::find()
+            .select_only()
+            .column(Column::PersonId)
+            .filter(Column::TreeId.eq(tree_id))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)
+    }
+
     /// Count every projection row of a tree, current or stale.
     ///
     /// Only for reporting on what is physically stored; use
@@ -388,6 +438,8 @@ fn encode(person: &PersonProfile) -> Result<ActiveModel, OxidGeneError> {
         // payload was just built by *this* binary, whatever wrote the last one.
         schema_version: Set(PROJECTION_SCHEMA_VERSION),
         updated_at: Set(person.built_at.into()),
+        // The projection triggers stamp it.
+        generation: sea_orm::ActiveValue::NotSet,
     })
 }
 
@@ -415,9 +467,30 @@ impl EncodedProfiles {
         self.0.iter().map(|model| model.payload.len()).sum()
     }
 
-    /// Deserialize every row: CPU-bound, so best run on a blocking thread.
-    pub fn decode(self) -> Result<Vec<PersonProfile>, OxidGeneError> {
-        self.0.into_iter().map(decode).collect()
+    /// Whether every row was written by this build: a row of another
+    /// version cannot be decoded as a current projection.
+    #[must_use]
+    pub fn is_current(&self) -> bool {
+        self.0
+            .iter()
+            .all(|model| model.schema_version == PROJECTION_SCHEMA_VERSION)
+    }
+
+    /// The persons the rows are the projections of.
+    pub fn person_ids(&self) -> impl Iterator<Item = Uuid> {
+        self.0.iter().map(|model| model.person_id)
+    }
+
+    /// Deserialize every row, each with the bytes of its payload: CPU-bound,
+    /// so best run on a blocking thread for more than a few rows.
+    pub fn decode(self) -> Result<Vec<(PersonProfile, usize)>, OxidGeneError> {
+        self.0
+            .into_iter()
+            .map(|model| {
+                let bytes = model.payload.len();
+                decode(model).map(|person| (person, bytes))
+            })
+            .collect()
     }
 }
 

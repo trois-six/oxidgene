@@ -939,6 +939,7 @@ still holds them.
 | `payload` | Serialized `oxidgene_core::projection::PersonProfile`. |
 | `schema_version` | Version of the payload shape written by the current build. |
 | `updated_at` | Time the projection was derived. |
+| `generation` | The tree's projection generation as of the row's last write, set by the projection triggers. |
 
 The payload contains the person's primary and alternate names, sex, complete
 birth/death/baptism/burial events, other events, family links, portrait
@@ -993,12 +994,36 @@ inserted, updated or deleted, SQLite having no statement-level trigger;
 under PostgreSQL one bump per statement and tree, through the statement's
 transition tables, since an import's thousands of updates of one row in one
 transaction would leave as many row versions for every later read to walk.
-A reader that read the generation, then the rows, holds rows at least as
-new as that generation; while the generation it reads again has not moved,
-the rows are still the table's. The tree cache relies on it
+A reader that read the generation and the rows in one read transaction
+holds the rows as of that generation; while the generation it reads again
+has not moved, the rows are still the table's. The tree cache relies on it
 ([Architecture §4.1](architecture.md#41-tree-cache)). It is one primary-key
 read. The audit log could not serve: projection maintenance writes no audit
 entry (§5.1).
+
+**Row generation: `person_denorm.generation`.** The same triggers stamp
+each row inserted or rewritten with the generation its write moves the tree
+to, so that a reader holding the tree's rows as of generation *g* finds the
+rows written since with `generation > g` — an index range read
+(`idx_person_denorm_tree_generation`: `tree_id`, `generation`,
+`person_id`, which also answers the tree's person ids alone). The
+application never writes the column. A stamp is past every generation
+committed before its own transaction commits, which is what makes the
+range read complete:
+
+- under SQLite the insert and update triggers stamp the row after moving
+  the generation, by an update of `generation` alone — the update trigger
+  is declared on the other columns, so the stamp does not fire it — and
+  the single writer lets no other transaction commit in between;
+- under PostgreSQL a `BEFORE INSERT OR UPDATE` row trigger locks the tree's
+  `projection_state` row and stamps the row with the generation it reads
+  plus one; the statement trigger then moves the generation, once or, for
+  an upsert, twice. The lock is the one the first write of a transaction
+  to the tree takes anyway (below), so two writers of a tree stamp one
+  after the other and the second reads what the first committed.
+
+A row deleted leaves no stamp: a reader tells a deletion from the tree's
+row count, and then reads the person ids from the index to find whose.
 
 `redaction_generation` is the same contract for the redactions the tree
 cache keeps for restricted viewers. Triggers move it on every insert,

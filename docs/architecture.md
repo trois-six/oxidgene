@@ -188,7 +188,9 @@ answer, only the time of the next one.
   the requests using them, never copied (copying 10,000 projections costs
   11 to 26 ms), and take 2.5 to 3.5 KB a person, 25 to 36 MiB for such a
   tree, estimated as twice their stored payload (a generated tree's 13 MiB
-  of payload took 25 to 27 MiB once kept).
+  of payload took 25 to 27 MiB once kept). Each projection is held once:
+  the set a write gives way to (below) shares every projection the write
+  left alone with the set that replaces it.
 - The redactions of its restricted viewers (web build only,
   [Privacy §7](privacy.md#7-enforcement-points)), one per *viewer class*,
   with the redaction generation they were read at. A class is everything
@@ -230,15 +232,37 @@ mutation's refresh, an import, a rebuild after a schema version change, a
 purge — so it moves exactly when, and as soon as, the table's content does,
 for every API process and worker sharing the database. A request reads the
 generation first, one primary-key read, and uses the kept projections only
-if it equals theirs; otherwise it drops them, gives their memory back, and
-reads the table again. The projections being read are stamped with the
-generation read *before* them: a write committed in between leaves them
-newer than their stamp, never older, and the next request reads them again.
-A request therefore sees every write committed before it started, as it
-would reading the table; it reads the projections as of its start, as a
-request reading the table at its start would. A pedigree that finds them
-current also skips the tree's materialization check, which they were read
-after.
+if it equals theirs. Otherwise the next request reading the whole tree
+reads the generation and the rows in one read transaction, whose
+statements all see the database as its first one does — SQLite's deferred
+transaction under write-ahead logging, PostgreSQL's `REPEATABLE READ` — so
+the set it keeps is the table's content at exactly the generation it is
+stamped with. A request therefore sees every write committed before it
+started, as it would reading the table. A pedigree that finds the kept
+projections current also skips the tree's materialization check, which
+they were read after.
+
+**A write patches the kept projections.** The request that finds them
+outdated does not read the tree again. The triggers stamp every row
+written with the generation its write moves the tree to
+([Data Model §4.1](data-model.md#41-person-projection-person_denorm)), so
+the rows written since the kept generation are an index range read: the
+request counts them and, when they are at most a quarter of the kept
+projections, reads and decodes those alone and builds the next set from
+the kept one — the rows written in place of theirs, every other projection
+shared with the set being replaced, which the requests still reading it
+keep whole. A deleted row leaves no stamp: the tree's row count tells that
+some are gone, when it is not that of the kept persons and those newly
+written, and the tree's person ids, read from the same index, tell which.
+Past a quarter — an import, a whole-tree rebuild — or when a row of
+another schema version is among those written, the kept set is dropped
+first, its memory given back, and the table read whole: the two sets are
+never held at once. On a generated tree of 100,000 persons (release build,
+SQLite), the statistics requested after an edit took 6.3 s of processor
+time when the edit cost the kept set, against 3.7 s with it kept; patched,
+they take what they take with it kept, 2.4 s either way, the patch itself
+4 ms for the few rows the edit rewrote where reading and decoding the
+100,000 takes 1.4 to 3.1 s.
 
 **Why the readings are never stale.** A reading depends on the label and the embedded
 dictionary alone, so no write can make one wrong, in this process or
@@ -290,16 +314,33 @@ check. A new year is a new class: the first request of the year finds no
 redaction of its year, and the year's change of who is contemporary
 applies at once.
 
+A stale redaction is built again from the tree's rows, never patched with
+the writes since. What a write changes in a redaction is not local to the
+rows it wrote — a date entered can change whom the contemporary rule
+covers, an exclusion reaches a branch, a
+scope follows family links — and a patch that fell short of one such
+reach would show a viewer what the rules withhold. The build it would
+save is the 0.1 to 0.7 s above, once per write and viewer class.
+
 **Bounds.** Two scopes, chosen by the binary:
 
 - *One tree* (desktop): one person works on one tree at a time, so the
   first request about another tree drops everything kept for the previous
-  one.
+  one. The tree is kept within 512 MiB of estimated bytes, the projections
+  of about 150,000 persons, so that a very large tree does not stay
+  resident on a personal computer.
 - *Shared* (server): trees are kept within a budget of estimated bytes,
   `OXIDGENE_CACHE_MIB` (256 MiB by default, a quarter of the backend's
   memory limit in the Helm chart); a tree that does not fit makes room by
-  dropping the least recently used others, and a tree that alone exceeds
-  the budget is not kept. A budget of `0` keeps nothing.
+  dropping the least recently used others. A budget of `0` keeps nothing.
+
+A tree whose projections alone exceed the budget is not kept, in either
+scope. Each tree-wide read then reads and decodes them and holds them for
+as long as it runs; the requests arriving meanwhile use that set rather
+than read their own, through a reference that keeps nothing alive once
+the last of them ends. The ancestry completeness needs one person's
+ancestors: when the tree's projections are not kept it reads those alone,
+a generation at a time.
 
 Every tree no request has used for an idle delay is dropped:
 `OXIDGENE_CACHE_IDLE_SECS`, five minutes by default, on the server and the

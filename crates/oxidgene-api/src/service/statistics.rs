@@ -823,7 +823,7 @@ pub async fn load(
     crate::service::blocking::run(span, move || {
         let (scope, others) = match tag {
             Some(tag) => tagged(&persons, tag),
-            None => (persons.iter().collect(), Vec::new()),
+            None => (persons.iter().map(|p| &**p).collect(), Vec::new()),
         };
         compute(
             &scope,
@@ -845,9 +845,13 @@ pub(crate) fn carries(profile: &PersonProfile, tag: Uuid) -> bool {
 
 /// The persons carrying `tag`, and the untagged spouses of their unions, read
 /// for their dates alone so that a union ends as it does in the whole tree.
-fn tagged(persons: &[PersonProfile], tag: Uuid) -> (Vec<&PersonProfile>, Vec<&PersonProfile>) {
+fn tagged<P: std::borrow::Borrow<PersonProfile>>(
+    profiles: &[P],
+    tag: Uuid,
+) -> (Vec<&PersonProfile>, Vec<&PersonProfile>) {
+    let profiles: Vec<&PersonProfile> = profiles.iter().map(std::borrow::Borrow::borrow).collect();
     let (carriers, rest): (Vec<&PersonProfile>, Vec<&PersonProfile>) =
-        persons.iter().partition(|p| carries(p, tag));
+        profiles.into_iter().partition(|p| carries(p, tag));
     let spouses: HashSet<Uuid> = carriers
         .iter()
         .flat_map(|p| {
@@ -866,14 +870,15 @@ fn tagged(persons: &[PersonProfile], tag: Uuid) -> (Vec<&PersonProfile>, Vec<&Pe
 /// The places as the events of the persons carrying `tag` use them: each
 /// event counted once, though a family event is held by both spouses. Media
 /// are not counted, as they are not on a person's projection.
-fn places_of_tagged(
-    persons: &[PersonProfile],
+fn places_of_tagged<P: std::borrow::Borrow<PersonProfile>>(
+    profiles: &[P],
     places: Vec<(Place, i64)>,
     tag: Uuid,
 ) -> Vec<(Place, i64)> {
+    let profiles: Vec<&PersonProfile> = profiles.iter().map(std::borrow::Borrow::borrow).collect();
     let mut seen = HashSet::new();
     let mut uses: HashMap<Uuid, i64> = HashMap::new();
-    let carriers = persons.iter().filter(|p| carries(p, tag));
+    let carriers = profiles.into_iter().filter(|p| carries(p, tag));
     for event in carriers.flat_map(events_of) {
         if let Some(place) = event.place_id.filter(|_| seen.insert(event.event_id)) {
             *uses.entry(place).or_insert(0) += 1;

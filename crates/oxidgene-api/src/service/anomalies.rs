@@ -176,9 +176,11 @@ pub struct Wanted {
 
 impl Wanted {
     /// What `profiles` need beside themselves.
-    pub fn of(profiles: &[PersonProfile]) -> Self {
+    pub fn of<P: std::borrow::Borrow<PersonProfile>>(profiles: &[P]) -> Self {
+        let profiles: Vec<&PersonProfile> =
+            profiles.iter().map(std::borrow::Borrow::borrow).collect();
         let mut families: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-        for profile in profiles {
+        for profile in &profiles {
             if let Some(link) = &profile.family_as_child {
                 families
                     .entry(profile.person_id)
@@ -636,7 +638,11 @@ fn dates_union(event_type: EventType) -> bool {
 }
 
 /// Finds a tree's anomalies.
-pub fn compute(profiles: &[PersonProfile], records: &Records, today: NaiveDate) -> TreeAnomalies {
+pub fn compute<P: std::borrow::Borrow<PersonProfile>>(
+    profiles: &[P],
+    records: &Records,
+    today: NaiveDate,
+) -> TreeAnomalies {
     compute_for_tag(profiles, records, today, None)
 }
 
@@ -644,14 +650,15 @@ pub fn compute(profiles: &[PersonProfile], records: &Records, today: NaiveDate) 
 /// carrying it (a union names its spouses) or a place the events of such a
 /// person use. Every person is examined first, so a rule about a couple or a
 /// witness sees the whole family.
-pub fn compute_for_tag(
-    profiles: &[PersonProfile],
+pub fn compute_for_tag<P: std::borrow::Borrow<PersonProfile>>(
+    profiles: &[P],
     records: &Records,
     today: NaiveDate,
     tag: Option<Uuid>,
 ) -> TreeAnomalies {
     let limits = Limits::from(&records.thresholds);
-    let mut sorted: Vec<&PersonProfile> = profiles.iter().collect();
+    let mut sorted: Vec<&PersonProfile> =
+        profiles.iter().map(std::borrow::Borrow::borrow).collect();
     sorted.sort_by_key(|p| p.person_id);
     let lives: HashMap<Uuid, Life<'_>> = sorted
         .iter()
@@ -674,7 +681,8 @@ pub fn compute_for_tag(
     witnessing(&sorted, &lives, &records.witnesses, &mut found);
     places::place_spellings(&sorted, &mut found);
     if let Some(tag) = tag {
-        let carriers: Vec<&PersonProfile> = profiles.iter().filter(|p| carries(p, tag)).collect();
+        let carriers: Vec<&PersonProfile> =
+            sorted.iter().copied().filter(|p| carries(p, tag)).collect();
         let tagged: HashSet<String> = carriers.iter().map(|p| p.person_id.to_string()).collect();
         let used: HashSet<String> = carriers
             .iter()

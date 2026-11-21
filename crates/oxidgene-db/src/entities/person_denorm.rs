@@ -20,6 +20,9 @@ pub struct Model {
     /// and are rebuilt; see `crate::repo::PersonDenormRepo`.
     pub schema_version: i32,
     pub updated_at: DateTimeWithTimeZone,
+    /// The tree's projection generation as of this row's last write: set
+    /// by the projection triggers, never by the application.
+    pub generation: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

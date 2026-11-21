@@ -30,7 +30,10 @@ use oxidgene_db::repo::{
     PersonNameRepo, PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo,
     RecordTagRepo, SosaRepo, VignetteRepo, db_err,
 };
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, TransactionTrait};
+use sea_orm::{
+    AccessMode, ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend,
+    IsolationLevel, TransactionTrait,
+};
 use tracing::{Instrument as _, debug, info, instrument, warn};
 use uuid::Uuid;
 
@@ -48,6 +51,12 @@ use crate::tree_cache::{TreeCache, TreeProfiles};
 /// that the work and the memory follow the affected persons and never the
 /// tree: a slice costs the same statements whatever the tree around it.
 const REFRESH_SLICE: usize = 500;
+
+/// The most of a tree's projections a write may have rewritten for the
+/// decoded set to be patched with them: one in this many. Past it — an
+/// import, a whole-tree rebuild — the set is dropped and the tree read
+/// again, which then costs no more and never holds two sets at once.
+const PATCH_FRACTION: usize = 4;
 
 /// From how many persons a build runs on the blocking pool rather than on
 /// the async worker that read their rows: a slice of a whole-tree rebuild
@@ -84,6 +93,8 @@ pub struct ProfileService {
     cache: Arc<TreeCache>,
     /// The whole-tree rebuilds this process runs, one at a time per tree.
     rebuilds: Arc<Rebuilds>,
+    /// How many projection rows the reads of whole trees decoded.
+    decoded: AtomicU64,
 }
 
 /// The gate requests wait at for a whole-tree rebuild.
@@ -142,6 +153,7 @@ impl ProfileService {
             reader,
             cache: Arc::default(),
             rebuilds: Arc::default(),
+            decoded: AtomicU64::new(0),
         }
     }
 
@@ -245,6 +257,14 @@ impl ProfileService {
     /// builds the persons it was given and no other.
     pub fn built_profiles(&self) -> u64 {
         self.rebuilds.built.load(Ordering::Acquire)
+    }
+
+    /// How many projection rows this service decoded to read whole trees
+    /// ([`Self::get_all_persons`]), for the tests and the measurements: a
+    /// tree read whole decodes every row, a set patched after a write the
+    /// rows written since.
+    pub fn decoded_profiles(&self) -> u64 {
+        self.decoded.load(Ordering::Acquire)
     }
 
     /// Whether the projections and the search rows of a tree are usable, as
@@ -525,11 +545,15 @@ impl ProfileService {
     }
 
     /// Every projection of a tree, materializing them if needed: those the
-    /// tree cache keeps when the table has not changed since they were read,
-    /// else read, decoded and kept.
+    /// tree cache keeps when the table has not changed since they were read;
+    /// else those it keeps, patched with the rows written since; else read
+    /// whole, decoded and kept.
     ///
-    /// The payloads of a large tree run to tens of megabytes of JSON, so
-    /// they are decoded on a blocking thread, under `profile.decode`.
+    /// The tree's generation and its rows are read in one transaction, so
+    /// the set is the table as of that generation exactly: a write
+    /// committed meanwhile is in neither, and the next request patches it
+    /// in. The payloads of a large tree run to tens of megabytes of JSON,
+    /// so they are decoded on a blocking thread, under `profile.decode`.
     /// Requests arriving together for the same tree read them once.
     pub async fn get_all_persons(&self, tree_id: Uuid) -> Result<Arc<TreeProfiles>, OxidGeneError> {
         if let Some(kept) = self.current_profiles(tree_id).await? {
@@ -537,35 +561,181 @@ impl ProfileService {
         }
         let gate = self.cache.profiles_gate(tree_id);
         let _reading = gate.lock().await;
-        // Read by the request this one waited for.
+        // Read, or patched, by the request this one waited for.
         if let Some(kept) = self.current_profiles(tree_id).await? {
             return Ok(kept);
         }
         self.ensure_materialized(tree_id).await?;
-        // Read before the rows: a write committed in between leaves the
-        // projections newer than their generation, never older, and the
-        // next request reads them again.
-        let generation = PersonDenormRepo::generation(&self.reader, tree_id).await?;
-        let encoded = PersonDenormRepo::list_tree(&self.reader, tree_id).await?;
-        let bytes = encoded.payload_bytes() * crate::tree_cache::DECODED_BYTES_PER_PAYLOAD_BYTE;
+        let outdated = self.cache.kept_profiles(tree_id);
+        let snapshot = self.snapshot().await?;
+        let generation = PersonDenormRepo::generation(&snapshot, tree_id).await?;
+        let patched = match &outdated {
+            Some((since, kept)) => self.patched(&snapshot, tree_id, *since, kept).await?,
+            None => None,
+        };
+        let profiles = match patched {
+            Some(profiles) => profiles,
+            None => {
+                // The set kept goes before the tree is read again: the two
+                // are never held at once.
+                if let Some((since, kept)) = outdated {
+                    drop(kept);
+                    self.cache.forget_profiles(tree_id, since);
+                }
+                self.read_tree(&snapshot, tree_id).await?
+            }
+        };
+        snapshot.rollback().await.map_err(db_err)?;
+        if let Some(generation) = generation {
+            let bytes = profiles.estimated_bytes();
+            self.cache
+                .keep_profiles(tree_id, generation, Arc::clone(&profiles), bytes);
+        }
+        Ok(profiles)
+    }
+
+    /// The projections of `root` and of its ancestors `generations` up, for
+    /// a computation that walks one ancestry: the tree's kept projections
+    /// when they are current, else those persons' alone, read a generation
+    /// at a time — a few statements and a few thousand rows at most,
+    /// whatever the size of the tree, which is neither decoded nor kept
+    /// for it. An ancestor without a projection is absent, as a person the
+    /// tree does not hold is from the whole set.
+    pub async fn lineage_profiles(
+        &self,
+        tree_id: Uuid,
+        root: Uuid,
+        generations: u32,
+    ) -> Result<Arc<TreeProfiles>, OxidGeneError> {
+        if let Some(kept) = self.current_profiles(tree_id).await? {
+            return Ok(kept);
+        }
+        self.ensure_materialized(tree_id).await?;
+        let mut lineage: Vec<PersonProfile> = Vec::new();
+        let mut reached = HashSet::new();
+        let mut generation = vec![root];
+        for _ in 0..=generations {
+            generation.retain(|person_id| reached.insert(*person_id));
+            if generation.is_empty() {
+                break;
+            }
+            let read = PersonDenormRepo::get_many(&self.reader, tree_id, &generation).await?;
+            generation = read
+                .iter()
+                .filter_map(|person| person.family_as_child.as_ref())
+                .flat_map(|parents| [parents.father_id, parents.mother_id])
+                .flatten()
+                .collect();
+            lineage.extend(read);
+        }
+        Ok(Arc::new(TreeProfiles::new(lineage)))
+    }
+
+    /// A read transaction on the read pool whose statements all see the
+    /// database as it is at its first one: SQLite's deferred transaction
+    /// under write-ahead logging, PostgreSQL's `REPEATABLE READ`.
+    async fn snapshot(&self) -> Result<DatabaseTransaction, OxidGeneError> {
+        let begun = match self.reader.get_database_backend() {
+            DbBackend::Postgres => {
+                self.reader
+                    .begin_with_config(
+                        Some(IsolationLevel::RepeatableRead),
+                        Some(AccessMode::ReadOnly),
+                    )
+                    .await
+            }
+            _ => self.reader.begin().await,
+        };
+        begun.map_err(db_err)
+    }
+
+    /// Every projection of tree `tree_id` as `snapshot` sees it, decoded.
+    async fn read_tree(
+        &self,
+        snapshot: &DatabaseTransaction,
+        tree_id: Uuid,
+    ) -> Result<Arc<TreeProfiles>, OxidGeneError> {
+        let encoded = PersonDenormRepo::list_tree(snapshot, tree_id).await?;
+        self.decoded
+            .fetch_add(encoded.len() as u64, Ordering::AcqRel);
         let span = tracing::info_span!("profile.decode", person.count = encoded.len());
-        let decoded = crate::service::blocking::run(span, move || {
+        crate::service::blocking::run(span, move || {
             encoded
                 .decode()
-                .map(|persons| Arc::new(TreeProfiles::new(persons)))
+                .map(|rows| Arc::new(TreeProfiles::with_payloads(rows)))
         })
-        .await??;
-        if let Some(generation) = generation {
-            self.cache
-                .keep_profiles(tree_id, generation, Arc::clone(&decoded), bytes);
+        .await?
+    }
+
+    /// `kept`, the projections of tree `tree_id` as they were at generation
+    /// `since`, brought to what `snapshot` sees: the rows written since
+    /// decoded in place of theirs, the persons without a row any more
+    /// removed. `None` when the tree is to be read whole instead: more
+    /// than one row in [`PATCH_FRACTION`] was written, or a row another
+    /// build wrote is among them.
+    ///
+    /// A row deleted leaves nothing to read, so the rows are counted: the
+    /// tree holds as many as `kept` and the new persons among those
+    /// written unless some were deleted, and then the persons it holds are
+    /// read to tell which.
+    async fn patched(
+        &self,
+        snapshot: &DatabaseTransaction,
+        tree_id: Uuid,
+        since: i64,
+        kept: &Arc<TreeProfiles>,
+    ) -> Result<Option<Arc<TreeProfiles>>, OxidGeneError> {
+        let changed = PersonDenormRepo::count_changed_since(snapshot, tree_id, since).await?;
+        let changed = usize::try_from(changed).unwrap_or(usize::MAX);
+        if changed.saturating_mul(PATCH_FRACTION) > kept.len() {
+            return Ok(None);
         }
-        Ok(decoded)
+        let rows = PersonDenormRepo::changed_since(snapshot, tree_id, since).await?;
+        if !rows.is_current() {
+            return Ok(None);
+        }
+        self.decoded.fetch_add(rows.len() as u64, Ordering::AcqRel);
+        let added = rows
+            .person_ids()
+            .filter(|person_id| kept.get(person_id).is_none())
+            .count();
+        let held = PersonDenormRepo::count_tree(snapshot, tree_id).await?;
+        let gone: HashSet<Uuid> = if usize::try_from(held).ok() == Some(kept.len() + added) {
+            HashSet::new()
+        } else {
+            let present: HashSet<Uuid> = PersonDenormRepo::person_ids(snapshot, tree_id)
+                .await?
+                .into_iter()
+                .collect();
+            kept.iter()
+                .map(|person| person.person_id)
+                .filter(|person_id| !present.contains(person_id))
+                .collect()
+        };
+        let span = tracing::info_span!(
+            "profile.patch",
+            person.count = rows.len(),
+            person.gone = gone.len()
+        );
+        let kept = Arc::clone(kept);
+        let patch = move || {
+            rows.decode()
+                .map(|rows| Arc::new(kept.patched(rows, &gone)))
+        };
+        // A few rows are decoded where they are; many on a blocking thread.
+        let patched = if changed < BLOCKING_BUILD {
+            span.in_scope(patch)
+        } else {
+            crate::service::blocking::run(span, patch).await?
+        };
+        patched.map(Some)
     }
 
     /// The projections of tree `tree_id` the tree cache keeps, when the
     /// table still holds them: the tree's projection generation has not
     /// moved since they were read. One primary-key read when the cache keeps
-    /// some, none otherwise; projections found outdated are dropped.
+    /// some, none otherwise. Projections found outdated stay kept: the next
+    /// read of the whole tree patches them ([`Self::get_all_persons`]).
     async fn current_profiles(
         &self,
         tree_id: Uuid,
@@ -576,8 +746,6 @@ impl ProfileService {
         if PersonDenormRepo::generation(&self.reader, tree_id).await? == Some(generation) {
             return Ok(Some(kept));
         }
-        drop(kept);
-        self.cache.forget_profiles(tree_id, generation);
         Ok(None)
     }
 

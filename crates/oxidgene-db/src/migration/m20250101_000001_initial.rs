@@ -545,6 +545,7 @@ enum PersonDenorm {
     Payload,
     SchemaVersion,
     UpdatedAt,
+    Generation,
 }
 
 #[derive(DeriveIden)]
@@ -2268,6 +2269,9 @@ async fn create_projections(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(text(PersonDenorm::Payload))
                 .col(integer(PersonDenorm::SchemaVersion).default(0))
                 .col(timestamp_with_time_zone(PersonDenorm::UpdatedAt))
+                // The tree's projection generation as of the row's last
+                // write, set by the projection triggers.
+                .col(big_integer(PersonDenorm::Generation).default(0))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_person_denorm_person")
@@ -2292,6 +2296,21 @@ async fn create_projections(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .table(PersonDenorm::Table)
                 .col(PersonDenorm::TreeId)
                 .col(PersonDenorm::SchemaVersion)
+                .to_owned(),
+        )
+        .await?;
+
+    // The rows of a tree written since a generation, and its person ids,
+    // from the index alone: what patches a tree's decoded projections after
+    // a write instead of reading them all again.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_person_denorm_tree_generation")
+                .table(PersonDenorm::Table)
+                .col(PersonDenorm::TreeId)
+                .col(PersonDenorm::Generation)
+                .col(PersonDenorm::PersonId)
                 .to_owned(),
         )
         .await?;
@@ -2414,16 +2433,28 @@ async fn create_projection_state(manager: &SchemaManager<'_>) -> Result<(), DbEr
 }
 
 /// The SQLite triggers that keep `projection_state.generation` moving: one
-/// bump per row written, SQLite having no statement-level trigger.
+/// bump per row written, SQLite having no statement-level trigger. A row
+/// inserted or rewritten is then stamped with the generation it moved the
+/// tree to (`person_denorm.generation`), so that a reader holding the
+/// tree's rows as of a generation finds those written since. The stamp is
+/// an update of `generation` alone, which the update trigger, declared on
+/// the other columns, does not fire for.
 const SQLITE_PROJECTION_TRIGGERS: &[&str] = &[
     "CREATE TRIGGER projection_tree_insert AFTER INSERT ON tree BEGIN \
          INSERT INTO projection_state (tree_id, generation) VALUES (NEW.id, 0); END",
     "CREATE TRIGGER projection_insert AFTER INSERT ON person_denorm BEGIN \
          UPDATE projection_state SET generation = generation + 1 \
-         WHERE tree_id = NEW.tree_id; END",
-    "CREATE TRIGGER projection_update AFTER UPDATE ON person_denorm BEGIN \
+         WHERE tree_id = NEW.tree_id; \
+         UPDATE person_denorm SET generation = \
+             (SELECT generation FROM projection_state WHERE tree_id = NEW.tree_id) \
+         WHERE person_id = NEW.person_id; END",
+    "CREATE TRIGGER projection_update \
+         AFTER UPDATE OF tree_id, payload, schema_version, updated_at ON person_denorm BEGIN \
          UPDATE projection_state SET generation = generation + 1 \
-         WHERE tree_id IN (OLD.tree_id, NEW.tree_id); END",
+         WHERE tree_id IN (OLD.tree_id, NEW.tree_id); \
+         UPDATE person_denorm SET generation = \
+             (SELECT generation FROM projection_state WHERE tree_id = NEW.tree_id) \
+         WHERE person_id = NEW.person_id; END",
     "CREATE TRIGGER projection_delete AFTER DELETE ON person_denorm BEGIN \
          UPDATE projection_state SET generation = generation + 1 \
          WHERE tree_id = OLD.tree_id; END",
@@ -2433,6 +2464,7 @@ const SQLITE_PROJECTION_TRIGGERS: &[&str] = &[
 /// drops.
 const PROJECTION_TRIGGER_FUNCTIONS: &[&str] = &[
     "projection_tree_insert",
+    "projection_row_stamp",
     "projection_rows_added",
     "projection_rows_changed",
     "projection_rows_removed",
@@ -2460,6 +2492,19 @@ const POSTGRES_PROJECTION_TRIGGERS: &[&str] = &[
          WHERE tree_id IN (SELECT tree_id FROM removed_rows); RETURN NULL; END $$",
     "CREATE TRIGGER projection_tree_insert AFTER INSERT ON tree \
          FOR EACH ROW EXECUTE FUNCTION projection_tree_insert()",
+    // Each row written is stamped with the generation its statement moves
+    // the tree to (`person_denorm.generation`). The state row is locked
+    // first, so the stamp is past every generation committed before this
+    // transaction's own commit: a reader holding the tree's rows as of a
+    // generation finds every row written since by `generation > it`.
+    "CREATE FUNCTION projection_row_stamp() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         DECLARE current_generation bigint; BEGIN \
+         SELECT generation INTO current_generation FROM projection_state \
+         WHERE tree_id = NEW.tree_id FOR UPDATE; \
+         NEW.generation := COALESCE(current_generation, 0) + 1; \
+         RETURN NEW; END $$",
+    "CREATE TRIGGER projection_stamp BEFORE INSERT OR UPDATE ON person_denorm \
+         FOR EACH ROW EXECUTE FUNCTION projection_row_stamp()",
     "CREATE TRIGGER projection_insert AFTER INSERT ON person_denorm \
          REFERENCING NEW TABLE AS added_rows \
          FOR EACH STATEMENT EXECUTE FUNCTION projection_rows_added()",
