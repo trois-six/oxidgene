@@ -615,6 +615,34 @@ impl PersonRepo {
             .collect()
     }
 
+    /// Point each person of `crops`, `(person, vignette)`, at the vignette
+    /// that is their portrait: the second step of an import, which writes
+    /// the persons before the vignettes that show them. One statement per
+    /// batch of persons, not one per person: each binds a person three
+    /// times.
+    pub async fn set_crop_portraits(
+        db: &impl ConnectionTrait,
+        crops: &[(Uuid, Uuid)],
+    ) -> Result<(), OxidGeneError> {
+        use sea_orm::sea_query::{CaseStatement, Expr};
+
+        for batch in crops.chunks(crate::repo::batch::MAX_BOUND_IDS / 3) {
+            let vignette_of =
+                batch
+                    .iter()
+                    .fold(CaseStatement::new(), |case, (person_id, vignette_id)| {
+                        case.case(Column::Id.eq(*person_id), Expr::value(*vignette_id))
+                    });
+            Entity::update_many()
+                .col_expr(Column::PortraitVignetteId, vignette_of.into())
+                .filter(Column::Id.is_in(batch.iter().map(|(person_id, _)| *person_id)))
+                .exec(db)
+                .await
+                .map_err(db_err)?;
+        }
+        Ok(())
+    }
+
     /// Set or clear the portrait, writing both columns from a single value.
     pub async fn set_portrait(
         db: &impl ConnectionTrait,

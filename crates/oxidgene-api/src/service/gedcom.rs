@@ -703,7 +703,10 @@ async fn insert_persons_and_families(
                 tree_id: Set(p.tree_id),
                 sex: Set(sea_enums::Sex::from(p.sex)),
                 portrait_media_id: Set(p.portrait_media_id),
-                portrait_vignette_id: Set(p.portrait_vignette_id),
+                // Set once the vignettes exist (`set_crop_portraits`): a
+                // vignette names the person it shows, so one of the two
+                // rows has to be written without the other.
+                portrait_vignette_id: Set(None),
                 privacy: Set(sea_enums::Privacy::from(p.privacy)),
                 created_at: Set(now),
                 updated_at: Set(now),
@@ -915,6 +918,8 @@ async fn insert_attached_records(
         batch_insert::<vignette::Entity, _>(db, models, on_inserted).await?;
     }
 
+    set_crop_portraits(db, result).await?;
+
     // 13. Notes (FK → tree, person?, event?, family?, source?)
     if !result.notes.is_empty() {
         let models: Vec<note::ActiveModel> = result
@@ -943,6 +948,20 @@ async fn insert_attached_records(
     }
 
     Ok(())
+}
+
+/// Points each imported person whose portrait is a crop at its vignette,
+/// now that the vignettes are stored.
+async fn set_crop_portraits(
+    db: &impl ConnectionTrait,
+    result: &oxidgene_gedcom::ImportResult,
+) -> Result<(), OxidGeneError> {
+    let crops: Vec<(Uuid, Uuid)> = result
+        .persons
+        .iter()
+        .filter_map(|person| Some((person.id, person.portrait_vignette_id?)))
+        .collect();
+    PersonRepo::set_crop_portraits(db, &crops).await
 }
 
 /// Inserts the ages the imported family events give for their spouses,

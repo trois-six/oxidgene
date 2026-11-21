@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::entities::media::{self, ActiveModel, Column, Entity};
-use crate::entities::{media_link, note, person, record_tag, vignette};
+use crate::entities::{media_link, person, record_tag, vignette};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
@@ -887,11 +887,9 @@ async fn delete_media_rows(
         .await
         .map_err(db_err)?;
     let vignette_ids = delete_media_relations(db, &media_ids).await?;
-    note::Entity::delete_many()
-        .filter(note::Column::MediaId.is_in(media_ids.iter().copied()))
-        .exec(db)
-        .await
-        .map_err(db_err)?;
+    // The notes about these media go with them (`note.media_id` cascades),
+    // and so does a page whose document goes; the pages are still deleted
+    // first, so that the rows deleted are the ones counted above.
     // The pages before the document they belong to.
     if !page_ids.is_empty() {
         Entity::delete_many()
@@ -904,8 +902,9 @@ async fn delete_media_rows(
     Ok(vignette_ids)
 }
 
-/// Delete the links, vignettes and portrait pointers naming `media_ids`;
-/// the vignettes deleted.
+/// Delete the links and vignettes naming `media_ids`; the vignettes
+/// deleted. A portrait naming one of the media or of the vignettes is
+/// cleared by its foreign key (`ON DELETE SET NULL`).
 async fn delete_media_relations(
     db: &impl ConnectionTrait,
     media_ids: &[Uuid],
@@ -926,30 +925,12 @@ async fn delete_media_relations(
         .map_err(db_err)?;
 
     if !vignette_ids.is_empty() {
-        person::Entity::update_many()
-            .col_expr(
-                person::Column::PortraitVignetteId,
-                sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
-            )
-            .filter(person::Column::PortraitVignetteId.is_in(vignette_ids.iter().copied()))
-            .exec(db)
-            .await
-            .map_err(db_err)?;
         vignette::Entity::delete_many()
             .filter(vignette::Column::Id.is_in(vignette_ids.iter().copied()))
             .exec(db)
             .await
             .map_err(db_err)?;
     }
-    person::Entity::update_many()
-        .col_expr(
-            person::Column::PortraitMediaId,
-            sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
-        )
-        .filter(person::Column::PortraitMediaId.is_in(media_ids.iter().copied()))
-        .exec(db)
-        .await
-        .map_err(db_err)?;
 
     Ok(vignette_ids)
 }

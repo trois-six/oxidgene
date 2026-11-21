@@ -53,6 +53,108 @@ fn values_of<T: Copy>(variants: &[T], value: fn(T) -> &'static str) -> Vec<&'sta
     variants.iter().map(|variant| value(*variant)).collect()
 }
 
+/// A foreign key of a column whose table is created before the one it
+/// names: a tree names persons and an access scope, a person a medium and a
+/// vignette, all of which reference the tree or the person in turn.
+///
+/// SQLite accepts a reference to a table that does not exist yet in
+/// `CREATE TABLE` and cannot add a constraint to an existing table;
+/// PostgreSQL refuses the forward reference and adds the constraint once
+/// both tables exist. So each key is declared inline under SQLite
+/// ([`with_forward_keys`]) and added at the end under PostgreSQL
+/// ([`create_forward_keys`]).
+struct ForwardKey {
+    name: &'static str,
+    table: &'static str,
+    column: &'static str,
+    target: &'static str,
+    /// What deleting the named row does to the pointer; `None` refuses the
+    /// deletion while the pointer names it.
+    on_delete: Option<ForeignKeyAction>,
+}
+
+const FORWARD_KEYS: &[ForwardKey] = &[
+    // A purged person is no longer the tree's SOSA root nor its "self".
+    ForwardKey {
+        name: "fk_tree_sosa_root_person",
+        table: "tree",
+        column: "sosa_root_person_id",
+        target: "person",
+        on_delete: Some(ForeignKeyAction::SetNull),
+    },
+    ForwardKey {
+        name: "fk_tree_self_person",
+        table: "tree",
+        column: "self_person_id",
+        target: "person",
+        on_delete: Some(ForeignKeyAction::SetNull),
+    },
+    // The scope visitors are limited to cannot be deleted while the tree
+    // names it: nulling the pointer would widen them to the whole tree.
+    // The sharing service points the tree elsewhere first.
+    ForwardKey {
+        name: "fk_tree_visitor_scope",
+        table: "tree",
+        column: "visitor_scope_id",
+        target: "access_scope",
+        on_delete: None,
+    },
+    // A portrait whose medium or crop goes is no portrait.
+    ForwardKey {
+        name: "fk_person_portrait_media",
+        table: "person",
+        column: "portrait_media_id",
+        target: "media",
+        on_delete: Some(ForeignKeyAction::SetNull),
+    },
+    ForwardKey {
+        name: "fk_person_portrait_vignette",
+        table: "person",
+        column: "portrait_vignette_id",
+        target: "vignette",
+        on_delete: Some(ForeignKeyAction::SetNull),
+    },
+];
+
+/// The constraint of `key`.
+fn forward_key(key: &ForwardKey) -> ForeignKeyCreateStatement {
+    let mut constraint = ForeignKey::create();
+    constraint
+        .name(key.name)
+        .from(Alias::new(key.table), Alias::new(key.column))
+        .to(Alias::new(key.target), Alias::new("id"));
+    if let Some(action) = key.on_delete {
+        constraint.on_delete(action);
+    }
+    constraint
+}
+
+/// The creation of table `name`, with its [`FORWARD_KEYS`] declared inline
+/// under SQLite.
+fn with_forward_keys(
+    manager: &SchemaManager<'_>,
+    name: &str,
+    mut table: TableCreateStatement,
+) -> TableCreateStatement {
+    if manager.get_database_backend() == DbBackend::Sqlite {
+        for key in FORWARD_KEYS.iter().filter(|key| key.table == name) {
+            table.foreign_key(&mut forward_key(key));
+        }
+    }
+    table
+}
+
+/// Add the [`FORWARD_KEYS`] under PostgreSQL, once every table exists.
+async fn create_forward_keys(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if manager.get_database_backend() == DbBackend::Sqlite {
+        return Ok(());
+    }
+    for key in FORWARD_KEYS {
+        manager.create_foreign_key(forward_key(key)).await?;
+    }
+    Ok(())
+}
+
 /// How many of `columns` are set, as SQL.
 fn set_count(columns: &[&str]) -> String {
     let terms: Vec<String> = columns
@@ -86,6 +188,7 @@ impl MigrationTrait for Migration {
         create_records(manager).await?;
         create_derived(manager).await?;
         create_accounts(manager).await?;
+        create_forward_keys(manager).await?;
         create_redaction_triggers(manager).await
     }
 
@@ -98,20 +201,9 @@ impl MigrationTrait for Migration {
             ))
             .await?;
         }
-        // PostgreSQL keeps a trigger's function when its table goes.
-        if manager.get_database_backend() == DbBackend::Postgres {
-            let functions = SOSA_TRIGGER_FUNCTIONS
-                .iter()
-                .chain(PROJECTION_TRIGGER_FUNCTIONS)
-                .map(|function| format!("{function}()"))
-                .chain(REDACTION_TRIGGER_FUNCTIONS.iter().map(|f| (*f).to_owned()));
-            for function in functions {
-                conn.execute_raw(Statement::from_string(
-                    DbBackend::Postgres,
-                    format!("DROP FUNCTION IF EXISTS {function} CASCADE"),
-                ))
-                .await?;
-            }
+        match manager.get_database_backend() {
+            DbBackend::Sqlite => drop_sqlite_triggers(manager).await?,
+            _ => drop_postgres_functions_and_forward_keys(manager).await?,
         }
 
         // Drop in reverse dependency order: versions before their audit
@@ -170,6 +262,63 @@ impl MigrationTrait for Migration {
         }
         Ok(())
     }
+}
+
+/// Drop every trigger, the first step of `down` under SQLite, which
+/// compiles, with each `DROP TABLE`, the foreign-key actions of the tables
+/// naming it and the triggers those actions fire: a trigger of a table
+/// still standing that writes one already dropped fails the statement.
+async fn drop_sqlite_triggers(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    let conn = manager.get_connection();
+    let triggers = conn
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT name FROM sqlite_master WHERE type = 'trigger'",
+        ))
+        .await?;
+    for trigger in triggers {
+        let name: String = trigger.try_get("", "name")?;
+        conn.execute_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            format!("DROP TRIGGER IF EXISTS \"{name}\""),
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
+/// The first step of `down` under PostgreSQL: the trigger functions, which
+/// PostgreSQL keeps when their tables go, and the [`FORWARD_KEYS`], without
+/// which the tables they name could not be dropped before the ones holding
+/// them.
+async fn drop_postgres_functions_and_forward_keys(
+    manager: &SchemaManager<'_>,
+) -> Result<(), DbErr> {
+    let conn = manager.get_connection();
+    let backend = manager.get_database_backend();
+    let functions = SOSA_TRIGGER_FUNCTIONS
+        .iter()
+        .chain(PROJECTION_TRIGGER_FUNCTIONS)
+        .map(|function| format!("{function}()"))
+        .chain(REDACTION_TRIGGER_FUNCTIONS.iter().map(|f| (*f).to_owned()));
+    for function in functions {
+        conn.execute_raw(Statement::from_string(
+            backend,
+            format!("DROP FUNCTION IF EXISTS {function} CASCADE"),
+        ))
+        .await?;
+    }
+    for key in FORWARD_KEYS {
+        conn.execute_raw(Statement::from_string(
+            backend,
+            format!(
+                "ALTER TABLE IF EXISTS {} DROP CONSTRAINT IF EXISTS {}",
+                key.table, key.name
+            ),
+        ))
+        .await?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -810,15 +959,16 @@ async fn create_derived(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     // 1. tree (root table, no FKs)
     manager
-        .create_table(
+        .create_table(with_forward_keys(
+            manager,
+            "tree",
             Table::create()
                 .table(Tree::Table)
                 .if_not_exists()
                 .col(uuid(Tree::Id).primary_key())
                 .col(string(Tree::Name))
                 .col(string_null(Tree::Description))
-                // No FK: person is created after tree and SQLite cannot
-                // add this cyclic foreign key after table creation.
+                // Both name a person, by a forward key (`FORWARD_KEYS`).
                 .col(uuid_null(Tree::SosaRootPersonId))
                 .col(uuid_null(Tree::SelfPersonId))
                 .col(
@@ -840,9 +990,9 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(boolean(Tree::ContemporaryPhotos).default(false))
                 .col(boolean(Tree::GuestsMayExport).default(false))
                 // Who is a Visitor (docs/authorization.md §6.4), and the
-                // access scope Visitors are limited to. No FK on the scope:
-                // `access_scope` is created after the tree and references
-                // it; the sharing service replaces and deletes it.
+                // access scope Visitors are limited to, by a forward key
+                // (`FORWARD_KEYS`): the sharing service replaces it, then
+                // deletes the former one.
                 .col(string_len(Tree::Visibility, 8).default("private"))
                 .check(one_of("visibility", &["private", "site", "public"]))
                 .col(uuid_null(Tree::VisitorScopeId))
@@ -865,12 +1015,14 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                     "hidden_display",
                 ))
                 .to_owned(),
-        )
+        ))
         .await?;
 
     // 2. person (FK → tree)
     manager
-        .create_table(
+        .create_table(with_forward_keys(
+            manager,
+            "person",
             Table::create()
                 .table(Person::Table)
                 .if_not_exists()
@@ -904,7 +1056,7 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
-        )
+        ))
         .await?;
     // `(tree_id, id)` is unique so that a row naming this record can pair it
     // with its own tree in a composite foreign key: it cannot name a record
@@ -1725,7 +1877,7 @@ async fn create_repositories(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 
 /// Media and their links.
 async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    // 12. media (FK → tree; place? enforced at ORM layer only, see note below)
+    // 12. media (FK → tree, media?, place?)
     manager
         .create_table(
             Table::create()
@@ -1771,7 +1923,6 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .default("other"),
                 )
                 .col(string_null(Media::DocumentCategory))
-                // Place references are validated by the application.
                 .col(uuid_null(Media::PlaceId))
                 .col(
                     ColumnDef::new(Media::Privacy)
@@ -1803,6 +1954,24 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .from(Media::Table, Media::TreeId)
                         .to(Tree::Table, Tree::Id)
                         .on_delete(ForeignKeyAction::Cascade),
+                )
+                // A page goes with its document. Single-column: the
+                // `(tree_id, id)` index a composite key would name is
+                // created after the table.
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_media_parent")
+                        .from(Media::Table, Media::ParentMediaId)
+                        .to(Media::Table, Media::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                // A medium outlives the place it was taken at.
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_media_place")
+                        .from(Media::Table, Media::PlaceId)
+                        .to(Place::Table, Place::Id)
+                        .on_delete(ForeignKeyAction::SetNull),
                 )
                 .to_owned(),
         )
@@ -1915,7 +2084,7 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 
 /// Notes, vignettes and media tags.
 async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    // 14. note (FK → tree, person?, event?, family?, source?)
+    // 14. note (FK → tree, person?, event?, family?, source?, media?, repository?)
     manager
         .create_table(
             Table::create()
@@ -1988,6 +2157,14 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                         .name("fk_note_repository")
                         .from(Note::Table, (Note::RepositoryId, Note::TreeId))
                         .to(Repository::Table, (Repository::Id, Repository::TreeId))
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                // A note about a medium has no meaning without it.
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_note_media")
+                        .from(Note::Table, (Note::MediaId, Note::TreeId))
+                        .to(Media::Table, (Media::Id, Media::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),

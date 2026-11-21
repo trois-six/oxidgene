@@ -28,6 +28,7 @@ impl ImportResult {
         self.keep_one_portrait(&mut changes);
         self.keep_one_event_owner(&mut changes);
         self.keep_one_target(&mut changes);
+        self.clear_dangling_pointers(&mut changes);
         self.warnings.extend(changes.warnings());
     }
 
@@ -86,6 +87,36 @@ impl ImportResult {
                 changes.misplaced_related_families += 1;
             }
         }
+    }
+
+    /// A portrait, a page's document, a medium's place and a note about a
+    /// medium each name a row by a foreign key: one naming a row the import
+    /// does not hold is cleared — the note left out, since it would be
+    /// about nothing.
+    fn clear_dangling_pointers(&mut self, changes: &mut Changes) {
+        let media: HashSet<Uuid> = self.media.iter().map(|medium| medium.id).collect();
+        let vignettes: HashSet<Uuid> = self.vignettes.iter().map(|v| v.id).collect();
+        let places: HashSet<Uuid> = self.places.iter().map(|place| place.id).collect();
+        let mut cleared = 0;
+        let mut clear = |pointer: &mut Option<Uuid>, known: &HashSet<Uuid>| {
+            if pointer.is_some_and(|id| !known.contains(&id)) {
+                *pointer = None;
+                cleared += 1;
+            }
+        };
+        for person in &mut self.persons {
+            clear(&mut person.portrait_media_id, &media);
+            clear(&mut person.portrait_vignette_id, &vignettes);
+        }
+        for medium in &mut self.media {
+            clear(&mut medium.parent_media_id, &media);
+            clear(&mut medium.place_id, &places);
+        }
+        changes.dangling_pointers = cleared;
+        let before = self.notes.len();
+        self.notes
+            .retain(|note| note.media_id.is_none_or(|id| media.contains(&id)));
+        changes.unattached[Kind::Note as usize] += before - self.notes.len();
     }
 
     /// A note, a citation and a media link are attached to one record: the
@@ -154,6 +185,8 @@ struct Changes {
     double_portraits: usize,
     double_owner_events: usize,
     misplaced_related_families: usize,
+    /// Portraits, page documents and media places naming no imported row.
+    dangling_pointers: usize,
     /// Citations, media links and notes attached to no record, left out.
     unattached: [usize; 3],
     /// Citations, media links and notes that named several records.
@@ -206,6 +239,10 @@ impl Changes {
             (
                 self.misplaced_related_families,
                 "event(s) without an individual owner named a related family: the link was left out",
+            ),
+            (
+                self.dangling_pointers,
+                "portrait(s), page document(s) or media place(s) named a record the file does not hold: left out",
             ),
         ]
         .into_iter()
@@ -413,13 +450,22 @@ mod tests {
             ..ImportResult::default()
         };
 
+        // Of two portraits the crop is kept.
+        let mut portraits = result.clone();
+        let mut changes = Changes::default();
+        portraits.keep_one_portrait(&mut changes);
+        assert_eq!(changes.double_portraits, 1);
+        assert!(portraits.persons[0].portrait_media_id.is_none());
+        assert!(portraits.persons[0].portrait_vignette_id.is_some());
+
         result.enforce_invariants();
 
         let primary: Vec<_> = result.person_names.iter().map(|n| n.is_primary).collect();
         assert_eq!(primary, [false, true, false]);
+        // The crop named no vignette of the file: it is left out too.
         assert!(result.persons[0].portrait_media_id.is_none());
-        assert!(result.persons[0].portrait_vignette_id.is_some());
-        assert_eq!(result.warnings.len(), 2, "{:?}", result.warnings);
+        assert!(result.persons[0].portrait_vignette_id.is_none());
+        assert_eq!(result.warnings.len(), 3, "{:?}", result.warnings);
     }
 
     #[test]

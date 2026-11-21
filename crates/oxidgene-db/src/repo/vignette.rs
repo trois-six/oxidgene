@@ -11,7 +11,6 @@ use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
-use crate::entities::person;
 use crate::entities::vignette::{self, ActiveModel, Column, Entity};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
@@ -231,17 +230,9 @@ impl VignetteRepo {
         Ok(into_domain(result))
     }
 
-    /// Delete a vignette outright.
+    /// Delete a vignette outright. A portrait that was this crop is cleared
+    /// by its foreign key (`ON DELETE SET NULL`).
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        person::Entity::update_many()
-            .col_expr(
-                person::Column::PortraitVignetteId,
-                sea_orm::sea_query::Expr::value(Option::<Uuid>::None),
-            )
-            .filter(person::Column::PortraitVignetteId.eq(id))
-            .exec(db)
-            .await
-            .map_err(db_err)?;
         let result = Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         if result.rows_affected == 0 {
             return Err(OxidGeneError::NotFound {

@@ -35,8 +35,8 @@ independent of this schema reset (see §4.1).
 | `name` | String | Required |
 | `description` | String? | Optional |
 | `default_privacy` | TreeDefaultPrivacy | Tree-wide privacy of the records that have not chosen (`Public` by default), enforced by [Privacy §3](privacy.md#3-record-privacy) |
-| `sosa_root_person_id` | UUID v7? | FK → Person — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
-| `self_person_id` | UUID v7? | FK → Person — person representing the current user, used for the blue pedigree badge and as the default GEDCOM submitter, set in [Settings](ui-settings.md) §7 |
+| `sosa_root_person_id` | UUID v7? | FK → Person (`SET NULL`) — SOSA 1 root for Sosa-Stradonitz numbering, set in [Settings](ui-settings.md) §7 |
+| `self_person_id` | UUID v7? | FK → Person (`SET NULL`) — person representing the current user, used for the blue pedigree badge and as the default GEDCOM submitter, set in [Settings](ui-settings.md) §7 |
 | `submitter_name` | String? | Who the tree's GEDCOM exports say they are from (`SUBM.NAME`); when unset, the "Who am I?" person's name, else `Not Provided`. Set in [Settings](ui-settings.md) §10 |
 | `submitter_email` | String? | The submitter's email (`SUBM.EMAIL`), written only when set |
 | `submitter_address` | Text? | The submitter's postal address over several lines (`SUBM.ADDR`), written only when set |
@@ -58,6 +58,7 @@ database sees them; the constraint is what stays true when one does not.
 |---|---|
 | A record attached to other records names the right number of them: an event at most one owner, a note, a citation and a media link exactly one, a person at most one portrait | `CHECK` on `event` (`ck_event_owner`, `ck_event_related_family`), `note` (`ck_note_owner`), `citation` (`ck_citation_owner`), `media_link` (`ck_media_link_target`), `person` (`ck_person_portrait`) and `record_tag`; each table's section says which columns |
 | A row names records of its own tree only | Every table attached to a record carries `tree_id`, and its foreign keys are composite: `(person_id, tree_id)` references `person (id, tree_id)`, and likewise for families, events, sources, repositories, media, places, notes, citations, tags, family memberships and access scopes, each of which is unique on `(tree_id, id)`. It holds for `person_name`, `family_spouse`, `family_child`, `event_witness`, `event_spouse_age`, `citation`, `source_repository`, `media_link`, `vignette`, `access_scope_person`, and for the owner columns of `event`, `note` and `record_tag`. A `NULL` column is not checked, so an optional owner stays optional. The two `SET NULL` references of an event, its place and its related family, stay single-column: SQLite could only null the tree with them |
+| A pointer names a row that exists | Foreign keys on `tree.sosa_root_person_id` and `self_person_id` (`SET NULL`), `tree.visitor_scope_id` (no action), `person.portrait_media_id` and `portrait_vignette_id` (`SET NULL`), `media.parent_media_id` (cascade), `media.place_id` (`SET NULL`) and `note.media_id` (cascade). The first five name a table created after their own: SQLite declares them in `CREATE TABLE`, which accepts a forward reference, and PostgreSQL adds them once every table exists |
 | A person is a spouse, and a child, of a family once | Unique `(family_id, person_id)` on `family_spouse` and on `family_child` |
 | A person witnesses an event once per relation | Unique `(event_id, person_id, COALESCE(relation, ''))` on `event_witness` |
 | A person has at most one primary name | Unique `(person_id)` on `person_name` where `is_primary` |
@@ -83,8 +84,8 @@ import warning with its count ([API Contract §4](api.md#4-gedcom-compatibility-
 | `tree_id` | UUID v7 | FK → Tree |
 | `sex` | Sex | Enum |
 | `privacy` | Privacy | Enum — per-person privacy override (default `Default`) |
-| `portrait_media_id` | UUID v7? | The media representing the person, when their portrait is a whole media (see [Media](#media), "Which image represents a person") |
-| `portrait_vignette_id` | UUID v7? | The vignette representing the person, when their portrait is a crop; never set together with `portrait_media_id` (`CHECK`) |
+| `portrait_media_id` | UUID v7? | FK → Media (`SET NULL`) — the media representing the person, when their portrait is a whole media (see [Media](#media), "Which image represents a person") |
+| `portrait_vignette_id` | UUID v7? | FK → Vignette (`SET NULL`) — the vignette representing the person, when their portrait is a crop; never set together with `portrait_media_id` (`CHECK`) |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
@@ -433,7 +434,7 @@ by folded label. They are the citation's own, not its event's or its source's.
 | `width` | i32? | Intrinsic pixel width, after applying any EXIF orientation. Decoded at upload for a file we hold; for a page held only as a URL, given when the page is added by a client that knows it (an archive's image service states it), or recorded from the browser that first displayed it |
 | `height` | i32? | Intrinsic pixel height |
 | `page_count` | i32 | On a document, its live pages. On a page, the pages inside its file: a multi-page TIFF's images, a PDF's pages read from its page tree; `1` for photos, single-page files and a PDF that cannot be opened |
-| `parent_media_id` | UUID v7? | The document this row is a page of; null when the row is a document itself |
+| `parent_media_id` | UUID v7? | FK → Media (cascade: a page goes with its document) — the document this row is a page of; null when the row is a document itself |
 | `page_index` | i32 | Zero-based position of the page within its document |
 | `file_size` | i64 | Bytes |
 | `title` | String? | |
@@ -445,7 +446,7 @@ by folded label. They are the citation's own, not its event's or its source's.
 | `calendar` | Calendar | Same as Event |
 | `source_media_type` | Enum | What the medium physically is — GEDCOM's `SOURCE_MEDIA_TYPE`. Default `other` |
 | `document_category` | Enum? | What kind of *record* it is. Null when unclassified |
-| `place_id` | UUID v7? | Application-managed reference to Place — where the media was created/taken |
+| `place_id` | UUID v7? | FK → Place (`SET NULL`) — where the media was created/taken |
 | `privacy` | Privacy | Enum — per-media privacy override (default `Default`), see **Privacy** below |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
@@ -635,9 +636,12 @@ party — and that region is already a first-class row: a `Vignette`. A second
 person" across two tables, where it can no longer be established in a single
 statement; a pointer on `Person` makes it structural instead of enforced.
 
-Portrait pointers and `media.place_id` are application-managed references, not
-database foreign keys. A dangling portrait pointer resolves to "no portrait"
-rather than to an error.
+The portrait pointers and `media.place_id` are foreign keys with `SET NULL`:
+deleting a medium, a crop or a place clears the pointers naming it, in the
+statement that deletes it, so none dangles. A person's crop portrait and the
+crop's own `person_id` name each other: an import writes the persons first,
+without their crop, and points them at their vignettes once those are
+stored.
 
 **What is stored, and what is read back.** `portrait_media_id` holds whatever
 the caller chose, which is normally a document: a gallery tile is a document,
@@ -687,7 +691,7 @@ page number of its own: the page it belongs to is the media it points at.
 | `event_id` | UUID v7? | FK → Event |
 | `family_id` | UUID v7? | FK → Family |
 | `source_id` | UUID v7? | FK → Source |
-| `media_id` | UUID v7? | FK → Media — a note about one media record, distinct from `Media.description`, which is the caption under its tile. On a multi-page document, the parent id carries the general document note while a page id carries that page's transcript. |
+| `media_id` | UUID v7? | FK → Media (cascade: the note goes with its medium) — a note about one media record, distinct from `Media.description`, which is the caption under its tile. On a multi-page document, the parent id carries the general document note while a page id carries that page's transcript. |
 | `repository_id` | UUID v7? | FK → Repository (cascade) — a note about a repository |
 | `shared_group` | UUID v7? | The shared GEDCOM note record (`NOTE` in 5.5.1, `SNOTE` in 7.x) this note was read from; the same for every note read from that record, `null` for a note of its own. Set by a GEDCOM import only: no write API accepts it, and a history restore writes back the stored value. An export writes the notes of one group that say the same thing as one shared record again (see [Round-trip fidelity](api.md#round-trip-fidelity)). Indexed (`idx_note_shared_group`) |
 | `confidential` | Boolean | Default `false`. Withheld from every viewer without `read_confidential` — Guests and Visitors — and from the exports made for them ([Privacy §3.2](privacy.md#32-records)); recorded in the note's history snapshot |
@@ -1735,7 +1739,7 @@ build only.
 
 | Table | Added |
 |---|---|
-| `tree` | Done: `default_privacy` defaults to `public` ([Privacy §3.1](privacy.md#31-precedence)); `contemporary_rule` (default `true`), `contemporary_years` (default 100), `hidden_display` (`stub`, `initials`, `hidden`; default `stub`), `hidden_navigation` (default `true`), `contemporary_photos` (default `false`), `guests_may_export` (default `false`) ([Privacy §9](privacy.md#9-tree-settings)), written on both builds and versioned in the tree's history. `visibility` (`private`, `site`, `public`; default `private`) and `visitor_scope_id?` (no foreign key: `access_scope` is created after `tree` and references it), written by the web build only and recorded in the history under `access`, unversioned |
+| `tree` | Done: `default_privacy` defaults to `public` ([Privacy §3.1](privacy.md#31-precedence)); `contemporary_rule` (default `true`), `contemporary_years` (default 100), `hidden_display` (`stub`, `initials`, `hidden`; default `stub`), `hidden_navigation` (default `true`), `contemporary_photos` (default `false`), `guests_may_export` (default `false`) ([Privacy §9](privacy.md#9-tree-settings)), written on both builds and versioned in the tree's history. `visibility` (`private`, `site`, `public`; default `private`) and `visitor_scope_id?` (FK → `access_scope`, without an action: the scope visitors are limited to cannot be deleted while the tree names it, since nulling the pointer would widen them to the whole tree; a replacement points the tree at the new scope first), written by the web build only and recorded in the history under `access`, unversioned |
 | `note` | Done: `confidential` (default `false`), see [Note](#note) |
 | `audit_entry` | `author_kind` (`user`, `api_client`, `local`), `author_user_id?`, `author_api_client_id?`, `author_client_id?`; the `access` category ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)) |
 | `background_job` | `actor_issuer?`, `actor_subject?`, `actor_user_id?`, `actor_client_id?`, `actor_api_client_id?`, `actor_scopes?`, `actor_session?` (the session id's hash) — never a token ([Authentication §5.5](authentication.md#55-background-jobs)) |

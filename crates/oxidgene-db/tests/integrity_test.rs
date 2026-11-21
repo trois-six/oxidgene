@@ -10,14 +10,16 @@ use chrono::Utc;
 use oxidgene_core::ChildType;
 use oxidgene_core::enums::{Calendar, DateQualifier, EventType, NameType, Sex, SpouseRole};
 use oxidgene_core::error::OxidGeneError;
+use oxidgene_core::sharing::{ScopeDefinition, ScopeKind};
+use oxidgene_core::types::Portrait;
 use oxidgene_db::entities::{
-    citation, event, event_witness, family_child, family_spouse, media_link, note, person,
-    person_name, sea_enums,
+    citation, event, event_witness, family_child, family_spouse, media, media_link, note, person,
+    person_name, sea_enums, tree,
 };
 use oxidgene_db::repo::{
-    CitationRepo, EventDetails, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilyRepo,
-    FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteFilter, NoteRepo, PersonNamePieces,
-    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, SourceRepo, TreeRepo,
+    AccessScopeRepo, CitationRepo, EventDetails, EventRepo, EventWitnessRepo, FamilyChildRepo,
+    FamilyRepo, FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteFilter, NoteRepo, PersonNamePieces,
+    PersonNamePiecesPatch, PersonNameRepo, PersonRepo, SourceRepo, TreeChanges, TreeRepo,
 };
 use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
@@ -497,6 +499,167 @@ async fn a_row_names_records_of_its_own_tree_only() {
         )
         .await
         .is_err()
+    );
+}
+
+/// The column `column` of the fixture's tree, as stored.
+async fn tree_pointer(f: &Fixture, column: tree::Column) -> Option<Uuid> {
+    use sea_orm::QuerySelect;
+    tree::Entity::find_by_id(f.tree)
+        .select_only()
+        .column(column)
+        .into_tuple::<Option<Uuid>>()
+        .one(&f.db)
+        .await
+        .unwrap()
+        .expect("the tree")
+}
+
+/// A pointer names a row that exists: the database refuses one that does
+/// not, and clears or follows the pointers of a row that goes.
+#[tokio::test]
+async fn a_pointer_names_a_row_that_exists_and_follows_its_deletion() {
+    let f = fixture().await;
+    let nobody = Uuid::now_v7();
+    let roots = |person: Option<Uuid>| TreeChanges {
+        sosa_root_person_id: Some(person),
+        self_person_id: Some(person),
+        ..TreeChanges::default()
+    };
+    assert!(
+        TreeRepo::update(&f.db, f.tree, roots(Some(nobody)))
+            .await
+            .is_err(),
+        "a SOSA root that is no person"
+    );
+    assert!(
+        f.set_person(person::Column::PortraitMediaId, Expr::value(nobody))
+            .await
+            .is_err(),
+        "a portrait that is no medium"
+    );
+    assert!(
+        f.note(None, Some(nobody)).insert(&f.db).await.is_err(),
+        "a note about no medium"
+    );
+
+    // The tree's roots follow the person's removal.
+    TreeRepo::update(&f.db, f.tree, roots(Some(f.other)))
+        .await
+        .expect("roots");
+    person::Entity::delete_by_id(f.other)
+        .exec(&f.db)
+        .await
+        .expect("the person goes");
+    assert_eq!(tree_pointer(&f, tree::Column::SosaRootPersonId).await, None);
+    assert_eq!(tree_pointer(&f, tree::Column::SelfPersonId).await, None);
+
+    // A portrait follows its medium, a note about a medium goes with it,
+    // and a page with its document.
+    PersonRepo::set_portrait(&f.db, f.person, Portrait::Media(f.media))
+        .await
+        .expect("portrait");
+    f.note(None, Some(f.media))
+        .insert(&f.db)
+        .await
+        .expect("note");
+    let page = MediaRepo::create(
+        &f.db,
+        Uuid::now_v7(),
+        f.tree,
+        Some(f.media),
+        "page.png".into(),
+        "image/png".into(),
+        "page.png".into(),
+        0,
+        None,
+        None,
+    )
+    .await
+    .expect("a page")
+    .id;
+    media::Entity::delete_by_id(f.media)
+        .exec(&f.db)
+        .await
+        .expect("the document goes");
+    let person = PersonRepo::get(&f.db, f.person).await.expect("person");
+    assert_eq!(person.portrait_media_id, None);
+    assert!(
+        note::Entity::find()
+            .filter(note::Column::MediaId.is_not_null())
+            .one(&f.db)
+            .await
+            .unwrap()
+            .is_none(),
+        "the note about the medium went with it"
+    );
+    assert!(
+        media::Entity::find_by_id(page)
+            .one(&f.db)
+            .await
+            .unwrap()
+            .is_none(),
+        "the page went with its document"
+    );
+}
+
+/// The scope a tree limits its visitors to cannot be deleted while the tree
+/// names it — nulling the pointer would show them the whole tree — and the
+/// purge of the tree, whose rows name each other in a circle, still leaves
+/// nothing.
+#[tokio::test]
+async fn a_visitor_scope_outlives_nothing_but_its_tree() {
+    let f = fixture().await;
+    let definition = ScopeDefinition {
+        kind: ScopeKind::AncestorsOf,
+        person_id: f.person,
+        depth: None,
+        include_self: true,
+        include_spouses: false,
+        collateral: false,
+    };
+    let scope = AccessScopeRepo::create(&f.db, f.tree, &definition)
+        .await
+        .expect("scope")
+        .id;
+    let visitors = |scope: Option<Uuid>| TreeChanges {
+        visitor_scope_id: Some(scope),
+        ..TreeChanges::default()
+    };
+    TreeRepo::update(&f.db, f.tree, visitors(Some(scope)))
+        .await
+        .expect("visitor scope");
+    let refused = AccessScopeRepo::delete(&f.db, scope).await;
+    assert!(
+        matches!(&refused, Err(OxidGeneError::Database(error))
+            if error.kind() == oxidgene_core::error::DatabaseErrorKind::ForeignKeyViolation),
+        "{refused:?}"
+    );
+
+    // With the roots and a portrait set, the tree's rows name each other
+    // both ways: the purge is one statement all the same.
+    TreeRepo::update(
+        &f.db,
+        f.tree,
+        TreeChanges {
+            sosa_root_person_id: Some(Some(f.person)),
+            self_person_id: Some(Some(f.other)),
+            ..TreeChanges::default()
+        },
+    )
+    .await
+    .expect("roots");
+    PersonRepo::set_portrait(&f.db, f.person, Portrait::Media(f.media))
+        .await
+        .expect("portrait");
+    TreeRepo::purge(&f.db, f.tree).await.expect("purge");
+    assert!(
+        person::Entity::find().one(&f.db).await.unwrap().is_none(),
+        "the persons went with the tree"
+    );
+    assert!(
+        AccessScopeRepo::get(&f.db, scope).await.unwrap().is_none(),
+        "the scope went with the tree"
     );
 }
 
