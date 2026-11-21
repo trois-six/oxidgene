@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T16:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T19:00:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -630,9 +630,12 @@ user cannot lose entered data.
 
 ### 7.1 Backend exposure before authentication
 
-Until authentication and per-tree authorization are implemented and enforced
-equally by REST, GraphQL, exports, search, and direct media reads, the backend
-must never be exposed directly to an untrusted network:
+A backend that authenticates nobody — the desktop's embedded server, and the
+standalone server run with `OXIDGENE_AUTH_MODE=none` — must never be exposed
+directly to an untrusted network. In `oidc` mode the server authenticates and
+authorizes every request, on REST, GraphQL, exports, search and direct media
+reads alike ([Authentication](authentication.md),
+[Authorization](authorization.md)). The rules below hold in every mode:
 
 - standalone and development servers bind to loopback by default;
 - host-published container ports bind to loopback; a container may listen on

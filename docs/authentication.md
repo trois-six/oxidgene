@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T19:00:00Z }
 ---
 
 # Authentication and Sessions
@@ -14,15 +14,19 @@ generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 > [API Contract](api.md) · [Data Model](data-model.md) ·
 > [Cross-cutting Rules](cross-cutting.md) · [Roadmap](roadmap.md)
 
-**Status: in progress.** The deployment of §8 — the development stack, the
-Helm chart's modes and the Rauthy they bundle — the end-to-end sign-in suite
-of §12, phase 1 — identity, sessions, accounts and the profile, on the
-server and in the web frontend (§10) — and the per-tree roles of phase 2
-([Authorization](authorization.md)) are in place. This document
-fixes the contract EPIC G follows;
+**Status: in progress.** Phases 1 to 5 of EPIC G are in place: identity,
+sessions, accounts and the profile, on the server and in the web frontend
+(§10); the per-tree roles ([Authorization](authorization.md)); privacy
+enforcement for every viewer ([Privacy](privacy.md)); notifications and
+email ([Messaging and Notifications](messaging.md)); and sharing — with the
+deployment of §8 (the development stack, the Helm chart's modes and the
+Rauthy they bundle) and the end-to-end sign-in suite of §12. API clients,
+assistant access over HTTP and messaging remain. This document fixes the
+contract EPIC G follows;
 [Roadmap §8](roadmap.md#8-security-release-and-deployment) tracks its
-phases. Until privacy is enforced for other viewers (phase 3), the backend
-is never exposed to an untrusted network
+phases. A server run without authentication (`OXIDGENE_AUTH_MODE=none`)
+checks nobody's identity, and its backend is never exposed to an untrusted
+network
 ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
 
 ---
