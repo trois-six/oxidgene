@@ -2,7 +2,8 @@ name: CI
 
 # Tiers 1 and 2 of the guards (docs/development.md §2.8): every check here
 # blocks a merge through the `CI` job at the end, and all of them are fast
-# once the build cache is warm. The browser suite runs every night
+# once the build cache is warm. Together they run what `just check` runs,
+# which the `workflows` guard keeps so. The browser suite runs every night
 # (nightly.yml, tier 3) and what is heavy once a week (weekly.yml, tier 4);
 # release.yml runs every tier as a gate.
 #
@@ -181,6 +182,38 @@ jobs:
       # The `#[cfg(test)]` modules, then the documentation examples.
       - name: Run the unit tests
         run: just test-unit
+
+      - if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.cache.outputs.path }}
+          key: ${{ steps.cache.outputs.key }}
+
+  # The rustdoc the documentation site publishes, warnings denied: a broken
+  # or private intra-doc link fails here rather than in the Pages job, after
+  # the merge.
+  doc:
+    name: Rustdoc
+    needs: [changes, build-image]
+    if: always() && (needs.build-image.result == 'success' || needs.build-image.result == 'skipped') && (needs.changes.outputs.code == 'true' || needs.changes.outputs.ci_image == 'true')
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-just
+
+      - id: cache
+        uses: ./.github/actions/rust-build-cache
+        with:
+          key: doc
+
+      - name: Build the documentation
+        run: just doc-check
 
       - if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6
@@ -408,6 +441,7 @@ jobs:
       - fmt
       - clippy
       - unit
+      - doc
       - specs
       - cyclomatic
       - functional

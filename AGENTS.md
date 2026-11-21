@@ -63,9 +63,9 @@ GEDCOM, and `geneweb` for GeneWeb `.gw` imports.
 - Use an imperative English subject and a detailed English body explaining the
   implementation, important design decisions, migrations, compatibility
   impact, and verification performed.
-- Run `just check` before committing code changes. Do not commit code until
-  formatting, Clippy, and the full test suite pass and the expected CI checks
-  are accounted for.
+- Run `just check` before committing code changes: it is the CI gate in one
+  command, every check the `CI` status gathers. Do not commit code until it
+  passes. `just hooks` installs an opt-in pre-push hook that runs it.
 - `just check` is not required for changes limited to documentation, the
   `README`, Dockerfiles, Docker Compose files, or GitHub Actions workflows. Use
   focused validation appropriate to the changed files instead.
@@ -255,7 +255,7 @@ observability <- db/api (feature), server/worker/desktop
 ```bash
 just build          # Build the workspace
 just test           # Run all tests
-just check          # Format check, Clippy, cyclomatic complexity, and all tests
+just check          # The CI gate: format, complexity, duplication, dependencies, Clippy on every variant, rustdoc, and all tests
 just fmt            # Format the workspace
 just clippy         # Run Clippy
 just server         # Run the development web server
@@ -273,9 +273,10 @@ purge completeness, log privacy, SQL plans, dependency and size budgets.
 They run in four tiers — every pull request, every code pull request,
 nightly, and weekly, all of them before a release — listed with their
 commands in `development.md` §2.8. A failing guard says what drifted and how to fix it;
-do not weaken a guard to make it pass. After a change touching the web
-application, also run `just wasm`, `just deps` after one touching
-dependencies, and `just sql-plans` after one touching queries.
+do not weaken a guard to make it pass. While iterating, the recipes
+`just check` gathers run on their own: `just wasm` after a change touching
+the web application, `just deps` after one touching dependencies, and
+`just sql-plans` after one touching queries.
 
 ## Assets
 

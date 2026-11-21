@@ -114,18 +114,48 @@ pub fn line_of(source: &str, offset: usize) -> usize {
     source[..offset].matches('\n').count() + 1
 }
 
+/// A recipe of the root `justfile`.
+pub struct Recipe {
+    pub name: String,
+    /// The recipes it runs first, as its header lists them.
+    pub dependencies: Vec<String>,
+    /// Whether it has commands of its own.
+    pub has_body: bool,
+}
+
+/// The recipes of the root `justfile`, in the order it declares them.
+#[must_use]
+pub fn just_recipe_graph() -> Vec<Recipe> {
+    let justfile = read("justfile");
+    let lines: Vec<&str> = justfile.lines().collect();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| {
+            line.chars().next().is_some_and(|c| c.is_ascii_lowercase()) && !line.contains(":=")
+        })
+        .filter_map(|(index, line)| {
+            let (header, dependencies) = line.rsplit_once(':')?;
+            Some(Recipe {
+                name: header.split(' ').next()?.to_string(),
+                dependencies: dependencies
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect(),
+                has_body: lines
+                    .get(index + 1)
+                    .is_some_and(|next| next.starts_with([' ', '\t']) && !next.trim().is_empty()),
+            })
+        })
+        .collect()
+}
+
 /// The recipe names of the root `justfile`.
 #[must_use]
 pub fn just_recipes() -> Vec<String> {
-    read("justfile")
-        .lines()
-        .filter(|line| {
-            line.chars().next().is_some_and(|c| c.is_ascii_lowercase()) && !line.contains(":=")
-        })
-        .filter_map(|line| {
-            let name = line.split([' ', ':']).next()?;
-            line.contains(':').then(|| name.to_string())
-        })
+    just_recipe_graph()
+        .into_iter()
+        .map(|recipe| recipe.name)
         .collect()
 }
 
@@ -204,5 +234,27 @@ mod tests {
         assert!(recipes.contains(&"check".to_string()));
         assert!(recipes.contains(&"e2e".to_string()));
         assert!(!recipes.iter().any(|r| r.starts_with("e2e_")));
+    }
+
+    #[test]
+    fn the_justfile_dependencies_are_read() {
+        let graph = just_recipe_graph();
+        let recipe = |name: &str| {
+            graph
+                .iter()
+                .find(|recipe| recipe.name == name)
+                .unwrap_or_else(|| panic!("no recipe {name}"))
+        };
+        assert_eq!(
+            recipe("test").dependencies,
+            ["test-unit", "test-functional"]
+        );
+        assert!(!recipe("test").has_body);
+        assert!(recipe("test-unit").has_body);
+        assert!(recipe("test-unit").dependencies.is_empty());
+        assert!(
+            recipe("e2e").dependencies.is_empty(),
+            "parameters are not dependencies"
+        );
     }
 }

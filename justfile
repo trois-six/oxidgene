@@ -15,13 +15,57 @@
 default:
     @just --list
 
+# `just setup hooks` also installs the pre-push hook (`just hooks`).
 # Install the project development tools and Rust targets
-setup:
-    @command -v mise >/dev/null 2>&1 || { echo "mise is required: https://mise.jdx.dev/getting-started.html" >&2; exit 1; }
-    @command -v rustup >/dev/null 2>&1 || { echo "rustup is required: https://rustup.rs" >&2; exit 1; }
+setup *options:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v mise >/dev/null 2>&1 || { echo "mise is required: https://mise.jdx.dev/getting-started.html" >&2; exit 1; }
+    command -v rustup >/dev/null 2>&1 || { echo "rustup is required: https://rustup.rs" >&2; exit 1; }
     mise install
     rustup target add wasm32-unknown-unknown
     rustup target add x86_64-pc-windows-msvc
+    case " {{ options }} " in
+        *" hooks "*) "{{ just_executable() }}" hooks ;;
+        *) echo "Optional: \`just setup hooks\` installs a pre-push hook that runs the CI gate before every push (docs/development.md §2.9)." ;;
+    esac
+
+# Opt-in. The hook runs scripts/pre-push.sh of the checkout being pushed:
+# `just check` when the push changes code, `just guards` when it changes
+# only documentation, Dockerfiles, Compose files or workflows. It is the
+# clone's, shared by its worktrees; a hook that is not this one is left
+# untouched. `git push --no-verify` skips it, `just hooks remove` removes it.
+# Install the pre-push hook that runs the CI gate before every push
+hooks action="install":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    hook="$(git rev-parse --git-path hooks/pre-push)"
+    marker="# OxidGene pre-push hook"
+    if [ -e "$hook" ] && ! grep -qF "$marker" "$hook"; then
+        echo "$hook exists and is not OxidGene's: left untouched" >&2
+        exit 1
+    fi
+    case "{{ action }}" in
+        install)
+            mkdir -p "$(dirname "$hook")"
+            {
+                echo '#!/bin/sh'
+                echo "$marker, installed by \`just hooks\`: runs the checkout's scripts/pre-push.sh."
+                echo 'script="$(git rev-parse --show-toplevel)/scripts/pre-push.sh"'
+                echo 'if [ -x "$script" ]; then exec "$script" "$@"; fi'
+            } > "$hook"
+            chmod +x "$hook"
+            echo "installed $hook"
+            ;;
+        remove)
+            rm -f "$hook"
+            echo "removed $hook"
+            ;;
+        *)
+            echo "usage: just hooks [install|remove]" >&2
+            exit 2
+            ;;
+    esac
 
 # Build all workspace crates
 build:
@@ -45,7 +89,7 @@ python := if os_family() == "windows" { "python" } else { "python3" }
 
 # Performance and browser tests have their own recipes: `just scaling`,
 # `just e2e`, `just ui-js`. All Rust recipes need cargo-nextest (`just setup`).
-# Run the unit and functional tests (what `just check` runs)
+# Run the unit and functional tests
 test: test-unit test-functional
 
 # Covers the `#[cfg(test)]` modules of every library and binary, then the
@@ -176,8 +220,8 @@ clippy-desktop-minimal:
 # without any native check noticing; and the browser binary declares its
 # dependencies for wasm32 alone, so natively it compiles to an empty shell.
 # `oxidgene-ui` is platform-independent by contract (see AGENTS.md); run this
-# after touching the UI or its dependencies. The CI Clippy matrix runs it on
-# every change; it is kept out of `check` for the time it takes.
+# after touching the UI or its dependencies. `just check` and the CI Clippy
+# matrix run it.
 wasm:
     cargo clippy --locked -p oxidgene-web --target wasm32-unknown-unknown --all-targets -- -D warnings
 
@@ -201,8 +245,13 @@ cyclomatic:
 doc-check:
     RUSTDOCFLAGS="-D warnings" cargo doc --locked --no-deps -p oxidgene-core -p oxidgene-db -p oxidgene-gedcom -p oxidgene-geneanet -p oxidgene-archives -p oxidgene-observability -p oxidgene-api -p oxidgene-ui
 
-# Run all checks (fmt + clippy + cyclomatic + rustdoc + test)
-check: fmt-check clippy cyclomatic doc-check test
+# The gate: every check the `CI` status of a pull request or of a push to
+# `main` gathers (.github/workflows/ci.yml, a job per recipe), in one
+# command. The `workflows` guard fails when the two differ. The quick checks
+# come first; `sql-plans` follows `test`, whose build it reuses; `deps` reads
+# the advisory databases, so it needs the network.
+# Run every check of the CI gate
+check: fmt-check cyclomatic ui-js duplication deps clippy wasm doc-check test sql-plans
 
 # Time the tree-wide computations on a tree and on one eight times larger, in
 # release mode, and fail on any that grows markedly faster than linear (see

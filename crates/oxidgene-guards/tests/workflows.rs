@@ -5,19 +5,25 @@
 //! script command beside the recipe a developer runs — the two then differ
 //! by a flag nobody notices, and a change passes locally to fail in CI, or
 //! the reverse; a step calling a recipe that was renamed; an action that
-//! checks something in place of a recipe; and the two pins of `just` (the CI
-//! image's and the one installed elsewhere) drifting apart.
+//! checks something in place of a recipe; a job added to the CI gate that
+//! `just check` does not run, or the reverse, so that a commit checked
+//! locally fails once pushed; and the two pins of `just` (the CI image's
+//! and the one installed elsewhere) drifting apart.
 //!
 //! Fixing a failure: move the command into a recipe of the justfile and
 //! call `just <recipe>` from the step. What CI must do differently is a
 //! recipe parameter or an environment variable the recipe reads, never
-//! another command. Installing a tool (`rustup toolchain install`, an
+//! another command. A check added to the gate joins both `check` in the
+//! justfile and a job of ci.yml; one the gate runs for Renovate's pull
+//! requests alone is declared in `CI_ONLY` with its reason. Installing a tool (`rustup toolchain install`, an
 //! install action), restoring a cache, and packaging or publishing what was
 //! built are not checks and stay in the workflow. An action is added to
 //! `ACTIONS` with what it does — only when it installs, caches, builds an
 //! image or publishes.
 
-use oxidgene_guards::{files, just_recipes, read, relative};
+use std::collections::BTreeSet;
+
+use oxidgene_guards::{Recipe, files, just_recipe_graph, just_recipes, read, relative};
 
 /// The actions a workflow may use, each with what it does: none of them
 /// checks the code, which only a recipe does.
@@ -56,6 +62,22 @@ const ACTIONS: &[(&str, &str)] = &[
     (
         "signpath/github-action-submit-signing-request",
         "has the Windows executable signed",
+    ),
+];
+
+/// The recipes ci.yml runs that `just check` does not, each with why.
+const CI_ONLY: &[(&str, &str)] = &[
+    (
+        "guards",
+        "part of `test`; a job of its own so that documentation-only changes run it",
+    ),
+    (
+        "compose-check",
+        "Renovate's pull requests that touch docker/, which need Docker",
+    ),
+    (
+        "chart-test",
+        "Renovate's pull requests that touch the chart, which need Helm",
     ),
 ];
 
@@ -351,6 +373,91 @@ fn every_action_is_one_that_installs_caches_or_publishes() {
          action; one that installs, caches, builds an image or publishes joins `ACTIONS` \
          with what it does:\n{}",
         violations.join("\n")
+    );
+}
+
+/// The recipes ci.yml calls, its matrix legs included.
+fn ci_recipes() -> BTreeSet<String> {
+    let text = read(".github/workflows/ci.yml");
+    let mut called: BTreeSet<String> = text
+        .lines()
+        .filter_map(|line| value_of(line, "recipe"))
+        .map(|(_, recipe)| recipe.to_string())
+        .collect();
+    for (_, script) in scripts(&text) {
+        for words in commands(&script) {
+            if let Some(recipe) = recipe_of(&words)
+                && recipe != "${{"
+            {
+                called.insert(recipe.to_string());
+            }
+        }
+    }
+    called
+}
+
+/// `name` and every recipe it runs first, directly or not.
+fn closure(graph: &[Recipe], name: &str) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut pending = vec![name.to_string()];
+    while let Some(recipe) = pending.pop() {
+        if let Some(found) = graph.iter().find(|r| r.name == recipe)
+            && seen.insert(recipe)
+        {
+            pending.extend(found.dependencies.iter().cloned());
+        }
+    }
+    seen
+}
+
+/// Whether CI runs `name`: itself, or — for a recipe that only gathers
+/// others — every recipe it gathers.
+fn covered(graph: &[Recipe], called: &BTreeSet<String>, name: &str) -> bool {
+    if called.contains(name) {
+        return true;
+    }
+    graph.iter().find(|r| r.name == name).is_some_and(|recipe| {
+        !recipe.has_body
+            && !recipe.dependencies.is_empty()
+            && recipe
+                .dependencies
+                .iter()
+                .all(|dependency| covered(graph, called, dependency))
+    })
+}
+
+#[test]
+fn the_ci_gate_runs_what_just_check_runs() {
+    let graph = just_recipe_graph();
+    let called = ci_recipes();
+    let gate = closure(&graph, "check");
+    assert!(gate.len() > 10, "`just check` gathers only {gate:?}");
+    let mut problems = Vec::new();
+    for recipe in &called {
+        if !gate.contains(recipe) && !CI_ONLY.iter().any(|(name, _)| name == recipe) {
+            problems.push(format!(
+                "ci.yml runs `just {recipe}`, which `just check` does not: add it to `check`"
+            ));
+        }
+    }
+    for recipe in &gate {
+        if !covered(&graph, &called, recipe) {
+            problems.push(format!(
+                "`just check` runs `{recipe}`, which no job of ci.yml does: give it a job"
+            ));
+        }
+    }
+    for (recipe, _) in CI_ONLY {
+        if !called.contains(*recipe) {
+            problems.push(format!(
+                "`CI_ONLY` declares `{recipe}`, which ci.yml no longer runs"
+            ));
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "the local gate and the CI gate differ (docs/development.md §2.9):\n{}",
+        problems.join("\n")
     );
 }
 

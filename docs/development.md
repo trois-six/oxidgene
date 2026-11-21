@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T11:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T12:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -41,7 +41,9 @@ just setup
 
 This installs the versions declared in `mise.toml` and adds the
 `wasm32-unknown-unknown` target to the active Rust toolchain. Rust, rustup,
-just, Docker, and Docker Compose remain host prerequisites.
+just, Docker, and Docker Compose remain host prerequisites. `just setup
+hooks` also installs the pre-push hook that runs the CI gate before every
+push (§2.9).
 
 The complete installation and deployment paths are in the
 [Quickstart](quickstart.md).
@@ -71,7 +73,7 @@ the repository root.
 | `just fmt` | Format all Rust source files. |
 | `just fmt-check` | Check Rust formatting without changing files. |
 | `just clippy` | Run Clippy on every native build variant, warnings denied, each a recipe and a job of the CI Clippy matrix: `just clippy-workspace` (all workspace targets), `just clippy-archives` (`oxidgene-archives` with its `live` checks, a feature no workspace member enables), `just clippy-api` (`oxidgene-api` alone, without the `graphql` and `auth` features the workspace run unifies into it, so code only those features use is not hidden from the dead-code lints) and `just clippy-desktop-minimal` (the desktop without its default features, the build without telemetry). |
-| `just wasm` | Run Clippy on the browser application for the `wasm32-unknown-unknown` target and deny warnings, the check that the shared UI still compiles to WebAssembly; run it after changing `oxidgene-ui` or its dependencies. The browser binary declares its dependencies for `wasm32` only, so the native `just clippy` does not see its code. Not part of `just check`; the CI Clippy matrix runs it. |
+| `just wasm` | Run Clippy on the browser application for the `wasm32-unknown-unknown` target and deny warnings, the check that the shared UI still compiles to WebAssembly; run it after changing `oxidgene-ui` or its dependencies. The browser binary declares its dependencies for `wasm32` only, so the native `just clippy` does not see its code. Part of `just check`. |
 | `just deps` | Check the dependency graph: no unused dependency (`cargo machete`), nothing `deny.toml` refuses (`cargo deny check`: advisories, licences, bans, sources), no known vulnerability (`cargo audit`), and no more duplicated crates than `scripts/budgets.json` allows (§2.8). |
 | `just sql-plans` | Read the query plan of every statement the API runs over a populated tree and fail on a full scan of a large table (§2.8). It is one more test of the build `just test-functional` leaves. |
 | `just budgets [--update]` | Build the desktop, the server, the worker and the web bundle in release mode and compare each one's size and crate count with `scripts/budgets.json`; `--update` records an intended growth (§2.8). |
@@ -83,7 +85,8 @@ the repository root.
 | `just duplication [--report]` | Fail when the duplicated share of the Rust code grows past its budget; `--report` lists the duplicate blocks (§2.8). |
 | `just cyclomatic` | Fail on any function above a cyclomatic complexity of 15 (§2.1). |
 | `just doc-check` | Build the rustdoc the documentation site publishes with warnings denied, so a broken or private intra-doc link fails locally rather than in the Pages job. Part of `just check`. |
-| `just check` | Run formatting verification, Clippy, the cyclomatic complexity check, the rustdoc check, and tests. |
+| `just check` | Run the CI gate: every check the `CI` status of a pull request or a push to `main` gathers — formatting, the cyclomatic complexity, the browser JavaScript tests, the duplication budget, the dependency graph, Clippy on the five build variants, the rustdoc, the unit and functional tests and the SQL plans (§2.9). |
+| `just hooks [remove]` | Install, or remove, the opt-in pre-push hook that runs the gate before every push (§2.9). |
 | `just scaling` | Time the tree-wide computations on two tree sizes in release mode (§2.1). |
 | `just real-import [args]` | Import your own exports end to end through the desktop's backend, in release mode (§3, *Real-data import check*). |
 | `just import-memory` | Import a generated, fictitious Geneanet tree in release mode and fail when its peak or retained memory exceeds its budget (§2.8). |
@@ -105,7 +108,8 @@ the repository root.
 | `just clean` | Remove Cargo build artifacts. |
 | `just doc` | Generate and open workspace API documentation. |
 
-Run `just check` before committing code changes.
+Run `just check` before committing code changes: it runs what CI will
+(§2.9).
 
 Every function stays within a cognitive complexity of 15, the conventional
 range. The workspace `Cargo.toml` enables Clippy's `cognitive_complexity`
@@ -377,7 +381,8 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 | Helm chart | `helm lint` with each values file of `charts/oxidgene/ci/` and the rendering tests of `scripts/chart-tests.py`: every `auth.idp.mode`, the values each requires and refuses, the Ingress paths, the Rauthy workload, and the setup it bootstraps against the development one | `just chart-test` | Validate Helm chart (Renovate); Release: Publish Helm chart | No |
 | Archive portals (live) | The live end-to-end checks of every catalogued archive against its real portal: the `#[ignore]`d `live` test of `oxidgene-archives` over the native transport, then the Playwright project of `e2e/playwright.archives.config.ts` in Chromium | `just archives-live [archive…]` | Archive portals (weekly) | No |
 
-`just test`, and through it `just check`, runs the unit and functional tests.
+`just test`, and through it `just check`, runs the unit and functional tests;
+`just check` also runs the browser JavaScript ones.
 The selection is by Cargo target (`--lib --bins`, `--doc`, `--test '*'`)
 rather than by a nextest filter, so each category builds only its own test
 binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS, or
@@ -676,13 +681,14 @@ failing).
 | Typed text | 1 | `just test` (`oxidgene-guards`) | Repository guards | No `input` or `textarea` of the markup is bound to its text by `value` while listening to `oninput`: typed fields are `TextInput` and `TextArea` ([Common UI §6.6](ui-common.md)) |
 | Conditional hooks | 1 | `just test` (`oxidgene-guards`) | Repository guards | No interface hook (`use_…`) is called on the right of `&&` or `\|\|`, where a render could skip it and shift the hooks after it |
 | Test targets | 1 | `just test` (`oxidgene-guards`) | Repository guards | Every crate builds at most one integration test binary, whose root declares every file of `tests/` (§2.7) |
-| Workflows | 1 | `just test` (`oxidgene-guards`) | Repository guards | No workflow step runs cargo, npm, uv, Helm's or Docker's checks or a script of `scripts/` itself: it calls `just <recipe>`, a recipe that exists; every action installs, caches, builds an image or publishes; the CI image and the runners install the same `just` (§2.9) |
+| Workflows | 1 | `just test` (`oxidgene-guards`) | Repository guards | No workflow step runs cargo, npm, uv, Helm's or Docker's checks or a script of `scripts/` itself: it calls `just <recipe>`, a recipe that exists; every action installs, caches, builds an image or publishes; the jobs of `ci.yml` run exactly what `just check` runs; the CI image and the runners install the same `just` (§2.9) |
 | i18n keys | 1 | `just test-unit` | Unit tests | The eight tables carry the same keys and placeholders; every literal key exists; every key is used |
 | Projection shape | 1 | `just test` | Functional tests | `PersonProfile`'s JSON shape changes only with `PROJECTION_SCHEMA_VERSION` |
 | REST/GraphQL parity | 1 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every route is mapped to its GraphQL twin in a declared table, every root field to a route |
 | api.md and schema | 1 | `just test` (`guards` of `oxidgene-api`), `just graphql-schema` | Functional tests | docs/api.md's tables list exactly the router's routes; `docs/schema.graphql` is the schema's SDL |
 | Clippy matrix | 1 | `just clippy` (`just clippy-workspace`, `just clippy-archives`, `just clippy-api`, `just clippy-desktop-minimal`), `just wasm` | Clippy (5 variants) | Every build variant compiles without a warning: native, WebAssembly, desktop without telemetry, API without GraphQL, archive portals with the native transport and the live checks |
 | Cyclomatic complexity | 1 | `just cyclomatic` | Cyclomatic complexity | No function above 15 paths |
+| Rustdoc | 1 | `just doc-check` | Rustdoc | The rustdoc the documentation site publishes builds without a warning: no broken or private intra-doc link |
 | Stack depth | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every REST route, GraphQL root field and the background jobs they queue run on a 1 MiB stack in a debug build, half a tokio worker's |
 | Cross-tree access | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No REST route or GraphQL field reaches a record of another tree |
 | Pagination | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | Every collection clamps `first` to 1–100 and pages by cursor; every whole list is declared |
@@ -781,11 +787,48 @@ image rebuilds it before the jobs that use it; a pull request runs in the
 image `main` built, where the action supplies what a newer `Dockerfile.ci`
 would add.
 
+**The gate.** `just check` is the CI gate in one command: it runs every
+recipe the `CI` status check gathers, and `ci.yml` runs each of them in a
+job of its own.
+
+| Job of `ci.yml` | Recipe |
+|---|---|
+| Format | `just fmt-check` |
+| Cyclomatic complexity | `just cyclomatic` |
+| UI JavaScript tests | `just ui-js` |
+| Code duplication | `just duplication` |
+| Dependencies | `just deps` |
+| Clippy (workspace, archives live checks, api without graphql, desktop without default features) | `just clippy`: `clippy-workspace`, `clippy-archives`, `clippy-api`, `clippy-desktop-minimal` |
+| Clippy (wasm) | `just wasm` |
+| Rustdoc | `just doc-check` |
+| Unit tests | `just test-unit` |
+| Functional tests | `just test-functional`, then `just sql-plans` |
+| Repository guards | `just guards`, a part of `just test`, in a job of its own that a documentation-only change runs too |
+
+Two more jobs gate Renovate's pull requests only and are not part of
+`just check`, as they need Docker or Helm: `just compose-check` with the
+image builds, and `just chart-test`. The `workflows` guard fails when a job
+of `ci.yml` runs a recipe `just check` does not, or the reverse. `just deps`
+reads the advisory databases, so the gate needs the network.
+
+Nearly every commit reaches `main` by a direct push, where the `CI` check
+runs after the fact. `just hooks` installs an opt-in pre-push hook, the
+clone's and so shared by its worktrees, which runs
+`scripts/pre-push.sh` of the checkout being pushed: `just check` when the
+push changes code; `just guards` alone when it changes only documentation,
+Dockerfiles, Compose files or workflows, for which `just check` is not
+required; nothing when it changes no file. Either way it sets
+`OXIDGENE_SPEC_BASE` to what the remote already has, so an edited
+specification without a new `generated.at` stops the push. The checks read
+the working tree, not the commits pushed. `git push --no-verify` skips the
+hook, `just hooks remove` removes it, and a pre-push hook that is not
+OxidGene's is never replaced.
+
 The workflows, each a caller of recipes:
 
 | Workflow | Runs | Jobs | Duration |
 |---|---|---|---|
-| `ci.yml` | Every pull request and push to `main`; gates a release with every job forced on | Tiers 1 and 2: Format, Clippy (five variants), Unit tests, Functional tests with the SQL plans, Repository guards, Dependencies, Cyclomatic complexity, Code duplication, UI JavaScript tests; on Renovate's pull requests, the image builds and the chart. `CI` gathers them into the one required status check | 5 minutes with a warm cache, 20 after a lockfile change |
+| `ci.yml` | Every pull request and push to `main`; gates a release with every job forced on | Tiers 1 and 2: Format, Clippy (five variants), Rustdoc, Unit tests, Functional tests with the SQL plans, Repository guards, Dependencies, Cyclomatic complexity, Code duplication, UI JavaScript tests; on Renovate's pull requests, the image builds and the chart. `CI` gathers them into the one required status check | 5 minutes with a warm cache, 20 after a lockfile change |
 | `nightly.yml` | Every night when `main` moved; on demand; gates a release | Tier 3: E2E (chromium), through `e2e.yml` | 23 minutes |
 | `weekly.yml` | Every week when `main` moved; on demand; gates a release | Tier 4: PostgreSQL, Redis and S3 suites, API tests in the desktop's feature set, Fuzz, E2E (webkit), Large trees, Scaling and import memory, Binary budgets, udeps, Reports, Next toolchains | About 40 minutes, the jobs in parallel and none cached |
 | `e2e.yml` | Called by the two above with a Playwright project; on demand | E2E | 23 minutes |
@@ -1206,15 +1249,10 @@ just check
 For changes to the web application's pages or the API they call, also run
 `just e2e`.
 
-For browser download transport changes, or changes to the web client's
-archive tab or the archive window's scripts, also run the dependency-free
-Node.js tests:
-
-```bash
-just ui-js
-```
-
-These exercise stream delivery, picker cancellation, failed writes and requests,
+`just check` includes the dependency-free Node.js tests (`just ui-js`), to
+run on their own after a change to the browser download transport, the web
+client's archive tab or the archive window's scripts. They exercise stream
+delivery, picker cancellation, failed writes and requests,
 the local-Blob fallback, and the archive scripts over a minimal DOM
 ([Archive Portals §9](archives.md#9-testing)). After changing an archive
 adapter or a catalogue entry, also check the archives concerned against their
