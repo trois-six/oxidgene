@@ -15,6 +15,7 @@ mod media_invariants_test;
 mod migration_test;
 mod person_search_test;
 mod repo_test;
+mod safety_test;
 mod sharing_test;
 mod tag_test;
 mod write_test;

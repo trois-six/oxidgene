@@ -10,6 +10,7 @@ pub mod app_dirs;
 #[cfg(feature = "auth")]
 pub mod auth;
 pub mod authz;
+pub mod backup;
 mod embedded;
 mod error_contract;
 #[cfg(feature = "graphql")]

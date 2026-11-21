@@ -12,7 +12,7 @@
 use std::path::Path;
 
 use oxidgene_api::mcp::Access;
-use oxidgene_db::repo::{connect, run_migrations};
+use oxidgene_db::repo::{MigrationError, connect, run_migrations};
 
 /// Serve MCP until the client closes standard input. Returns the exit status.
 ///
@@ -42,9 +42,19 @@ pub fn run(db_path: &Path, access: Access) -> i32 {
         };
         // The same single migration the application applies at startup; on a
         // database it has already opened this changes nothing.
-        if run_migrations(&db).await.is_err() {
-            eprintln!("oxidgene-desktop mcp: failed to prepare the database");
-            return 1;
+        match run_migrations(&db).await {
+            Ok(()) => {}
+            Err(MigrationError::SchemaMismatch) => {
+                eprintln!(
+                    "oxidgene-desktop mcp: the database was created by another version of \
+                     OxidGene; open the application, which says what to do"
+                );
+                return 1;
+            }
+            Err(MigrationError::Database(_)) => {
+                eprintln!("oxidgene-desktop mcp: failed to prepare the database");
+                return 1;
+            }
         }
         match oxidgene_api::mcp::serve_stdio(db, access).await {
             Ok(()) => 0,

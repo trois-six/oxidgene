@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T15:24:42Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:51:49Z }
 ---
 
 
@@ -1267,7 +1267,7 @@ directory.
 |---|---|---|---|
 | Data | `~/.local/share/oxidgene/` | `oxidgene.db` (with its `-wal` and `-shm`), `media/` | No: the user's genealogy, irreplaceable |
 | Config | `~/.config/oxidgene/` | `themes/` and `languages/`, personal JSON theme and locale documents ([App Settings](ui-app-settings.md)) | No: written by the user |
-| State | `~/.local/state/oxidgene/` | `webview/`: the desktop window's cookies, local storage (the UI preferences: language, theme, pedigree defaults), media keys, storage; `archives-webview/`: the archive windows' own profile, the portals' cookies ([Archive Portals §6.1](archives.md#61-desktop)) | While the application is closed; the UI preferences reset, and a portal asks again for its reuse licence or challenge |
+| State | `~/.local/state/oxidgene/` | `webview/`: the desktop window's cookies, local storage (the UI preferences: language, theme, pedigree defaults), media keys, storage; `archives-webview/`: the archive windows' own profile, the portals' cookies ([Archive Portals §6.1](archives.md#61-desktop)); `snapshots/`: the last copies of the database ([§8.4](#84-desktop-database-safety)) | While the application is closed; the UI preferences reset, a portal asks again for its reuse licence or challenge, and the copies to go back to are gone |
 | Cache | `~/.cache/oxidgene/` | `jobs/` (each running job's scratch: staged source, a Geneanet import's archives and pages, an export's media and archive), `staging/` (uploads, a decoded Geneanet session's media, the pages the Geneanet window fetched, a media archive being streamed), and WebKitGTK's `WebKitCache/` and `CacheStorage/` | Yes, while the application is closed |
 
 The desktop creates the four directories for its user alone at each start
@@ -1306,6 +1306,98 @@ web profile starts empty under the state directory, so the UI preferences
 kept its sign-in ([Import §9.6](ui-import.md#96-authenticated-collection)),
 so a Geneanet import asks for it as it always did; the old
 `~/.local/share/oxidgene/webview/` can be deleted.
+
+### 8.4 Desktop Database Safety
+
+`oxidgene.db` is the only copy of its user's genealogy, on a machine nobody
+administers. Three things keep it safe to open and possible to recover
+(`oxidgene_db::repo::safety`, `oxidgene_api::backup`,
+`startup::open_local_database`). None of them runs on a web deployment:
+its database is PostgreSQL's, which its operator backs up and restores
+with PostgreSQL's own tools (dumps, base backups and write-ahead log
+archiving), and whose schema the migrator alone manages.
+
+**Schema identity.** While the product is unreleased the schema is the
+single initial migration, edited in place
+([Data Model](data-model.md)): a file created by an earlier edit of it
+counts as migrated and would be opened with a schema the code no longer
+matches. A SQLite database therefore records, when it is created, the
+digest of its schema in `schema_meta` — the SHA-256 of every object of
+`sqlite_master` but SQLite's own, in name order — and an existing file is
+opened only when the digest it recorded is the one this build creates,
+which is computed at start by migrating a scratch in-memory database: no
+value is kept by hand, and editing the migration is all it takes to refuse
+the files of the previous edit. A file that recorded another digest, or
+none, is left untouched. A server or a worker on a SQLite file ends with
+`database_migration` (`error.kind = schema_mismatch`); the desktop starts on an empty in-memory database that no request reaches
+and answers every request `503 database_incompatible`, which the UI
+translates: the database must be recreated and the genealogy imported
+again. The assistant's session (`oxidgene-desktop mcp`, [MCP](mcp.md))
+refuses such a file too, telling its user to open the application; it
+takes no snapshot and runs no integrity check, which are the
+application's. The check holds while the initial migration is the only
+one: once an incremental migration exists, a migrated file's schema no
+longer reads like a freshly created one's, and the first release has to
+replace the comparison.
+
+**Snapshots.** A snapshot is a consistent copy of the database written with
+`VACUUM INTO` to `snapshots/oxidgene-<UTC time>.db` in the state directory
+([§8.3](#83-local-files)), under a temporary name first so that a copy cut
+short is never taken for one. The desktop takes one:
+
+- once a day, when it starts and the most recent is more than twenty-four
+  hours old, once the integrity check passed — in the background, on a
+  connection of its own: under write-ahead logging the copy blocks neither
+  the writer nor the readers, and the window opens without waiting for it;
+- before a pending migration changes an existing file, whatever the age
+  of the last, and before anything else: the one case where the start
+  waits for the copy. A copy the disk has no room for, or that fails, is
+  logged and the migration goes on: the application still opens.
+
+The three most recent are kept. A snapshot is skipped when the file
+system lacks the room for the database and its write-ahead log plus a
+tenth — a copy that filled the disk would fail the application's next
+write — and every outcome is logged (`snapshot_no_room`,
+`snapshot_failed`, `database_damaged`), never with a path, which names the
+user. The media files are not copied: they are written once and never
+changed, and the user's own backup of the data directory covers them.
+Restoring is done by hand, the application closed: the snapshot replaces
+`oxidgene.db`, and the `-wal` and `-shm` files beside it are deleted; the
+user guide's installation page gives the steps.
+
+**Integrity check.** At every start, in the background on the snapshot's
+own connection, and before the snapshot of a pending migration, the file
+is checked with `PRAGMA quick_check` — every page and index, without the
+comparison of each index with its table that makes `integrity_check`
+several times slower — and `PRAGMA foreign_key_check`. Each start thus
+reads the whole file once, off the request path. A file that fails either is not copied, since
+its copies would push the sound ones out, and the desktop stops changing
+it. A row naming a row that does not exist counts as damage, as a damaged
+page does: the application never writes one — every reference between
+records is a declared foreign key, enforced on every connection — so one
+is the trace
+of a write from outside it or of a damaged file, and a snapshot of it
+would rotate out a sound one. The check reports counts only, never the
+tables or values it found. While the file is damaged — until the
+application is restarted on a sound file — the route guard answers `503
+database_damaged`, translated, to every operation but those that only
+read: the `GET` routes, the reads sent as `POST`, the exports, which still
+record their audit entry. The trees can still be looked at and exported
+while a snapshot is restored. A file that fails the check before a
+migration it needs is not migrated nor opened, and every request is
+answered `503 database_damaged`. The desktop builds no GraphQL, so the
+guard of the REST routes is the whole surface; the assistant's session, a
+process of its own, does not know of a damage the application found.
+
+**What a snapshot interface would need.** None exists: the snapshots are
+files the user restores by hand. A page listing and restoring them needs
+an operation listing the snapshots with their time and size
+(`backup::snapshots` already reads them), one reporting the file's health
+(`DatabaseHealth`, today only visible through the refusals), one taking a
+snapshot on request, and a restore — which must close every connection of
+the embedded server, replace the file and reopen it, or restart the
+application; and, since REST and GraphQL stay symmetric, a decision on
+whether a web deployment exposes any of it.
 
 ---
 

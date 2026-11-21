@@ -63,12 +63,39 @@ OxidGene sorts the files it writes into four folders. On Linux they are:
 |---|---|---|
 | `~/.local/share/oxidgene/` | Your database (`oxidgene.db`) and the `media/` folder with your photos and documents | **No.** This is your genealogy and it cannot be rebuilt |
 | `~/.config/oxidgene/` | Your own themes (`themes/`) and languages (`languages/`) | No: you wrote them |
-| `~/.local/state/oxidgene/` | The window's preferences (language, theme, pedigree defaults) and the cookies of the archive websites you visited | Only while OxidGene is closed; your preferences are reset |
+| `~/.local/state/oxidgene/` | The window's preferences (language, theme, pedigree defaults), the cookies of the archive websites you visited, and the `snapshots/` folder with the last copies of your database | Only while OxidGene is closed; your preferences are reset and the copies are gone |
 | `~/.cache/oxidgene/` | Temporary files of imports and exports | Yes, while OxidGene is closed |
 
 On macOS your database and media are in `~/Library/Application Support/oxidgene/`; on Windows, in `%APPDATA%\oxidgene\`. The appearance and language settings show the exact folder for your own themes and languages (see [Settings](@/guide/settings.md)).
 
 Keep the data folder in your regular backups. For a portable copy of a single tree with its media, export it as a GEDZIP archive (see [Import and export](@/guide/import-export.md)).
+
+## Automatic copies of your database
+
+Once a day, when you start it, OxidGene writes a copy of your database to the `snapshots/` folder, and keeps the three most recent (`oxidgene-<date and time>.db`). The copy is made while you work and never makes you wait. It holds your trees, not your photos and documents, which stay in the `media/` folder and are never rewritten. OxidGene skips the copy when the disk is almost full.
+
+These copies protect you against a damaged file, not against a lost or broken computer: they sit on the same disk, so keep your own backups too.
+
+To go back to a copy:
+
+1. Close OxidGene.
+2. In the data folder, move `oxidgene.db` somewhere safe and delete the `oxidgene.db-wal` and `oxidgene.db-shm` files if they are there.
+3. Copy the snapshot you want into the data folder and rename it `oxidgene.db`.
+4. Start OxidGene.
+
+What you changed after that copy was made is not in it.
+
+## If OxidGene says the database is damaged
+
+Each time it starts, OxidGene checks the database file in the background, and never copies a file that fails the check. If the check fails, it stops changing the file and tells you so whenever you try to edit. You can still browse your trees and export them. Export what matters to you, then go back to the most recent copy as described above.
+
+## If OxidGene says the database was created by another version
+
+Until its first stable release, OxidGene does not convert a database from one version to the next. When a new version cannot read your database, it leaves the file untouched and says so. To continue:
+
+1. With the version you used before, export each tree as a GEDZIP archive.
+2. Close OxidGene and move `oxidgene.db` (with its `-wal` and `-shm` files) out of the data folder.
+3. Start the new version, which creates an empty database, and import your archives.
 
 ## Build it from source
 

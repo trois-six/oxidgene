@@ -10,6 +10,7 @@ use sea_orm_migration::MigratorTrait;
 use std::time::Duration;
 use tracing::{info, warn};
 
+use super::safety::{MigrationError, SchemaState, record_schema, schema_state};
 use crate::Migrator;
 
 /// How long a SQLite connection waits for the lock another connection
@@ -267,13 +268,31 @@ fn is_file_backed_sqlite(database_url: &str) -> bool {
         && !database_url.contains("mode=memory")
 }
 
-/// Run all pending migrations on the given database connection.
+/// Bring the database to this build's schema: [`schema_state`], which
+/// refuses a SQLite file created with another schema, then
+/// [`apply_migrations`].
 ///
 /// Spanned as `startup.migrate`: it runs before any request, and without a
 /// span of its own each of its statements would be a trace by itself.
 #[tracing::instrument(name = "startup.migrate", skip_all)]
-pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
+pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), MigrationError> {
+    let state = schema_state(db).await?;
+    apply_migrations(db, state).await
+}
+
+/// Apply the pending migrations to `db`, which [`schema_state`] found in
+/// `state`: the second step of [`run_migrations`], for a caller with
+/// something to do between the two — the desktop, which copies the file
+/// before a migration changes it. A database this run creates records the
+/// digest of its schema.
+pub async fn apply_migrations(
+    db: &DatabaseConnection,
+    state: SchemaState,
+) -> Result<(), MigrationError> {
     migrate(db).await?;
+    if state == SchemaState::Fresh {
+        record_schema(db).await?;
+    }
     info!("Migrations applied successfully");
     reclaim_free_pages(db).await;
     optimize_statistics(db).await;

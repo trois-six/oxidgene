@@ -48,6 +48,7 @@ mod place;
 mod record_tag;
 mod redaction;
 mod repository;
+mod safety;
 mod share_link;
 mod snapshot;
 mod sosa;
@@ -68,8 +69,8 @@ pub use background_job::{
 pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{
     ACQUIRE_TIMEOUT, Connections, DatabaseSettings, ErasingTransaction, SQLITE_BUSY_TIMEOUT,
-    connect, connect_read_pool, connect_with, erase_deleted_content, refresh_statistics,
-    rollback_migrations, run_migrations,
+    apply_migrations, connect, connect_read_pool, connect_with, erase_deleted_content,
+    refresh_statistics, rollback_migrations, run_migrations,
 };
 pub use descent::DescentRows;
 pub use dictionary::{
@@ -113,6 +114,10 @@ pub use record_tag::RecordTagRepo;
 pub use repository::{
     RepositoryFields, RepositoryPatch, RepositoryRepo, SourceRepositoryFields,
     SourceRepositoryPatch, SourceRepositoryRepo,
+};
+pub use safety::{
+    IntegrityReport, MigrationError, SchemaState, check_integrity, schema_digest, schema_state,
+    snapshot_into,
 };
 pub use share_link::{NewShareLink, ShareLink, ShareLinkChanges, ShareLinkRepo};
 pub use snapshot::{BuiltSnapshot, SnapshotRepo, display_names};

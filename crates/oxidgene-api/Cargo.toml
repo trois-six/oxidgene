@@ -86,9 +86,10 @@ reqwest = { workspace = true, optional = true, features = ["form"] }
 # relay (docs/messaging.md §3).
 lettre = { workspace = true, optional = true }
 
-# The allocator settings of `memory`: glibc's `mallopt` and `malloc_trim`.
+# The allocator settings of `memory` (glibc's `mallopt` and `malloc_trim`)
+# and the free space `backup` asks for before a snapshot (`statvfs`).
 # Already in the graph through tokio; no other target needs it.
-[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [build-dependencies]

@@ -7215,6 +7215,8 @@
     "dictionary.view_usage": "Ver uso",
     "error.archive_unavailable": "No se pudo acceder al portal de archivos. Inténtelo de nuevo más tarde.",
     "error.busy": "La base de datos está ocupada con otra tarea. Espere un momento e inténtelo de nuevo.",
+    "error.database_damaged": "El archivo de la base de datos está dañado, por lo que OxidGene ya no lo modifica. Todavía puede exportar sus árboles; después cierre OxidGene y restaure la instantánea más reciente.",
+    "error.database_incompatible": "Esta base de datos fue creada por otra versión de OxidGene y esta versión no puede abrirla. Su archivo no se ha modificado: vuelva a crear la base de datos e importe de nuevo su genealogía.",
     "error.conflict": "Este cambio entra en conflicto con el estado actual del árbol o con otra tarea en curso. Vuelva a cargar la página e inténtelo de nuevo.",
     "error.forbidden": "No tiene permiso para hacer esto.",
     "error.invalid_file": "No se pudo leer este archivo: está dañado o su formato no es compatible.",

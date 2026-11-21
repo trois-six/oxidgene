@@ -127,6 +127,10 @@ pub async fn authorize(
         );
         return ApiError(OxidGeneError::Forbidden).into_response();
     };
+    // Before anything reads it: a database file that cannot be used.
+    if let Some(refused) = state.database_health.refusal(request.method(), requirement) {
+        return refused;
+    }
     let tree_id = match tree_in_path(route, request.uri().path()) {
         Ok(tree_id) => tree_id,
         Err(error) => return ApiError(error).into_response(),

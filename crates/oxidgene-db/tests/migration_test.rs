@@ -95,7 +95,7 @@ async fn assert_migration_lifecycle(db: &DatabaseConnection) {
 /// None of the schema's tables exists; `state` names the failure.
 async fn assert_no_table(db: &DatabaseConnection, state: &str) {
     let manager = SchemaManager::new(db);
-    for table in TABLES.iter().chain(&["person_search_key"]) {
+    for table in TABLES.iter().chain(&["person_search_key", "schema_meta"]) {
         assert!(!manager.has_table(*table).await.unwrap(), "{table} {state}");
     }
 }

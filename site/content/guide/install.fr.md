@@ -63,12 +63,39 @@ OxidGene répartit les fichiers qu’il écrit dans quatre dossiers. Sous Linux,
 |---|---|---|
 | `~/.local/share/oxidgene/` | Votre base de données (`oxidgene.db`) et le dossier `media/` avec vos photos et documents | **Non.** C’est votre généalogie, elle ne peut pas être reconstituée |
 | `~/.config/oxidgene/` | Vos propres thèmes (`themes/`) et langues (`languages/`) | Non : c’est vous qui les avez écrits |
-| `~/.local/state/oxidgene/` | Les préférences de la fenêtre (langue, thème, réglages du pedigree) et les cookies des sites d’archives que vous avez consultés | Seulement quand OxidGene est fermé ; vos préférences sont alors réinitialisées |
+| `~/.local/state/oxidgene/` | Les préférences de la fenêtre (langue, thème, réglages du pedigree), les cookies des sites d’archives que vous avez consultés et le dossier `snapshots/` avec les dernières copies de votre base | Seulement quand OxidGene est fermé ; vos préférences sont alors réinitialisées et les copies perdues |
 | `~/.cache/oxidgene/` | Les fichiers temporaires des imports et des exports | Oui, quand OxidGene est fermé |
 
 Sous macOS, votre base et vos médias se trouvent dans `~/Library/Application Support/oxidgene/` ; sous Windows, dans `%APPDATA%\oxidgene\`. Les sections Apparence et Langue des paramètres indiquent le dossier exact de vos propres thèmes et langues (voir [Paramètres](@/guide/settings.fr.md)).
 
 Incluez le dossier des données dans vos sauvegardes habituelles. Pour emporter un seul arbre avec ses médias, exportez-le en archive GEDZIP (voir [Import et export](@/guide/import-export.fr.md)).
+
+## Copies automatiques de votre base
+
+Une fois par jour, à son démarrage, OxidGene écrit une copie de votre base de données dans le dossier `snapshots/` et conserve les trois plus récentes (`oxidgene-<date et heure>.db`). La copie se fait pendant que vous travaillez, sans jamais vous faire attendre. Elle contient vos arbres, pas vos photos ni vos documents, qui restent dans le dossier `media/` et ne sont jamais réécrits. OxidGene renonce à la copie quand le disque est presque plein.
+
+Ces copies vous protègent d’un fichier endommagé, pas de la perte ou de la panne de votre ordinateur : elles se trouvent sur le même disque, conservez donc aussi vos propres sauvegardes.
+
+Pour revenir à une copie :
+
+1. Fermez OxidGene.
+2. Dans le dossier des données, mettez `oxidgene.db` à l’abri et supprimez les fichiers `oxidgene.db-wal` et `oxidgene.db-shm` s’ils existent.
+3. Copiez l’instantané voulu dans le dossier des données et renommez-le `oxidgene.db`.
+4. Démarrez OxidGene.
+
+Ce que vous avez modifié après cette copie ne s’y trouve pas.
+
+## Si OxidGene signale que la base est endommagée
+
+À chaque démarrage, OxidGene vérifie en arrière-plan le fichier de la base, et ne copie jamais un fichier qui échoue à cette vérification. Si la vérification échoue, il cesse de modifier le fichier et vous le dit dès que vous tentez une modification. Vous pouvez encore parcourir vos arbres et les exporter. Exportez ce qui compte pour vous, puis revenez à la copie la plus récente comme indiqué ci-dessus.
+
+## Si OxidGene signale que la base a été créée par une autre version
+
+Jusqu’à sa première version stable, OxidGene ne convertit pas une base d’une version à la suivante. Quand une nouvelle version ne peut pas lire votre base, elle laisse le fichier intact et vous le dit. Pour continuer :
+
+1. Avec la version que vous utilisiez, exportez chaque arbre en archive GEDZIP.
+2. Fermez OxidGene et sortez `oxidgene.db` (avec ses fichiers `-wal` et `-shm`) du dossier des données.
+3. Démarrez la nouvelle version, qui crée une base vide, et importez vos archives.
 
 ## Le compiler à partir des sources
 

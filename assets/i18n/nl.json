@@ -7215,6 +7215,8 @@
     "dictionary.view_usage": "Gebruik bekijken",
     "error.archive_unavailable": "Het archiefportaal is niet bereikbaar. Probeer het later opnieuw.",
     "error.busy": "De database is bezig met een andere taak. Wacht even en probeer het opnieuw.",
+    "error.database_damaged": "Het databasebestand is beschadigd, daarom wijzigt OxidGene het niet meer. U kunt uw stambomen nog exporteren; sluit daarna OxidGene en zet de meest recente momentopname terug.",
+    "error.database_incompatible": "Deze database is gemaakt door een andere versie van OxidGene en kan door deze versie niet worden geopend. Uw bestand is niet gewijzigd: maak de database opnieuw aan en importeer uw genealogie opnieuw.",
     "error.conflict": "Deze wijziging botst met de huidige staat van de stamboom of met een andere taak die bezig is. Laad de pagina opnieuw en probeer het opnieuw.",
     "error.forbidden": "U hebt geen toestemming om dit te doen.",
     "error.invalid_file": "Dit bestand kon niet worden gelezen: het is beschadigd of de indeling wordt niet ondersteund.",

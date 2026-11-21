@@ -60,6 +60,10 @@ pub struct AppState {
     /// How long the embedded worker keeps access events
     /// (docs/authorization.md §9.2).
     pub access_log_retention: std::time::Duration,
+    /// Whether the database file can be used: always, but for the desktop's
+    /// file once its start or its daily check said otherwise
+    /// (docs/architecture.md §8.4).
+    pub database_health: crate::backup::DatabaseHealth,
     /// The web build's authentication: the `none` mode until the server
     /// configures it.
     #[cfg(feature = "auth")]
@@ -117,6 +121,7 @@ impl AppState {
             local_file_access: LocalFileAccess(false),
             limits: crate::limits::IntakeLimits::default(),
             access_log_retention: crate::service::background_job::DEFAULT_ACCESS_LOG_RETENTION,
+            database_health: crate::backup::DatabaseHealth::default(),
             #[cfg(feature = "auth")]
             auth: Arc::new(crate::auth::Auth::none()),
         }
@@ -135,6 +140,14 @@ impl AppState {
     #[must_use]
     pub fn with_intake_limits(mut self, limits: crate::limits::IntakeLimits) -> Self {
         self.limits = limits;
+        self
+    }
+
+    /// Answer for the database file as `health` says: refuse what a file
+    /// that failed its check, or holds another schema, cannot serve.
+    #[must_use]
+    pub fn with_database_health(mut self, health: crate::backup::DatabaseHealth) -> Self {
+        self.database_health = health;
         self
     }
 

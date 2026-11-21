@@ -24,7 +24,10 @@ On your computer, in the application's data folder: the
 place on each system. To keep a copy you can open anywhere, export the tree
 as a GEDZIP archive, which carries its photos and documents
 ([Export a tree](@/guide/import-export.md#export-a-tree)). You can also copy
-the whole data folder while OxidGene is closed.
+the whole data folder while OxidGene is closed. OxidGene itself keeps the
+last three daily copies of its database
+([Automatic copies of your database](@/guide/install.md#automatic-copies-of-your-database)),
+on the same disk: they do not replace a backup.
 
 ## I use another genealogy program. Can I move my tree?
 

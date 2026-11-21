@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-21T15:46:03Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:51:49Z }
 ---
 
 
@@ -18,7 +18,13 @@ While the product is unreleased, the migrator registers only this initial
 migration, including all current tables, indexes, backend-specific search
 storage, and background-job trace context; a schema change edits it.
 Databases created with an earlier schema must be recreated and their genealogy
-reimported; running the consolidated migration is not an in-place upgrade.
+reimported; running the consolidated migration is not an in-place upgrade. A
+SQLite file says which schema it was created with — `schema_meta` holds,
+under the key `schema_digest`, the digest of the schema at its creation —
+and one created with another than the running build's is refused rather
+than opened ([Architecture §8.4](architecture.md#84-desktop-database-safety)).
+`schema_meta` exists on SQLite only: a PostgreSQL schema is the migrator's
+alone.
 Once the product is released, changes ship as incremental migrations instead
 ([Architecture §9](architecture.md)). Runtime projection versioning remains
 independent of this schema reset (see §4.1).

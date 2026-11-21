@@ -26,7 +26,10 @@ indique son emplacement sur chaque système. Pour garder une copie lisible
 partout, exportez l’arbre en archive GEDZIP, qui emporte ses photos et ses
 documents ([Exporter un arbre](@/guide/import-export.fr.md#exporter-un-arbre)).
 Vous pouvez aussi copier tout le dossier de données pendant qu’OxidGene est
-fermé.
+fermé. OxidGene conserve lui-même les trois dernières copies quotidiennes
+de sa base
+([Copies automatiques de votre base](@/guide/install.fr.md#copies-automatiques-de-votre-base)),
+sur le même disque : elles ne remplacent pas une sauvegarde.
 
 ## J’utilise un autre logiciel de généalogie. Puis-je y récupérer mon arbre ?
 

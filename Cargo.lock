@@ -5332,6 +5332,7 @@ dependencies = [
  "sea-orm-migration",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "tokio",
  "tracing",
  "tracing-opentelemetry",

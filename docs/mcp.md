@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: tools that each name their tree, read-only by default and writing only when the launch command opts in, stdio transport, consent, history, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-11-21T15:24:32Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:51:49Z }
 ---
 
 # Assistant Access (MCP)
@@ -104,7 +104,10 @@ subcommand is part of it, not a separate binary.
    is a startup error.
 2. Apply the same migrations as desktop startup. Applied migrations are
    recorded, so this does nothing on a database the desktop has already
-   opened.
+   opened. A file created with another schema than this version's is a
+   startup error that tells the user to open the application
+   ([Architecture §8.4](architecture.md#84-desktop-database-safety)); the
+   session takes no snapshot and runs no integrity check.
 3. Build a `ProfileService` over the connection and serve.
 
 A startup error is reported on standard error with a generic message (no

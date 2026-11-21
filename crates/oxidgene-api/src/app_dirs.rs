@@ -8,7 +8,7 @@
 //! |---|---|---|
 //! | data | `$XDG_DATA_HOME/oxidgene` (`~/.local/share/oxidgene`) | the database and the media: the user's genealogy |
 //! | config | `$XDG_CONFIG_HOME/oxidgene` (`~/.config/oxidgene`) | personal theme and locale JSON documents |
-//! | state | `$XDG_STATE_HOME/oxidgene` (`~/.local/state/oxidgene`) | the desktop window's web profile: cookies, local storage |
+//! | state | `$XDG_STATE_HOME/oxidgene` (`~/.local/state/oxidgene`) | the desktop window's web profile: cookies, local storage; the database's snapshots |
 //! | cache | `$XDG_CACHE_HOME/oxidgene` (`~/.cache/oxidgene`) | disposable work: job scratch, staged inputs, the web cache |
 //!
 //! The `dirs` crate reads the `XDG_*` variables and falls back to their
@@ -100,6 +100,14 @@ impl AppDirs {
         self.state.join("archives-webview")
     }
 
+    /// The snapshots of the database (see [`crate::backup`]): apart from
+    /// the data directory, so that what removes or fills one leaves the
+    /// other.
+    #[must_use]
+    pub fn snapshots(&self) -> PathBuf {
+        self.state.join("snapshots")
+    }
+
     /// The root of the disposable working files (see [`crate::workdir`]).
     #[must_use]
     pub fn work(&self) -> &Path {
@@ -170,6 +178,7 @@ mod tests {
             dirs.archives_webview(),
             Path::new("/s/oxidgene/archives-webview")
         );
+        assert_eq!(dirs.snapshots(), Path::new("/s/oxidgene/snapshots"));
         assert_eq!(dirs.work(), Path::new("/k/oxidgene"));
     }
 

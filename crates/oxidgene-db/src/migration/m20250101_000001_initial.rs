@@ -188,13 +188,14 @@ impl MigrationTrait for Migration {
         create_records(manager).await?;
         create_derived(manager).await?;
         create_accounts(manager).await?;
+        create_schema_meta(manager).await?;
         create_forward_keys(manager).await?;
         create_redaction_triggers(manager).await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let conn = manager.get_connection();
-        for table in ["person_search_fts", "person_search_key"] {
+        for table in ["person_search_fts", "person_search_key", "schema_meta"] {
             conn.execute_raw(Statement::from_string(
                 manager.get_database_backend(),
                 format!("DROP TABLE IF EXISTS {table}"),
@@ -262,6 +263,25 @@ impl MigrationTrait for Migration {
         }
         Ok(())
     }
+}
+
+/// What a SQLite database says of its own schema, by key: the digest of
+/// the schema the file was created with (`oxidgene_db::repo::schema_state`).
+/// A PostgreSQL database's schema is not checked, and has no such table.
+async fn create_schema_meta(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    if manager.get_database_backend() != DbBackend::Sqlite {
+        return Ok(());
+    }
+    manager
+        .create_table(
+            Table::create()
+                .table(SchemaMeta::Table)
+                .if_not_exists()
+                .col(string(SchemaMeta::Key).primary_key())
+                .col(text(SchemaMeta::Value))
+                .to_owned(),
+        )
+        .await
 }
 
 /// Drop every trigger, the first step of `down` under SQLite, which
@@ -823,6 +843,13 @@ enum ExclusionState {
     Table,
     TreeId,
     BuiltGeneration,
+}
+
+#[derive(DeriveIden)]
+enum SchemaMeta {
+    Table,
+    Key,
+    Value,
 }
 
 #[derive(DeriveIden)]

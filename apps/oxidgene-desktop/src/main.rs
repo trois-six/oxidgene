@@ -71,8 +71,9 @@ use dioxus::desktop::tao::event::Event;
 use dioxus::desktop::{Config, WindowBuilder, icon_from_memory};
 use oxidgene_api::access::{AllowedHosts, LocalToken, allowed_hosts, require_local_token};
 use oxidgene_api::app_dirs::AppDirs;
+use oxidgene_api::backup::SnapshotPolicy;
 use oxidgene_api::startup::{
-    DatabaseSettings, ReferenceWarmup, open_database, spawn_background_worker, with_health_check,
+    ReferenceWarmup, open_local_database, spawn_background_worker, with_health_check,
 };
 use oxidgene_api::tree_cache::{CacheSettings, DEFAULT_IDLE};
 use oxidgene_api::workdir::WorkDir;
@@ -337,6 +338,7 @@ fn main() {
 
     let db_path = app_dirs.database();
     let media_root = app_dirs.media();
+    let snapshots = app_dirs.snapshots();
     let work_dir = WorkDir::new(app_dirs.work());
     let server_work_dir = work_dir.clone();
     let database_url = format!("sqlite://{}?mode=rwc", db_path.display());
@@ -356,7 +358,9 @@ fn main() {
         let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         rt.block_on(async move {
             let reference_warmup = ReferenceWarmup::start();
-            let db = open_database(&database_url, &DatabaseSettings::default()).await;
+            let local =
+                open_local_database(&database_url, &db_path, SnapshotPolicy::daily(snapshots))
+                    .await;
 
             // Same platform data directory the web server defaults to, so a
             // desktop tree exported and re-imported on the server finds its
@@ -365,7 +369,8 @@ fn main() {
             // working directory.
             // One person works on one tree at a time: what is kept in memory
             // for a tree goes as soon as another is opened.
-            let state = AppState::new(db, media_root)
+            let state = AppState::new(local.connections, media_root)
+                .with_database_health(local.health)
                 .with_work_dir(server_work_dir)
                 .with_cache(CacheSettings::one_tree(cache_idle()))
                 // The disk is the user's: no quota, and an archive of any

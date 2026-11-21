@@ -40,6 +40,8 @@ chrono = { workspace = true }
 # The flat portrait row crosses to the API layer as JSON.
 serde = { workspace = true }
 serde_json = { workspace = true }
+# The digest of the schema a SQLite file was created with (`repo::safety`).
+sha2 = { workspace = true }
 tracing = { workspace = true }
 # The level type SQLx takes for its pool acquisition timing events.
 log = "0.4"

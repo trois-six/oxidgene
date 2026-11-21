@@ -5,18 +5,23 @@
 //! succeeds or logs the failure under a stable `error` code and ends the
 //! process with status 1.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::get;
 use oxidgene_core::OxidGeneError;
 pub use oxidgene_db::repo::DatabaseSettings;
-use oxidgene_db::repo::{BackgroundJobRepo, Connections, connect_with, run_migrations};
+use oxidgene_db::repo::{
+    BackgroundJobRepo, Connections, MigrationError, SchemaState, apply_migrations, connect_with,
+    run_migrations, schema_state,
+};
 use oxidgene_db::sea_orm::{DatabaseConnection, DbErr};
 use tokio::task::{JoinError, JoinHandle};
 use tracing::error;
 
 use crate::AppState;
+use crate::backup::{self, DatabaseHealth, SnapshotOutcome, SnapshotPolicy};
 use crate::error_contract::error_kind;
 use crate::service::background_job::BackgroundJobWorker;
 
@@ -54,6 +59,15 @@ impl FailureKind for OxidGeneError {
 impl FailureKind for DbErr {
     fn failure_kind(&self) -> &'static str {
         oxidgene_db::repo::db_error_kind(self).as_str()
+    }
+}
+
+impl FailureKind for MigrationError {
+    fn failure_kind(&self) -> &'static str {
+        match self {
+            Self::Database(error) => error.failure_kind(),
+            Self::SchemaMismatch => "schema_mismatch",
+        }
     }
 }
 
@@ -146,6 +160,101 @@ pub async fn open_database(database_url: &str, settings: &DatabaseSettings) -> C
         "database_read_pool",
         "Failed to open the read-only database pool",
     )
+}
+
+/// The desktop's database, and whether its file can be used.
+pub struct LocalDatabase {
+    pub connections: Connections,
+    /// What the router answers for: see [`DatabaseHealth`].
+    pub health: DatabaseHealth,
+}
+
+/// Open the desktop's database file `database` (at `database_url`), which
+/// is the only copy of its user's genealogy (docs/architecture.md §8.4):
+///
+/// - a file created with another schema than this build's is left as it
+///   is, and every request is answered `503 database_incompatible`;
+/// - a file with a migration to apply is copied first, into `snapshots`,
+///   and one that fails its integrity check then is left as it is, every
+///   request answered `503 database_damaged`;
+/// - once the file is open, the day's snapshot is taken in the background.
+///
+/// Where the file is not opened the process still needs a database to
+/// build its state on: an empty one in memory, which no request reaches.
+pub async fn open_local_database(
+    database_url: &str,
+    database: &Path,
+    snapshots: SnapshotPolicy,
+) -> LocalDatabase {
+    let settings = DatabaseSettings::default();
+    let db = or_exit(
+        connect_with(database_url, &settings).await,
+        "database_connection",
+        "Failed to connect to database",
+    );
+    let health = match local_schema(&db, database, &snapshots).await {
+        Ok(state) => {
+            or_exit(
+                apply_migrations(&db, state).await,
+                "database_migration",
+                "Failed to run migrations",
+            );
+            let connections = or_exit(
+                Connections::with_read_pool(db, database_url).await,
+                "database_read_pool",
+                "Failed to open the read-only database pool",
+            );
+            let health = DatabaseHealth::default();
+            backup::spawn_daily_snapshot(database.to_owned(), snapshots, health.clone());
+            return LocalDatabase {
+                connections,
+                health,
+            };
+        }
+        Err(health) => health,
+    };
+    let _ = db.close().await;
+    let empty = connect_and_migrate("sqlite::memory:", &settings).await;
+    LocalDatabase {
+        connections: empty.into(),
+        health,
+    }
+}
+
+/// What the desktop's file holds, once it is safe to migrate: its schema
+/// is this build's, and a file about to be changed by a migration has been
+/// copied. Otherwise, why it is not opened.
+async fn local_schema(
+    db: &DatabaseConnection,
+    database: &Path,
+    snapshots: &SnapshotPolicy,
+) -> Result<SchemaState, DatabaseHealth> {
+    let state = match schema_state(db).await {
+        Ok(state) => state,
+        Err(MigrationError::SchemaMismatch) => {
+            error!(
+                error = "database_incompatible",
+                "The database file was created with another schema than this version's: \
+                 it is left as it is, to be recreated and its genealogy reimported"
+            );
+            return Err(DatabaseHealth::incompatible());
+        }
+        Err(failure) => or_exit(
+            Err(failure),
+            "database_migration",
+            "Failed to run migrations",
+        ),
+    };
+    if state == (SchemaState::Existing { pending: true }) {
+        let now = chrono::Utc::now();
+        let outcome = backup::take_snapshot(database, snapshots, now).await;
+        let damaged = matches!(outcome, Ok(SnapshotOutcome::Damaged(_)));
+        backup::log_outcome(outcome, &DatabaseHealth::default());
+        if damaged {
+            return Err(DatabaseHealth::closed());
+        }
+    }
+    Ok(state)
 }
 
 /// The background job worker running inside this process: what stops it

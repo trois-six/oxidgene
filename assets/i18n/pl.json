@@ -7270,6 +7270,8 @@
     "dictionary.view_usage": "Pokaż użycia",
     "error.archive_unavailable": "Nie można połączyć się z portalem archiwum. Spróbuj ponownie później.",
     "error.busy": "Baza danych jest zajęta innym zadaniem. Odczekaj chwilę i spróbuj ponownie.",
+    "error.database_damaged": "Plik bazy danych jest uszkodzony, dlatego OxidGene już go nie zmienia. Nadal możesz wyeksportować swoje drzewa; następnie zamknij OxidGene i przywróć najnowszą migawkę.",
+    "error.database_incompatible": "Ta baza danych została utworzona przez inną wersję OxidGene i ta wersja nie może jej otworzyć. Plik nie został zmieniony: utwórz bazę ponownie i zaimportuj genealogię jeszcze raz.",
     "error.conflict": "Ta zmiana koliduje z bieżącym stanem drzewa lub z innym trwającym zadaniem. Odśwież stronę i spróbuj ponownie.",
     "error.forbidden": "Nie masz uprawnień do wykonania tej czynności.",
     "error.invalid_file": "Nie udało się odczytać tego pliku: jest uszkodzony lub jego format nie jest obsługiwany.",

@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T14:43:01Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:51:49Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -201,6 +201,8 @@ error (a `500`), and names the server log line that records it.
 | 415 | `unsupported_media_type` | Payload format is unsupported, such as a body without a JSON content type on a JSON route. |
 | 422 | `not_an_archive_citation`, `no_adapter` | A source asked for its archive target is not an archive citation, or cites an act no catalogued collection holds ([API Contract](api.md#sources)). |
 | 503 | `timeout` | The standalone server's time limit for the request ran out before a response (§7.1); a `504 timeout` is an archive portal's. |
+| 503 | `database_incompatible` | Desktop only: the database file was created with another schema than this version's and was left untouched; every request answers this until the database is recreated ([Architecture §8.4](architecture.md#84-desktop-database-safety)). |
+| 503 | `database_damaged` | Desktop only: the database file failed its integrity check, and the operations that change it are refused until a snapshot is restored; those that only read are still answered. |
 | 503 | `busy` | The database could not take the write in time: another writer holds the tree or the file past the wait, the transaction was ended for a concurrent one to go on, or no connection came free ([Architecture §4](architecture.md#4-backend-architecture)). Nothing was written; `Retry-After` says when to send the request again. |
 | 503 | `auth_unavailable` | The web build's identity provider or session store could not be reached where a request needed it ([Authentication §4.6](authentication.md#46-lifetimes-refresh-and-revalidation)). |
 | 502 | `unexpected_response`, `challenged`, `unreachable` | An archive portal answered not as its adapter expects, answered with an anti-bot challenge, or could not be reached. |
