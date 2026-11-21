@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T10:30:00Z }
 ---
 
 
@@ -960,8 +960,9 @@ row is treated as absent and rebuilt lazily, because `#[serde(default)]` alone
 would deserialize a missing new field as if it were genuine empty data. A
 tree counts as materialized only when it has rows and none of them is of
 another version, older or newer: rebuilding one person on demand never stands
-for the whole tree, so the first tree-wide read after a bump rebuilds every
-row. The check is two index range reads, below and above the current version,
+for the whole tree, which stays outdated after a bump until every row is
+rebuilt at once, by a worker's maintenance pass or by the first tree-wide
+read that comes before it (§4.4). The check is two index range reads, below and above the current version,
 since an index answers `<>` only by reading every row of the tree.
 The initial schema defaults `schema_version` to `0`, so a row without an
 explicit current version is stale rather than assumed to contain a current
@@ -1127,6 +1128,38 @@ restore a family a whole-tree rebuild correctly omits.
 Whole-tree imports and explicit maintenance rebuilds perform idempotent bulk
 work. On every tree-wide read, `ensure_materialized` checks that the tree is
 materialized (§4.1) and rebuilds it when it is not.
+
+**A whole-tree rebuild is atomic and runs once.** It deletes the tree's
+projections and search rows and writes them again in one transaction on the
+writer — the import's or the duplication's own, or one the rebuild opens
+(`ProfileService::rebuild_tree`: the lazy rebuild, the admin operation, a
+surname re-cut at its particle). Readers therefore see the tree as it was
+until the rebuild commits, never a part of it: no read finds the tree
+materialized on a subset of its rows. One rebuild runs at a time per tree.
+The transaction first takes the tree's `projection_state` row — a lock on
+PostgreSQL, the single writer on SQLite — then checks again whether the
+tree is materialized, so a rebuild that waited for another finds its work
+done and writes nothing, whichever process ran it. Within a process the
+requests that find a tree unmaterialized wait at a gate for the one
+rebuild instead of each holding a connection (one gate per tree on
+PostgreSQL, one for every tree on SQLite, whose rebuilds hold the only
+writer one after another). The rebuild runs on a task of its own: a
+request that stops waiting — a client gone, a timeout — does not undo it
+for the others.
+
+**What the first read after an upgrade returns.** Current, complete data:
+there is no "being rebuilt" answer, on either API surface, so a read that
+finds its tree outdated waits for the tree's rebuild. To spare readers that
+wait, every worker — the web worker pods, the worker embedded in the
+desktop and in a SQLite server — rebuilds the trees holding projections of
+another version in its maintenance pass, at start and every six minutes
+([Architecture §6](architecture.md#6-asynchronous-processing)), one tree at
+a time through the same rebuild. Which trees are outdated is read from the
+rows themselves (two index probes per tree), so the work to do survives a
+restart without a job of its own; a read arriving before the worker
+reached its tree runs or awaits that tree's rebuild. Rows an older process
+still running writes during a rolling upgrade outdate their tree again, and
+the next pass rebuilds it.
 
 ### 4.5 Deletion and recovery
 

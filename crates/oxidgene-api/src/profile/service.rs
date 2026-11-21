@@ -14,7 +14,8 @@
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::error::OxidGeneError;
@@ -29,8 +30,8 @@ use oxidgene_db::repo::{
     PersonNameRepo, PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo,
     RecordTagRepo, SosaRepo, VignetteRepo, db_err,
 };
-use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
-use tracing::{debug, info, instrument};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, TransactionTrait};
+use tracing::{Instrument as _, debug, info, instrument, warn};
 use uuid::Uuid;
 
 use super::builder::{
@@ -74,6 +75,52 @@ pub struct ProfileService {
     reader: DatabaseConnection,
     /// What the reads of a tree keep in memory between requests.
     cache: Arc<TreeCache>,
+    /// The whole-tree rebuilds this process runs, one at a time per tree.
+    rebuilds: Arc<Rebuilds>,
+}
+
+/// The gate requests wait at for a whole-tree rebuild.
+type Gate = Arc<tokio::sync::Mutex<()>>;
+
+/// The whole-tree rebuilds of one process: a gate per tree being rebuilt,
+/// so that the requests finding a tree unmaterialized together wait for one
+/// rebuild instead of each running its own, and a count of the rebuilds
+/// run.
+///
+/// The gate only spares the waiting requests a connection each; what keeps
+/// two rebuilds of a tree apart, across processes too, is the database
+/// ([`PersonDenormRepo::lock_tree`]). SQLite has one writer, which a
+/// rebuild holds for its whole transaction, so there the one gate serves
+/// every tree: a second tree's rebuild waits here, where nothing times
+/// out, rather than for the pool's only connection.
+#[derive(Debug, Default)]
+struct Rebuilds {
+    gates: Mutex<HashMap<Option<Uuid>, Gate>>,
+    run: AtomicU64,
+}
+
+impl Rebuilds {
+    fn gates(&self) -> MutexGuard<'_, HashMap<Option<Uuid>, Gate>> {
+        // A panic while the lock was held left a map of gates, still
+        // consistent: keep using it.
+        self.gates
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The gate of `key`: a tree, or every tree.
+    fn gate(&self, key: Option<Uuid>) -> Gate {
+        Arc::clone(self.gates().entry(key).or_default())
+    }
+
+    /// Forget the gate of `key` once nobody else holds or awaits it.
+    fn leave(&self, key: Option<Uuid>, gate: &Gate) {
+        let mut gates = self.gates();
+        // This handle and the map's.
+        if Arc::strong_count(gate) <= 2 {
+            gates.remove(&key);
+        }
+    }
 }
 
 impl ProfileService {
@@ -86,6 +133,7 @@ impl ProfileService {
             writer,
             reader,
             cache: Arc::default(),
+            rebuilds: Arc::default(),
         }
     }
 
@@ -108,18 +156,35 @@ impl ProfileService {
 
     // ── Full tree rebuild ────────────────────────────────────────────────
 
-    /// Rebuild every projection of a tree, plus its search rows.
+    /// Rebuild every projection of a tree, plus its search rows, on the
+    /// caller's transaction.
     ///
-    /// Used after imports and when current projections or search rows are absent.
+    /// Used by what writes a whole tree in a transaction of its own: an
+    /// import, a duplication. The application never calls it on a plain
+    /// connection: a rebuild deletes the tree's rows before writing them
+    /// again, and outside a transaction a reader would find the tree
+    /// materialized on a part of them ([`Self::rebuild_tree`] is the
+    /// rebuild that opens its own).
     #[instrument(skip_all)]
     pub async fn rebuild_tree_full(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<usize, OxidGeneError> {
-        info!("Starting full projection rebuild");
+        Self::rebuild_in(conn, tree_id, &self.rebuilds).await
+    }
 
-        let tree_data = Box::pin(self.fetch_tree_data(conn, tree_id)).await?;
+    /// [`Self::rebuild_tree_full`] without the service: what a rebuild
+    /// running on a task of its own calls.
+    async fn rebuild_in(
+        conn: &impl ConnectionTrait,
+        tree_id: Uuid,
+        rebuilds: &Rebuilds,
+    ) -> Result<usize, OxidGeneError> {
+        info!("Starting full projection rebuild");
+        rebuilds.run.fetch_add(1, Ordering::AcqRel);
+
+        let tree_data = Box::pin(Self::fetch_tree_data(conn, tree_id)).await?;
         let persons = build_all_persons(tree_id, &tree_data);
         debug!(count = persons.len(), "Built projections");
 
@@ -131,28 +196,124 @@ impl ProfileService {
         super::visibility::rebuild_from(conn, tree_id, &tree_data).await?;
         // Having just written a tree's worth of rows the planner has no
         // statistics for — an import's last bulk write: its history entry
-        // stores no version.
-        oxidgene_db::repo::refresh_statistics(conn).await;
+        // stores no version. A tree without persons wrote none.
+        if !persons.is_empty() {
+            oxidgene_db::repo::refresh_statistics(conn).await;
+        }
 
         info!(count = persons.len(), "Completed full projection rebuild");
         Ok(persons.len())
     }
 
+    /// How many whole-tree rebuilds this service ran, for the tests and the
+    /// measurements.
+    pub fn full_rebuilds(&self) -> u64 {
+        self.rebuilds.run.load(Ordering::Acquire)
+    }
+
+    /// Whether the projections and the search rows of a tree are usable, as
+    /// `conn` sees them.
+    async fn is_materialized(
+        conn: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<bool, OxidGeneError> {
+        // Usable only when no row predates the current schema version.
+        let denorm = PersonDenormRepo::is_materialized(conn, tree_id).await?;
+        let search = PersonSearchRepo::has_tree(conn, tree_id).await?;
+        if !(denorm && search) {
+            debug!(denorm, search, "Tree projections are not materialized");
+        }
+        Ok(denorm && search)
+    }
+
     /// Materialize a tree's projections if they have never been built.
     ///
     /// Covers missing or outdated projections and independently cleared
-    /// search rows. Checked on the read pool, built on the writer.
+    /// search rows. Checked on the read pool; built, when the check fails,
+    /// by [`Self::materialize`], which every request finding the same waits
+    /// for.
     pub(super) async fn ensure_materialized(&self, tree_id: Uuid) -> Result<(), OxidGeneError> {
-        // Usable only when no row predates the current schema version.
-        let denorm = PersonDenormRepo::is_materialized(&self.reader, tree_id).await?;
-        let search = PersonSearchRepo::has_tree(&self.reader, tree_id).await?;
-        if denorm && search {
+        if Self::is_materialized(&self.reader, tree_id).await? {
             return Ok(());
         }
+        self.materialize(tree_id, false).await.map(drop)
+    }
 
-        debug!(denorm, search, "Tree projections are not materialized");
-        self.rebuild_tree_full(&self.writer, tree_id).await?;
-        Ok(())
+    /// Rebuild every projection of a tree and its search rows in one
+    /// transaction on the writer: the projection admin operation of REST
+    /// and GraphQL. How many persons were built.
+    pub async fn rebuild_tree(&self, tree_id: Uuid) -> Result<usize, OxidGeneError> {
+        self.materialize(tree_id, true).await
+    }
+
+    /// Rebuild the trees holding projections another build wrote — after
+    /// an upgrade that changed their shape — one at a time, so that the
+    /// first read of each does not have to: what a worker does when it
+    /// starts and at each maintenance pass. A tree that fails is logged and
+    /// left to its first read. How many trees were rebuilt.
+    pub async fn rebuild_stale_trees(&self) -> Result<usize, OxidGeneError> {
+        let mut rebuilt = 0;
+        for tree_id in PersonDenormRepo::stale_trees(&self.reader).await? {
+            match self.materialize(tree_id, false).await {
+                Ok(_) => rebuilt += 1,
+                Err(error) => warn!(
+                    error.kind = crate::error_contract::error_kind(&error),
+                    "could not rebuild the projections of a tree"
+                ),
+            }
+        }
+        Ok(rebuilt)
+    }
+
+    /// Rebuild tree `tree_id` whole — when `force`d, or when it is still
+    /// not materialized once its turn comes — and return how many persons
+    /// were built, 0 for a rebuild another request made meanwhile.
+    ///
+    /// The rebuild is one transaction on the writer: readers see the tree
+    /// as it was until it commits, never a part of it. It runs on a task of
+    /// its own, so a request that gives up waiting — a client gone — does
+    /// not undo it for the requests waiting with it, nor for the next one.
+    /// One rebuild runs at a time per tree: the requests of this process
+    /// wait at the tree's gate, and the transaction takes the tree's
+    /// projections ([`PersonDenormRepo::lock_tree`]) before it checks
+    /// again, which other processes wait for too.
+    async fn materialize(&self, tree_id: Uuid, force: bool) -> Result<usize, OxidGeneError> {
+        let writer = self.writer.clone();
+        let rebuilds = Arc::clone(&self.rebuilds);
+        let rebuild = async move {
+            let key = (writer.get_database_backend() != DbBackend::Sqlite).then_some(tree_id);
+            let gate = rebuilds.gate(key);
+            let built = {
+                let _turn = gate.lock().await;
+                Self::materialize_on(&writer, &rebuilds, tree_id, force).await
+            };
+            rebuilds.leave(key, &gate);
+            built
+        };
+        tokio::spawn(rebuild.in_current_span())
+            .await
+            .map_err(|error| OxidGeneError::Internal(error.to_string()))?
+    }
+
+    /// The transaction of [`Self::materialize`].
+    async fn materialize_on(
+        writer: &DatabaseConnection,
+        rebuilds: &Rebuilds,
+        tree_id: Uuid,
+        force: bool,
+    ) -> Result<usize, OxidGeneError> {
+        let txn = writer.begin().await.map_err(db_err)?;
+        // A tree deleted meanwhile has nothing to build; one a request
+        // ahead of this one rebuilt is read as it stands.
+        let wanted = PersonDenormRepo::lock_tree(&txn, tree_id).await?
+            && (force || !Self::is_materialized(&txn, tree_id).await?);
+        if !wanted {
+            txn.rollback().await.map_err(db_err)?;
+            return Ok(0);
+        }
+        let built = Self::rebuild_in(&txn, tree_id, rebuilds).await?;
+        txn.commit().await.map_err(db_err)?;
+        Ok(built)
     }
 
     // ── SOSA ancestry ────────────────────────────────────────────────────
@@ -308,7 +469,7 @@ impl ProfileService {
 
         let built: Vec<PersonProfile> = if person_ids.len() >= FULL_FETCH_THRESHOLD {
             let wanted: HashSet<Uuid> = person_ids.iter().copied().collect();
-            let tree_data = Box::pin(self.fetch_tree_data(conn, tree_id)).await?;
+            let tree_data = Box::pin(Self::fetch_tree_data(conn, tree_id)).await?;
             build_all_persons(tree_id, &tree_data)
                 .into_iter()
                 .filter(|p| wanted.contains(&p.person_id))
@@ -891,7 +1052,6 @@ impl ProfileService {
     /// Fetch everything needed to build every projection of a tree. Boxed
     /// by its callers, like [`Self::fetch_persons_data`].
     async fn fetch_tree_data(
-        &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<TreeData, OxidGeneError> {

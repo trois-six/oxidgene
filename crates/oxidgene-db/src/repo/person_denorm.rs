@@ -261,6 +261,69 @@ impl PersonDenormRepo {
         Ok(current.is_some())
     }
 
+    /// Take tree `tree_id`'s projections for a whole-tree rebuild on `txn`:
+    /// whether the tree still exists.
+    ///
+    /// On PostgreSQL its `projection_state` row stays locked until `txn`
+    /// ends, so two rebuilds of one tree, in this process or in two, run one
+    /// after the other and the second finds what the first committed. It is
+    /// the row the rebuild's first write locks anyway, through the
+    /// generation trigger, taken here before anything is read. On SQLite
+    /// the single writer does.
+    pub async fn lock_tree(
+        txn: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<bool, OxidGeneError> {
+        let backend = txn.get_database_backend();
+        let sql = match backend {
+            DbBackend::Sqlite => "SELECT generation FROM projection_state WHERE tree_id = ?",
+            _ => "SELECT generation FROM projection_state WHERE tree_id = $1 FOR UPDATE",
+        };
+        txn.query_one_raw(Statement::from_sql_and_values(
+            backend,
+            sql,
+            [tree_id.into()],
+        ))
+        .await
+        .map(|row| row.is_some())
+        .map_err(db_err)
+    }
+
+    /// The trees holding a projection another build wrote: those the first
+    /// tree-wide read would rebuild (see [`Self::is_materialized`]).
+    ///
+    /// Two index range probes per tree, below and above the current
+    /// version, as [`Self::is_materialized`] makes them.
+    pub async fn stale_trees(db: &impl ConnectionTrait) -> Result<Vec<Uuid>, OxidGeneError> {
+        let backend = db.get_database_backend();
+        let (below, above) = match backend {
+            DbBackend::Sqlite => ("?", "?"),
+            _ => ("$1", "$2"),
+        };
+        let sql = format!(
+            "SELECT t.id AS id FROM tree t \
+             WHERE EXISTS (SELECT 1 FROM person_denorm d \
+                 WHERE d.tree_id = t.id AND d.schema_version < {below}) \
+             OR EXISTS (SELECT 1 FROM person_denorm d \
+                 WHERE d.tree_id = t.id AND d.schema_version > {above})"
+        );
+        let rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                backend,
+                sql,
+                [
+                    PROJECTION_SCHEMA_VERSION.into(),
+                    PROJECTION_SCHEMA_VERSION.into(),
+                ],
+            ))
+            .await
+            .map_err(db_err)?;
+        rows.iter()
+            .map(|row| row.try_get::<Uuid>("", "id"))
+            .collect::<Result<_, _>>()
+            .map_err(db_err)
+    }
+
     /// The generation of a tree's projections: a number triggers move in the
     /// transaction of every write to the tree's rows, whatever process makes
     /// it, so that a reader holding projections read at some generation

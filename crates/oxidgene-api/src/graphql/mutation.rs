@@ -1971,10 +1971,9 @@ impl TreeMutation {
         tree_id: ID,
     ) -> Result<GqlProfileRebuildResult> {
         boxed(async move {
-            let db = db_from_ctx(ctx);
             let profiles = profiles_from_ctx(ctx);
             let tid = live_tree(ctx, &tree_id).await?;
-            let count = profiles.rebuild_tree_full(db, tid).await?;
+            let count = profiles.rebuild_tree(tid).await?;
             Ok(GqlProfileRebuildResult {
                 rebuilt: true,
                 persons_count: count as i32,

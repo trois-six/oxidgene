@@ -40,9 +40,10 @@ pub struct FamilyNameChange {
 ///
 /// A surname reaches every projection that embeds a display name, so the
 /// affected set of this edit is unbounded in practice: the tree is rebuilt
-/// eagerly once the change is committed, outside the transaction, as an
-/// import does, rather than holding a write lock over every row of a large
-/// tree. Nothing is rebuilt, or recorded, when nothing changed.
+/// eagerly once the change is committed, in a transaction of its own
+/// ([`ProfileService::rebuild_tree`]), rather than holding the edit's write
+/// lock over every row of a large tree. Nothing is rebuilt, or recorded,
+/// when nothing changed.
 pub async fn set_particle(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
@@ -67,7 +68,7 @@ pub async fn set_particle(
     }
     commit_tx(txn).await?;
     if update.names_updated > 0 {
-        profiles.rebuild_tree_full(db, tree_id).await?;
+        profiles.rebuild_tree(tree_id).await?;
     }
     Ok(update)
 }

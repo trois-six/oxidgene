@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T16:05:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:00:00Z }
 ---
 
 
@@ -607,9 +607,11 @@ and flow — are listed in the [specification index](index.md).
     start and then every six minutes, deletes the expired artifacts, the rows
     and objects of jobs ended more than a day ago and the objects under
     `jobs/` that no job needs any more (no row, or ended without an artifact)
-    once they are a day old, and sweeps the stored crops no read reaches any
-    more ([§4.2](#42-stored-crops)). Purging a tree deletes its jobs' objects
-    before the rows cascade away.
+    once they are a day old, sweeps the stored crops no read reaches any
+    more ([§4.2](#42-stored-crops)), and rebuilds the projections of the
+    trees an upgrade outdated, one tree and one transaction at a time
+    ([Data Model §4.4](data-model.md#44-refresh-and-consistency)). Purging a
+    tree deletes its jobs' objects before the rows cascade away.
 - A crafted file cannot stop the queue. Readers parse on the blocking pool
     behind a task boundary, so a reader that panics fails its job as
     unreadable input (`invalid_job_input`) instead of reaching the worker. The

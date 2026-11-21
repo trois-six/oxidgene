@@ -800,8 +800,10 @@ impl BackgroundJobWorker {
     /// import stored and did not take back, the working files a crashed run
     /// left (see [`WorkDir::sweep`]), and the stored crops no read reaches
     /// any more (see [`crate::media::crops::sweep`]; those of a tree the
-    /// database does not hold once its id is a day old). Failures are
-    /// logged; the next pass retries.
+    /// database does not hold once its id is a day old). It ends by
+    /// rebuilding the projections of the trees an upgrade outdated (see
+    /// [`ProfileService::rebuild_stale_trees`]). Failures are logged; the
+    /// next pass retries.
     pub async fn maintain(&self, now: chrono::DateTime<chrono::Utc>) {
         let work_dir = self.work_dir.clone();
         let swept = tokio::task::spawn_blocking(move || work_dir.sweep(now.into())).await;
@@ -840,6 +842,12 @@ impl BackgroundJobWorker {
         log_maintenance_failure(
             "notification_retention",
             crate::service::notification::prune(&self.db, now).await,
+        );
+        // After an upgrade that changed the projections' shape, here rather
+        // than in the first read of each tree (docs/data-model.md §4.4).
+        log_maintenance_failure(
+            "projection_rebuild",
+            self.profiles.rebuild_stale_trees().await.map(drop),
         );
     }
 

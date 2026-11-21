@@ -90,7 +90,7 @@ pub async fn rebuild_tree_profiles(
     State(state): State<AppState>,
     Path(tree_id): Path<Uuid>,
 ) -> Result<Json<ProfileRebuildResponse>, ApiError> {
-    let count = state.profiles.rebuild_tree_full(&state.db, tree_id).await?;
+    let count = state.profiles.rebuild_tree(tree_id).await?;
 
     Ok(Json(ProfileRebuildResponse {
         rebuilt: true,

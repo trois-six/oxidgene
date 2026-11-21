@@ -1572,3 +1572,153 @@ async fn a_committed_mutation_applies_data_and_projection_together() {
         1
     );
 }
+
+// ─────────────────────── Whole-tree rebuilds ─────────────────────────
+
+/// The router, its projection service and its writer over a fresh
+/// database where a read does not wait for a write: a SQLite file with its
+/// read pool, as the desktop runs, or a schema of the run's PostgreSQL
+/// database. The directory lives as long as it is held.
+async fn file_backed_app() -> (
+    axum::Router,
+    std::sync::Arc<ProfileService>,
+    DatabaseConnection,
+    tempfile::TempDir,
+) {
+    let directory = tempfile::tempdir().expect("database directory");
+    let connections: oxidgene_db::repo::Connections =
+        if std::env::var("OXIDGENE_TEST_POSTGRES_URL").is_ok() {
+            setup_db().await.into()
+        } else {
+            common::setup_file_db(directory.path()).await
+        };
+    let state = common::offline(oxidgene_api::AppState::new(
+        connections,
+        common::test_media_root(),
+    ));
+    let profiles = std::sync::Arc::clone(&state.profiles);
+    let db = state.db.clone();
+    (oxidgene_api::build_router(state), profiles, db, directory)
+}
+
+/// Mark every projection of the database as written by an older build, the
+/// way a binary upgrade leaves them.
+async fn outdate_projections(db: &DatabaseConnection) {
+    use oxidgene_db::sea_orm::{ConnectionTrait, Statement};
+    db.execute_raw(Statement::from_string(
+        db.get_database_backend(),
+        "UPDATE person_denorm SET schema_version = 0",
+    ))
+    .await
+    .unwrap();
+}
+
+/// Requests arriving together on a tree whose projections an upgrade
+/// outdated wait for one rebuild, which commits whole: none of them runs
+/// its own, and none reads the tree while only a part of it is rebuilt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn first_reads_arriving_together_rebuild_a_tree_once_and_read_it_whole() {
+    use axum::http::Method;
+
+    const BLOCKS: usize = 150;
+    let (app, profiles, db, _directory) = file_backed_app().await;
+    let (tree, anchor) = common::family_blocks_tree(&app, &db, BLOCKS).await;
+    let pedigree =
+        format!("/api/v1/trees/{tree}/pedigree/{anchor}?ancestor_depth=2&descendant_depth=0");
+    let before = common::ok(&app, Method::GET, &pedigree, None).await;
+    let nodes = before["persons"].as_object().unwrap().len();
+    assert!(
+        nodes >= 7,
+        "the root, its parents and grandparents: {nodes}"
+    );
+
+    outdate_projections(&db).await;
+    let rebuilds = profiles.full_rebuilds();
+    let requests: Vec<_> = (0..16)
+        .map(|at| {
+            let app = app.clone();
+            let uri = match at % 4 {
+                0 | 1 => pedigree.clone(),
+                2 => format!("/api/v1/trees/{tree}/profiles?first=1"),
+                _ => format!("/api/v1/trees/{tree}/persons/search?q="),
+            };
+            tokio::spawn(async move { common::ok(&app, Method::GET, &uri, None).await })
+        })
+        .collect();
+    for (at, request) in requests.into_iter().enumerate() {
+        let answer = request.await.unwrap();
+        match at % 4 {
+            0 | 1 => assert_eq!(
+                answer["persons"].as_object().unwrap().len(),
+                nodes,
+                "a pedigree read a part of the tree"
+            ),
+            _ => assert_eq!(
+                answer["total_count"],
+                BLOCKS * 10,
+                "request {at} read a part of the tree"
+            ),
+        }
+    }
+    assert_eq!(
+        profiles.full_rebuilds() - rebuilds,
+        1,
+        "the requests arriving together share one rebuild"
+    );
+    assert_eq!(
+        current_rows(&db, tree.parse().unwrap()).await,
+        (BLOCKS * 10) as i64
+    );
+}
+
+/// The admin rebuild is one transaction: a reader never finds the tree
+/// between its rows' deletion and their rewriting.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_forced_rebuild_never_shows_a_part_of_the_tree() {
+    use axum::http::Method;
+
+    const BLOCKS: usize = 150;
+    let (app, profiles, db, _directory) = file_backed_app().await;
+    let (tree, _anchor) = common::family_blocks_tree(&app, &db, BLOCKS).await;
+    let tree_id: Uuid = tree.parse().unwrap();
+
+    let rebuilding = {
+        let profiles = std::sync::Arc::clone(&profiles);
+        tokio::spawn(async move { profiles.rebuild_tree(tree_id).await.unwrap() })
+    };
+    let uri = format!("/api/v1/trees/{tree}/profiles?first=1");
+    while !rebuilding.is_finished() {
+        let page = common::ok(&app, Method::GET, &uri, None).await;
+        assert_eq!(page["total_count"], BLOCKS * 10, "a part of the tree");
+    }
+    assert_eq!(rebuilding.await.unwrap(), BLOCKS * 10);
+}
+
+/// A worker's maintenance pass rebuilds the trees an upgrade outdated, so
+/// that their first read finds them built; a tree already current is left
+/// alone.
+#[tokio::test]
+async fn the_trees_an_upgrade_outdated_are_rebuilt_before_their_first_read() {
+    let (db, service) = setup().await;
+    let outdated = create_tree(&db).await;
+    create_family_trio(&db, outdated).await;
+    service.rebuild_tree_full(&db, outdated).await.unwrap();
+    outdate_projections(&db).await;
+    let current = create_tree(&db).await;
+    create_family_trio(&db, current).await;
+    service.rebuild_tree_full(&db, current).await.unwrap();
+
+    assert_eq!(
+        PersonDenormRepo::stale_trees(&db).await.unwrap(),
+        [outdated]
+    );
+    let rebuilds = service.full_rebuilds();
+    assert_eq!(service.rebuild_stale_trees().await.unwrap(), 1);
+    assert_eq!(service.full_rebuilds() - rebuilds, 1);
+    assert_eq!(current_rows(&db, outdated).await, 3);
+    assert!(PersonDenormRepo::stale_trees(&db).await.unwrap().is_empty());
+
+    // Its first read rebuilds nothing.
+    service.search(outdated, "", 10, 0).await.unwrap();
+    assert_eq!(service.full_rebuilds() - rebuilds, 1);
+}
