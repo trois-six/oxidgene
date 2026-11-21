@@ -166,7 +166,15 @@ pub async fn list_trees(
     let mut accesses = std::collections::HashMap::new();
     for tree in trees.edges.iter().map(|edge| &edge.node) {
         let access = match &roles {
-            None => TreeAccess::of_role(TreeRole::Owner),
+            // The local owner's, on a tree this list has just read live:
+            // what resolving it would answer, kept for the request so that
+            // what is nested under a listed tree — its counts, over GraphQL
+            // — does not read each tree again to learn it.
+            None => {
+                let access = TreeAccess::of_role(TreeRole::Owner);
+                viewer.remember(tree.id, access);
+                access
+            }
             Some(roles) => match roles.get(&tree.id) {
                 Some(&(role, scope)) => TreeAccess::of_role(role).scoped(scope),
                 // A tree a share link opens: the link's own access.

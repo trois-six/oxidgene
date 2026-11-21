@@ -484,6 +484,47 @@ async fn no_graphql_query_issues_statements_per_record() {
     assert!(grows.is_empty(), "{}", grows.join("\n"));
 }
 
+/// Listing the trees costs the same statements whatever their number, on
+/// both surfaces: the counts GraphQL nests under each tree are read for all
+/// of them at once, and no tree is read again on the way. One read per
+/// tree did more than cost a statement each: the counts of the trees whose
+/// read had ended were batched without the others, one statement more
+/// whenever the reads ended apart, on a busy machine.
+#[cfg(feature = "graphql")]
+#[tokio::test]
+async fn the_list_of_trees_costs_the_same_whatever_their_number() {
+    const QUERY: &str =
+        "query { trees(first: 100) { edges { node { id personCount familyCount } } } }";
+    let counter = Arc::new(AtomicUsize::new(0));
+    let _guard = tracing_subscriber::registry()
+        .with(StatementCounter(Arc::clone(&counter)))
+        .set_default();
+    let db = setup_db().await;
+    let app = app_on(db.clone());
+
+    let mut costs = Vec::new();
+    for trees in [2, 9] {
+        for tree in costs.len() * 2..trees {
+            common::new_tree(&app, &format!("Listed {tree}")).await;
+        }
+        counter.store(0, Ordering::Relaxed);
+        let listed = common::gql(&app, QUERY, json!({})).await;
+        assert_eq!(
+            listed["data"]["trees"]["edges"].as_array().map(Vec::len),
+            Some(trees),
+            "{listed}"
+        );
+        let graphql = counter.swap(0, Ordering::Relaxed);
+        ok(&app, Method::GET, "/api/v1/trees?first=100", None).await;
+        costs.push((graphql, counter.load(Ordering::Relaxed)));
+    }
+    assert!(costs[0].0 > 0 && costs[0].1 > 0, "no statement counted");
+    assert_eq!(
+        costs[0], costs[1],
+        "(GraphQL, REST) statements for 2 trees and for 9"
+    );
+}
+
 /// A tree whose `count` sources are titled `prefix` and a three-digit number.
 async fn tree_of_sources(app: &Router, prefix: &str, count: usize) -> String {
     let tree = common::new_tree(app, "Drill-down").await;
