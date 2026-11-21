@@ -1368,13 +1368,31 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             .exec(self.db)
             .await
             .map_err(db_err)?;
+        // A person has one primary name at most, at every statement: the
+        // live one steps down before the snapshot's is written, which may
+        // be another row.
+        person_name::Entity::update_many()
+            .col_expr(person_name::Column::IsPrimary, Expr::value(false))
+            .filter(person_name::Column::PersonId.eq(person_id))
+            .filter(person_name::Column::IsPrimary.eq(true))
+            .exec(self.db)
+            .await
+            .map_err(db_err)?;
+        let mut has_primary = false;
         for name in names {
-            self.name(person_id, name).await?;
+            let is_primary = name.is_primary && !has_primary;
+            has_primary |= is_primary;
+            self.name(person_id, name, is_primary).await?;
         }
         Ok(())
     }
 
-    async fn name(&mut self, person_id: Uuid, name: &NameSnapshot) -> Result<(), OxidGeneError> {
+    async fn name(
+        &mut self,
+        person_id: Uuid,
+        name: &NameSnapshot,
+        is_primary: bool,
+    ) -> Result<(), OxidGeneError> {
         let now = Utc::now();
         let row = person_name::ActiveModel {
             id: Set(name.id),
@@ -1386,7 +1404,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             prefix: Set(name.prefix.clone()),
             suffix: Set(name.suffix.clone()),
             nickname: Set(name.nickname.clone()),
-            is_primary: Set(name.is_primary),
+            is_primary: Set(is_primary),
             sort_order: Set(name.sort_order),
             created_at: Set(now),
             updated_at: Set(now),
@@ -1442,6 +1460,8 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 EventOwner::Person(id) => (Some(id), None),
                 EventOwner::Family(id) => (None, Some(id)),
             };
+            // Only an individual event names a family it does not belong to.
+            let related_family_id = related_family_id.filter(|_| person_id.is_some());
             let row = event::ActiveModel {
                 id: Set(snapshot.id),
                 tree_id: Set(self.tree_id),

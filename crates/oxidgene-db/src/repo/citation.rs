@@ -230,7 +230,8 @@ impl CitationRepo {
         .await
     }
 
-    /// Create a new citation.
+    /// Create a new citation, attached to exactly one of a person, an event
+    /// and a family.
     #[expect(
         clippy::too_many_arguments,
         reason = "one parameter per column the statement writes, already validated by the calling service"
@@ -246,6 +247,11 @@ impl CitationRepo {
         confidence: Option<Confidence>,
         text: Option<String>,
     ) -> Result<Citation, OxidGeneError> {
+        crate::repo::require_one_target(
+            "citation",
+            "person_id, event_id and family_id",
+            &[person_id, event_id, family_id],
+        )?;
         let now = Utc::now();
         let model = citation::ActiveModel {
             id: Set(id),

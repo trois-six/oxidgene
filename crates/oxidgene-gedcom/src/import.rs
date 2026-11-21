@@ -744,6 +744,9 @@ pub fn import_gedcom_data(data: &mut Dataset, tree_id: Uuid) -> ImportResult {
     result.note_by_xref = ctx.note_map;
     result.media_by_xref = page_map;
 
+    // A file may repeat a link or attach a row to two records, which the
+    // schema refuses: the result holds valid rows, and says what it changed.
+    result.enforce_invariants();
     result
 }
 
@@ -4162,7 +4165,7 @@ fn import_event_detail(
         }
     }
 
-    import_event_parts(event, event_id, family_id, ctx, lookups, result);
+    import_event_parts(event, event_id, ctx, lookups, result);
 }
 
 /// What an event and an attribute import alike: their citations, media and
@@ -4170,7 +4173,6 @@ fn import_event_detail(
 fn import_event_parts(
     event: EventView<'_>,
     event_id: Uuid,
-    family_id: Option<Uuid>,
     ctx: &ImportContext,
     lookups: &mut Lookups<'_>,
     result: &mut ImportResult,
@@ -4178,10 +4180,12 @@ fn import_event_parts(
     for cite in event.citations() {
         import_citation(
             cite,
+            // The event alone: a family event's citation is reached through
+            // the event, as its notes and media are.
             CitationOwner {
                 person_id: None,
                 event_id: Some(event_id),
-                family_id,
+                family_id: None,
             },
             &ctx.source_map,
             lookups.text_source,
@@ -4306,7 +4310,7 @@ fn import_attribute_detail(
         // deed behind a TITL. A value that split into several professions
         // gives each of them the scan, the same way each gets the citations:
         // one line documented them all.
-        import_event_parts(attribute, event_id, owner.family_id, ctx, lookups, result);
+        import_event_parts(attribute, event_id, ctx, lookups, result);
     }
 }
 

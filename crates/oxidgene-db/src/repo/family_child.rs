@@ -87,7 +87,8 @@ impl FamilyChildRepo {
         .await
     }
 
-    /// Create a family–child link.
+    /// Create a family–child link. A person is a child of a family once: a
+    /// second link is a conflict.
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -96,6 +97,17 @@ impl FamilyChildRepo {
         child_type: ChildType,
         sort_order: i32,
     ) -> Result<FamilyChild, OxidGeneError> {
+        let already = Entity::find()
+            .filter(Column::FamilyId.eq(family_id))
+            .filter(Column::PersonId.eq(person_id))
+            .one(db)
+            .await
+            .map_err(db_err)?;
+        if already.is_some() {
+            return Err(OxidGeneError::Conflict(
+                "the person is already a child of the family".to_string(),
+            ));
+        }
         let model = family_child::ActiveModel {
             id: Set(id),
             family_id: Set(family_id),

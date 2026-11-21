@@ -277,6 +277,18 @@ impl NoteRepo {
         confidential: bool,
         owner: &NoteFilter,
     ) -> Result<Note, OxidGeneError> {
+        crate::repo::require_one_target(
+            "note",
+            "person_id, event_id, family_id, source_id, media_id and repository_id",
+            &[
+                owner.person_id,
+                owner.event_id,
+                owner.family_id,
+                owner.source_id,
+                owner.media_id,
+                owner.repository_id,
+            ],
+        )?;
         let now = Utc::now();
         let model = note::ActiveModel {
             id: Set(id),

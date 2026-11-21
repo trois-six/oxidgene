@@ -5039,12 +5039,9 @@ async fn source_usage_resolves_family_and_event_citations() {
         }
     };
 
-    // The reported case: one citation, on a family's marriage event, with the
-    // event and the family both set and no person.
-    cite(serde_json::json!({
-        "source_id": source_id, "event_id": marriage_id, "family_id": family_id
-    }))
-    .await;
+    // The reported case: one citation, on a family's marriage event, with no
+    // person. It names the event alone, and reaches the couple through it.
+    cite(serde_json::json!({ "source_id": source_id, "event_id": marriage_id })).await;
     usage(vec![&husband, &wife]).await;
 
     // Direct, person-event and family citations add up, deduplicated.

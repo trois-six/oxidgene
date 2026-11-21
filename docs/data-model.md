@@ -47,6 +47,33 @@ independent of this schema reset (see §4.1).
 
 Displayed in: [Homepage](ui-home.md) (tree cards) · [Settings](ui-settings.md) (tree & roots section)
 
+### Integrity constraints
+
+The rules below are held by the schema itself, so that no code path — a
+service, an import, a merge, a restore, a hand edit of the file — can store a
+row that breaks them. Each write path produces valid rows before the
+database sees them; the constraint is what stays true when one does not.
+
+| Rule | Constraint |
+|---|---|
+| A record attached to other records names the right number of them: an event at most one owner, a note, a citation and a media link exactly one, a person at most one portrait | `CHECK` on `event` (`ck_event_owner`, `ck_event_related_family`), `note` (`ck_note_owner`), `citation` (`ck_citation_owner`), `media_link` (`ck_media_link_target`), `person` (`ck_person_portrait`) and `record_tag`; each table's section says which columns |
+| A person is a spouse, and a child, of a family once | Unique `(family_id, person_id)` on `family_spouse` and on `family_child` |
+| A person witnesses an event once per relation | Unique `(event_id, person_id, COALESCE(relation, ''))` on `event_witness` |
+| A person has at most one primary name | Unique `(person_id)` on `person_name` where `is_primary` |
+| An enumerated column holds one of its enum's values | `CHECK … IN (…)` on every column stored from an enum of §2, on `media.document_category`, `privacy_exclusion.kind`, `record_version.record_type` and `audit_entry`'s `category`, `action`, `entity`, `subject` and `author_kind`, beside the access columns of §6. The migration writes each list from the Rust enum itself, so the two cannot differ |
+
+The columns of the job, mail, notification and access-log tables that hold
+a kind or a status are written from enums too and carry no `CHECK` yet.
+
+A write that would break a rule is refused before it reaches the database
+where the request alone says so — a note attached to two records is a
+`validation_error`, a person added twice to a family a `conflict` — and an
+import corrects its rows instead of failing: it keeps the first of a
+repeated link, the most specific owner of a row naming several (the event,
+then the person, the family and the others), demotes a second primary name,
+leaves out a row attached to nothing, and reports each correction as one
+import warning with its count ([API Contract §4](api.md#4-gedcom-compatibility-reference)).
+
 ### Person
 
 | Column | Type | Notes |
@@ -56,7 +83,7 @@ Displayed in: [Homepage](ui-home.md) (tree cards) · [Settings](ui-settings.md) 
 | `sex` | Sex | Enum |
 | `privacy` | Privacy | Enum — per-person privacy override (default `Default`) |
 | `portrait_media_id` | UUID v7? | The media representing the person, when their portrait is a whole media (see [Media](#media), "Which image represents a person") |
-| `portrait_vignette_id` | UUID v7? | The vignette representing the person, when their portrait is a crop; never set together with `portrait_media_id` |
+| `portrait_vignette_id` | UUID v7? | The vignette representing the person, when their portrait is a crop; never set together with `portrait_media_id` (`CHECK`) |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
@@ -125,7 +152,7 @@ projection refresh of both persons' relatives.
 | `prefix` | String? | GEDCOM `NPFX` — title of address ("Dr.", "Rév. Père") |
 | `suffix` | String? | GEDCOM `NSFX` — generational ordinal or epithet ("Jr.", "III") |
 | `nickname` | String? | GEDCOM `NICK` |
-| `is_primary` | bool | Default true |
+| `is_primary` | bool | Default true. At most one name of a person is primary (partial unique index): creating a primary name, or making one primary, turns the person's previous primary name into a secondary one in the same write |
 | `sort_order` | i32 | Display order among a person's secondary names; the primary name always comes first |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
@@ -178,6 +205,9 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `role` | SpouseRole | Enum |
 | `sort_order` | i32 | For ordering |
 
+A person is a spouse of a family once, whatever the role: `(family_id,
+person_id)` is unique, and adding them again is a `conflict`.
+
 ### FamilyChild
 
 | Column | Type | Notes |
@@ -187,6 +217,9 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `person_id` | UUID v7 | FK → Person |
 | `child_type` | ChildType | Enum |
 | `sort_order` | i32 | For ordering |
+
+A person is a child of a family once: `(family_id, person_id)` is unique, and
+adding them again is a `conflict`.
 
 ### Event
 
@@ -205,9 +238,9 @@ Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Mod
 | `agency` | String? | The authority responsible for the event's record (GEDCOM `AGNC`), e.g. a parish or a registry office |
 | `classification` | String? | What an attribute's value is, when the record says it apart from the value: GEDCOM's `TYPE` beneath a `FACT`, an `IDNO`, an `OCCU` and the other attributes (`Hobby` for `FACT Sample fact`). Kept only beside a non-empty value; `NULL` for an event, whose `TYPE` is its description. Written back as that attribute's `TYPE` |
 | `place_id` | UUID v7? | FK → Place |
-| `person_id` | UUID v7? | FK → Person (individual event) — never set together with `family_id` |
+| `person_id` | UUID v7? | FK → Person (individual event) — never set together with `family_id` (`CHECK`); an event may have no owner |
 | `family_id` | UUID v7? | FK → Family (family event) — never set together with `person_id` |
-| `related_family_id` | UUID v7? | FK → Family, `SET NULL` when the family row is removed (a family's soft delete keeps it). For an individual event, a family it names without belonging to it, GEDCOM's `FAMC` beneath the event: the adoptive family of an adoption (`ADOP.FAMC`), the family of a birth or a christening (`BIRT.FAMC`, `CHR.FAMC`), the family a child is sealed to (`SLGC.FAMC`). Never set together with `family_id`, which makes an event a family's own; refused on a family event, and on an event with no individual owner |
+| `related_family_id` | UUID v7? | FK → Family, `SET NULL` when the family row is removed (a family's soft delete keeps it). For an individual event, a family it names without belonging to it, GEDCOM's `FAMC` beneath the event: the adoptive family of an adoption (`ADOP.FAMC`), the family of a birth or a christening (`BIRT.FAMC`, `CHR.FAMC`), the family a child is sealed to (`SLGC.FAMC`). Never set together with `family_id`, which makes an event a family's own; refused on a family event, and on an event with no individual owner (`CHECK`) |
 | `description` | String? | Free text; also holds occupation title for `Occupation` events |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
@@ -255,6 +288,13 @@ Join table mirroring GEDCOM's `ASSO`/`RELA` associations — a witness, godparen
 | `person_id` | UUID v7 | FK → Person |
 | `relation` | String? | Free text (e.g. "Godmother", "Witness") |
 | `sort_order` | i32 | For ordering |
+
+A person witnesses an event once per relation — a godparent may also be a
+witness of the same baptism, as two rows — and a missing relation counts as
+one: `(event_id, person_id, relation)` is unique, a `NULL` relation read as
+the empty text, and adding the same witness again is a `conflict`. An import
+compares relations trimmed and without case, so it never stores two rows the
+index tells apart only by spelling.
 
 Exposed via `GET/POST /events/{id}/witnesses` (REST) and `addEventWitness`/`removeEventWitness` (GraphQL). Round-trips through GEDCOM import/export beneath the event it witnesses in GEDCOM 7.x, and as a top-level `ASSO` on the INDI record in GEDCOM 5.5.1 (see [API Contract §4](api.md#4-gedcom-compatibility-reference)).
 
@@ -351,14 +391,18 @@ restoring it brings them back.
 |---|---|---|
 | `id` | UUID v7 | PK |
 | `source_id` | UUID v7 | FK → Source |
-| `person_id` | UUID v7? | FK → Person |
-| `event_id` | UUID v7? | FK → Event |
-| `family_id` | UUID v7? | FK → Family |
+| `person_id` | UUID v7? | FK → Person — a citation about the person |
+| `event_id` | UUID v7? | FK → Event — a citation about one event, a person's or a family's |
+| `family_id` | UUID v7? | FK → Family — a citation about the family itself, not about one of its events |
 | `page` | String? | Where in the source |
 | `confidence` | Confidence? | Enum; NULL when the evidence is not assessed |
 | `text` | String? | Extracted text |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
+
+Exactly one of `person_id`, `event_id` and `family_id` is set (`CHECK`): a
+citation hangs off one record. A family event's citation names the event
+alone and is reached through it, as the event's notes and media are.
 
 **Tags.** A citation's labels are [RecordTag](#recordtag) links to the tree's
 [Tag](#tag) vocabulary, returned as its `tags` list (`{id, label, color}`) sorted
@@ -542,7 +586,7 @@ changes or goes ([Architecture §4.2](architecture.md#42-stored-crops)).
 | `width` | i32 | |
 | `height` | i32 | |
 | `person_id` | UUID v7? | FK → Person — who the region shows, if attributed |
-| `event_id` | UUID v7? | FK → Event — the event this region is evidence for |
+| `event_id` | UUID v7? | FK → Event — the event this region is evidence for. Independent of `person_id`: a region may name a person, an event, both — the person an event's record shows — or neither |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 
@@ -569,7 +613,7 @@ time somebody identifies a person on that page. A region on a page nobody has
 measured has no scale to be cut at, and the whole picture is shown instead.
 
 **Which image represents a person.** At most one of `portrait_media_id` /
-`portrait_vignette_id` is ever set. Both columns are written together through a
+`portrait_vignette_id` is ever set, which a `CHECK` holds. Both columns are written together through a
 single `Portrait` value (`Media(id)` / `Vignette(id)` / `None`), so "both set"
 is not a state a caller can produce. The API refuses a request carrying both
 rather than silently picking one, leaving the existing assignment unchanged.
@@ -611,6 +655,10 @@ person.
 | `family_id` | UUID v7? | FK → Family |
 | `sort_order` | i32 | For ordering |
 
+Exactly one of `person_id`, `event_id`, `source_id` and `family_id` is set
+(`CHECK`): a link attaches a medium to one record, and a medium shown on
+three persons has three links.
+
 A link to the parent `Media` row attaches the complete multi-page document. A
 link to one of its child `Media` rows attaches that page only. The link needs no
 separate page column because a page is already a media in its own right. A
@@ -635,6 +683,9 @@ page number of its own: the page it belongs to is the media it points at.
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 | `deleted_at` | DateTime? | Soft delete |
+
+Exactly one of `person_id`, `event_id`, `family_id`, `source_id`, `media_id`
+and `repository_id` is set (`CHECK`): a note is about one record.
 
 **Tags.** A note's labels are [RecordTag](#recordtag) links to the tree's
 [Tag](#tag) vocabulary, returned as its `tags` list (`{id, label, color}`) sorted
@@ -716,7 +767,9 @@ does not copy them. `Sex`, `NameType`, `SpouseRole`, `ChildType`, `Privacy`,
 
 **Representation.** Every variant has one stable English `snake_case`
 value (`also_known_as`, `from_age`, `marriage_bann`), used in REST JSON and
-in the database's string columns (`crates/oxidgene-db/src/entities/sea_enums.rs`).
+in the database's string columns (`crates/oxidgene-db/src/entities/sea_enums.rs`),
+each of which a `CHECK` holds to its enum's values ([Integrity
+constraints](#integrity-constraints)).
 GraphQL writes the same value in upper case (`ALSO_KNOWN_AS`). Clients
 localize the values; they are never stored translated.
 

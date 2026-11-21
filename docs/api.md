@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-21T22:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:24:03Z }
 ---
 
 
@@ -574,7 +574,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Moda
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/persons/{person_id}/names` | List names |
-| `POST` | `/trees/{tree_id}/persons/{person_id}/names` | Add a name |
+| `POST` | `/trees/{tree_id}/persons/{person_id}/names` | Add a name. A person has one primary name: a name created with `is_primary`, or updated to it, takes the place of the previous primary name, which becomes a secondary name |
 | `PUT` | `/trees/{tree_id}/persons/{person_id}/names/{name_id}` | Update a name; a name of another person is `not_found` |
 | `DELETE` | `/trees/{tree_id}/persons/{person_id}/names/{name_id}` | Delete a name; a name of another person is `not_found` |
 
@@ -596,10 +596,10 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/families/{family_id}/spouses` | List spouses |
-| `POST` | `/trees/{tree_id}/families/{family_id}/spouses` | Add a spouse |
+| `POST` | `/trees/{tree_id}/families/{family_id}/spouses` | Add a spouse; `409 conflict` when the person is already a spouse of the family, whatever the role |
 | `DELETE` | `/trees/{tree_id}/families/{family_id}/spouses/{spouse_id}` | Remove a spouse link; a link of another family is `not_found` |
 | `GET` | `/trees/{tree_id}/families/{family_id}/children` | List children |
-| `POST` | `/trees/{tree_id}/families/{family_id}/children` | Add a child |
+| `POST` | `/trees/{tree_id}/families/{family_id}/children` | Add a child; `409 conflict` when the person is already a child of the family |
 | `DELETE` | `/trees/{tree_id}/families/{family_id}/children/{child_id}` | Remove a child link; a link of another family is `not_found` |
 
 ### Events
@@ -612,7 +612,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 | `PUT` | `/trees/{tree_id}/events/{event_id}` | Update an event; a `place_id` of another tree is `not_found` |
 | `DELETE` | `/trees/{tree_id}/events/{event_id}` | Soft-delete an event |
 | `GET` | `/trees/{tree_id}/events/{event_id}/witnesses` | List event witnesses (GEDCOM `ASSO`) |
-| `POST` | `/trees/{tree_id}/events/{event_id}/witnesses` | Add a witness (person + optional relation text) |
+| `POST` | `/trees/{tree_id}/events/{event_id}/witnesses` | Add a witness (person + optional relation text); `409 conflict` when the person already witnesses the event in that relation, a missing relation counting as one |
 | `DELETE` | `/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}` | Remove a witness; a witness of another event is `not_found` (GraphQL: the optional `eventId`) |
 
 Every event read carries `tags`, the labels put on the event as `[{id, label,
@@ -764,7 +764,7 @@ record, a link versions its source.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/citations` | List citations in a cursor connection, filterable by `person_id`, `event_id`, `family_id`, and `source_id`; a filter naming a record of another tree is `not_found` |
-| `POST` | `/trees/{tree_id}/citations` | Create a citation |
+| `POST` | `/trees/{tree_id}/citations` | Create a citation, attached to exactly one of `person_id`, `event_id` and `family_id`; none or several is a `400 validation_error` |
 | `PUT` | `/trees/{tree_id}/citations/{citation_id}` | Update a citation — including `source_id`, which repoints it at another source in place |
 | `DELETE` | `/trees/{tree_id}/citations/{citation_id}` | Delete a citation |
 
@@ -1031,7 +1031,7 @@ it is the producer's own path, kept verbatim so an export round-trips.
 |---|---|---|
 | `GET` | `/trees/{tree_id}/media-links` | Unfiltered: every person↔media link in the tree, flat — what the pedigree canvas reads to find each card's photo |
 | `GET` | `/trees/{tree_id}/media-links?entity_type=person\|family\|event\|source&entity_id={id}` | One entity's gallery. Each row is the link (`link_id`, `sort_order`) with the **media flattened in**, so a grid of twenty scans is one request rather than twenty-one — a tile cannot be drawn without the MIME type and whether a thumbnail exists |
-| `POST` | `/trees/{tree_id}/media-links` | Attach a media to an entity |
+| `POST` | `/trees/{tree_id}/media-links` | Attach a media to an entity: exactly one of `person_id`, `event_id`, `source_id` and `family_id`; none or several is a `400 validation_error` |
 | `DELETE` | `/trees/{tree_id}/media-links/{link_id}` | Detach. The media itself is untouched — the file may document three other people |
 
 For a multi-page document, posting the parent media id attaches the whole
@@ -1108,7 +1108,7 @@ and `POST /tags/target` write nothing.
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/trees/{tree_id}/notes` | List notes in a cursor connection, filterable by `person_id`, `event_id`, `family_id`, `source_id`, and `media_id` |
-| `POST` | `/trees/{tree_id}/notes` | Create a note |
+| `POST` | `/trees/{tree_id}/notes` | Create a note about exactly one of `person_id`, `event_id`, `family_id`, `source_id`, `media_id` and `repository_id`; none or several is a `400 validation_error` |
 | `GET` | `/trees/{tree_id}/notes/{note_id}` | Get a note |
 | `PUT` | `/trees/{tree_id}/notes/{note_id}` | Update a note |
 | `DELETE` | `/trees/{tree_id}/notes/{note_id}` | Soft-delete a note |
@@ -2661,4 +2661,10 @@ anew, an `AGE` that is not an age (left out with a warning naming its record)
 and an empty `AGE`, which says nothing.
 
 The import warnings name only what the import repaired, could not resolve, or
-left out.
+left out. A file may say what the schema refuses
+([Data Model, Integrity constraints](data-model.md#integrity-constraints)): a
+person twice a spouse or a child of one family, the same witness twice in one
+relation, two primary names, a note, a citation or a media link attached to
+no record or to several. The import stores valid rows instead — the first of
+a repeated link, the most specific record of several, the first primary name
+— and adds one warning per rule, with the number of rows it corrected.

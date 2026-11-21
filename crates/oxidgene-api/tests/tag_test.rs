@@ -1261,7 +1261,13 @@ async fn citations_of_a_deleted_source_leave_the_counts_over_rest() {
     let source = f
         .post("/sources", json!({ "title": "Fictional register" }))
         .await;
-    let citation = f.post("/citations", json!({ "source_id": source })).await;
+    let person = f.post("/persons", json!({ "sex": "unknown" })).await;
+    let citation = f
+        .post(
+            "/citations",
+            json!({ "source_id": source, "person_id": person }),
+        )
+        .await;
     let (status, body) = send(
         &f.app,
         Method::PUT,
@@ -1321,10 +1327,11 @@ async fn citations_of_a_deleted_source_leave_the_counts_over_graphql() {
         .as_str()
         .unwrap()
         .to_owned();
+    let person = f.post("/persons", json!({ "sex": "unknown" })).await;
     let citation = gql_ok(
         &f.app,
-        r#"mutation($tree: ID!, $source: String!) { createCitation(treeId: $tree, input: { sourceId: $source }) { id } }"#,
-        json!({ "tree": f.tree, "source": source }),
+        r#"mutation($tree: ID!, $source: String!, $person: String!) { createCitation(treeId: $tree, input: { sourceId: $source, personId: $person }) { id } }"#,
+        json!({ "tree": f.tree, "source": source, "person": person }),
     )
     .await["createCitation"]["id"]
         .as_str()
@@ -1529,8 +1536,15 @@ async fn a_long_note_is_listed_by_its_first_line_cut_to_an_excerpt() {
     let f = Fixture::new("Tags Note Excerpt").await;
     let tag = f.post("/tags", json!({ "label": "Ledger" })).await;
     let long = "x".repeat(150);
+    // A note about a source: it names no person.
+    let source = f
+        .post("/sources", json!({ "title": "Fictional register" }))
+        .await;
     let note = f
-        .post("/notes", json!({ "text": format!("  {long}\nsecond") }))
+        .post(
+            "/notes",
+            json!({ "text": format!("  {long}\nsecond"), "source_id": source }),
+        )
         .await;
     let (status, body) = send(
         &f.app,

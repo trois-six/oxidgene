@@ -413,9 +413,20 @@ async fn citations_of_a_soft_deleted_source_are_not_counted() {
     .await
     .unwrap();
     let citation = Uuid::now_v7();
-    CitationRepo::create(&db, citation, source, None, None, None, None, None, None)
-        .await
-        .unwrap();
+    let cited = person(&db, tree).await;
+    CitationRepo::create(
+        &db,
+        citation,
+        source,
+        Some(cited),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     RecordTagRepo::add(&db, tree, tag.id, RecordKind::Citation, citation)
         .await
         .unwrap();
@@ -768,7 +779,7 @@ async fn links_refuse_records_and_tags_of_another_tree() {
         &db,
         own_citation,
         own_source,
-        None,
+        Some(own),
         None,
         None,
         None,
@@ -795,7 +806,7 @@ async fn links_refuse_records_and_tags_of_another_tree() {
         &db,
         foreign_citation,
         foreign_source,
-        None,
+        Some(foreign),
         None,
         None,
         None,

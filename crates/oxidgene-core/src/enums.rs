@@ -308,6 +308,9 @@ pub enum ExclusionKind {
 }
 
 impl ExclusionKind {
+    /// Every kind: the values the `privacy_exclusion.kind` column accepts.
+    pub const ALL: [Self; 3] = [Self::Person, Self::Ancestors, Self::Descendants];
+
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -619,6 +622,22 @@ impl std::fmt::Display for DocumentCategory {
 }
 
 impl DocumentCategory {
+    /// Every category: the values the `media.document_category` column
+    /// accepts.
+    pub const ALL: [Self; 11] = [
+        Self::Portrait,
+        Self::GroupPhoto,
+        Self::FamilyDocument,
+        Self::CivilRecord,
+        Self::ParishRecord,
+        Self::NotarialArchive,
+        Self::MilitaryArchive,
+        Self::Census,
+        Self::CoatOfArms,
+        Self::Grave,
+        Self::Other,
+    ];
+
     /// The snake_case spelling used on the wire and in the database.
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -1039,6 +1058,54 @@ mod tests {
         assert_eq!(DateQualifier::After.short_prefix(), "> ");
         assert_eq!(DateQualifier::Or.short_prefix(), "| ");
         assert_eq!(DateQualifier::Between.short_prefix(), ".. ");
+    }
+
+    /// The variant after `category`, the first for `None`. The match is
+    /// exhaustive: a new variant does not compile until it is placed here.
+    fn category_after(category: Option<DocumentCategory>) -> Option<DocumentCategory> {
+        use DocumentCategory::*;
+        match category {
+            None => Some(Portrait),
+            Some(Portrait) => Some(GroupPhoto),
+            Some(GroupPhoto) => Some(FamilyDocument),
+            Some(FamilyDocument) => Some(CivilRecord),
+            Some(CivilRecord) => Some(ParishRecord),
+            Some(ParishRecord) => Some(NotarialArchive),
+            Some(NotarialArchive) => Some(MilitaryArchive),
+            Some(MilitaryArchive) => Some(Census),
+            Some(Census) => Some(CoatOfArms),
+            Some(CoatOfArms) => Some(Grave),
+            Some(Grave) => Some(Other),
+            Some(Other) => None,
+        }
+    }
+
+    /// As [`category_after`], for the exclusion kinds.
+    fn exclusion_after(kind: Option<ExclusionKind>) -> Option<ExclusionKind> {
+        match kind {
+            None => Some(ExclusionKind::Person),
+            Some(ExclusionKind::Person) => Some(ExclusionKind::Ancestors),
+            Some(ExclusionKind::Ancestors) => Some(ExclusionKind::Descendants),
+            Some(ExclusionKind::Descendants) => None,
+        }
+    }
+
+    /// `ALL` is the list the schema's `CHECK` is written from: it must hold
+    /// every variant, or the column would refuse a value the code writes.
+    #[test]
+    fn the_stored_value_lists_hold_every_variant() {
+        let categories: Vec<_> =
+            std::iter::successors(category_after(None), |c| category_after(Some(*c))).collect();
+        assert_eq!(categories, DocumentCategory::ALL);
+        for category in DocumentCategory::ALL {
+            assert_eq!(DocumentCategory::parse(category.as_str()), Some(category));
+        }
+        let kinds: Vec<_> =
+            std::iter::successors(exclusion_after(None), |k| exclusion_after(Some(*k))).collect();
+        assert_eq!(kinds, ExclusionKind::ALL);
+        for kind in ExclusionKind::ALL {
+            assert_eq!(ExclusionKind::parse(kind.as_str()), Some(kind));
+        }
     }
 
     /// GEDCOM's `CAL`/`EST` and our own `FromAge` have no GeneWeb counterpart.

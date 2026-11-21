@@ -359,9 +359,13 @@ fn apply_ingested_media(
 #[tracing::instrument(name = "import.persist", skip_all)]
 pub(crate) async fn persist_import_result_in(
     db: &impl ConnectionTrait,
-    result: oxidgene_gedcom::ImportResult,
+    mut result: oxidgene_gedcom::ImportResult,
     on_inserted: &mut impl FnMut(usize) -> Result<(), OxidGeneError>,
 ) -> Result<ImportSummary, OxidGeneError> {
+    // Whatever was added to the result since it was read, every row written
+    // is one the schema accepts (docs/data-model.md): a repeated link or a
+    // row attached to two records is a warning, not a failed import.
+    result.enforce_invariants();
     let now = Utc::now();
     if let Some(submitter) = &result.submitter {
         TreeRepo::fill_submitter(

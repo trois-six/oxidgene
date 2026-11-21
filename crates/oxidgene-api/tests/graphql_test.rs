@@ -5288,10 +5288,9 @@ async fn graphql_source_usage_resolves_family_and_event_citations() {
         }
     };
 
-    cite(format!(
-        r#"eventId: "{marriage_id}", familyId: "{family_id}""#
-    ))
-    .await;
+    // A family event's citation names the event alone, and reaches the
+    // couple through it.
+    cite(format!(r#"eventId: "{marriage_id}""#)).await;
     usage(vec![husband, wife]).await;
 
     cite(format!(r#"personId: "{direct}""#)).await;

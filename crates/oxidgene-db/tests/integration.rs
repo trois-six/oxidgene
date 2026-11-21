@@ -8,6 +8,7 @@
 
 mod common;
 mod gedcom_kept_test;
+mod integrity_test;
 mod media_invariants_test;
 mod migration_test;
 mod person_search_test;

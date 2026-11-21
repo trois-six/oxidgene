@@ -278,6 +278,11 @@ impl MediaLinkRepo {
         family_id: Option<Uuid>,
         sort_order: i32,
     ) -> Result<MediaLink, OxidGeneError> {
+        crate::repo::require_one_target(
+            "media link",
+            "person_id, event_id, source_id and family_id",
+            &[person_id, event_id, source_id, family_id],
+        )?;
         if event_id.is_some()
             && Entity::find()
                 .filter(Column::MediaId.eq(media_id))

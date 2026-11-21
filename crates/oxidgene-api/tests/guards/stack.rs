@@ -127,21 +127,24 @@ fn every_rest_route_runs_on_a_small_stack() {
             let Ok((uri, _)) = spec.fill(path, operation, &b.tree_id, &b) else {
                 continue;
             };
-            let body = spec.request_body(operation, &b, path);
+            let body = spec.accepted_body(operation, &b, path);
             requests.push((format!("{} {path}", method.to_uppercase()), uri, body));
         }
     }
     requests.sort_by_key(|(name, _, _)| rank(name));
 
-    let mut succeeded = 0;
+    let mut refused = Vec::new();
     for (name, uri, body) in &requests {
         let method = Method::from_bytes(name.split(' ').next().unwrap().as_bytes()).unwrap();
         let (app, uri, body) = (app.clone(), uri.clone(), body.clone());
         let (status, _) = on_small_stack(rt.handle(), &db, name.clone(), async move {
             send(&app, method, &uri, body).await
         });
-        succeeded += usize::from(status.is_success());
+        if !status.is_success() {
+            refused.push(format!("{name}: {status}"));
+        }
     }
+    let succeeded = requests.len() - refused.len();
     // The import job of a whole GEDCOM file, which the generated request
     // body cannot make.
     let tree = rt.block_on(new_tree(&app, "Tree I"));
@@ -154,8 +157,9 @@ fn every_rest_route_runs_on_a_small_stack() {
     // operations down their full path.
     assert!(
         succeeded * 4 >= requests.len() * 3,
-        "only {succeeded} of {} requests succeeded",
-        requests.len()
+        "only {succeeded} of {} requests succeeded; refused:\n{}",
+        requests.len(),
+        refused.join("\n")
     );
 }
 

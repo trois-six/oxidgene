@@ -139,6 +139,24 @@ where
         .ok_or(oxidgene_core::OxidGeneError::NotFound { entity, id })
 }
 
+/// Refuse a row attached to no record or to several: `targets` are the
+/// owner columns of a `what` — a note, a citation, a media link — of which
+/// exactly one is set (docs/data-model.md). The schema's `CHECK` refuses the
+/// same rows; saying so first keeps the caller's transaction usable and the
+/// error a validation one.
+pub(crate) fn require_one_target(
+    what: &str,
+    columns: &str,
+    targets: &[Option<uuid::Uuid>],
+) -> Result<(), oxidgene_core::OxidGeneError> {
+    if targets.iter().flatten().count() == 1 {
+        return Ok(());
+    }
+    Err(oxidgene_core::OxidGeneError::Validation(format!(
+        "a {what} is attached to exactly one of {columns}"
+    )))
+}
+
 /// A database error as the domain reports it.
 ///
 /// Public so that every layer maps a `DbErr` the same way: the API's services

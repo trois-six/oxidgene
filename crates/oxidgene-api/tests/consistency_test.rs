@@ -1856,11 +1856,12 @@ async fn a_single_note_is_readable_on_both_surfaces() {
     let app = setup_app().await;
     let tree_id = common::new_tree(&app, "Notes").await;
     let other_tree = common::new_tree(&app, "Elsewhere").await;
+    let person_id = common::new_person(&app, &tree_id).await;
     let note_id = common::ok(
         &app,
         Method::POST,
         &format!("/api/v1/trees/{tree_id}/notes"),
-        Some(json!({ "text": "Moved to the coast." })),
+        Some(json!({ "text": "Moved to the coast.", "person_id": person_id })),
     )
     .await["id"]
         .as_str()

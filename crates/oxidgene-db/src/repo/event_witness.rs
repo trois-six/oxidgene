@@ -3,7 +3,7 @@
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::EventWitness;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ConnectionTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{Condition, ConnectionTrait, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::event_witness::{self, Column, Entity};
@@ -87,7 +87,9 @@ impl EventWitnessRepo {
         Ok(models.into_iter().map(into_domain).collect())
     }
 
-    /// Create an event–witness link.
+    /// Create an event–witness link. A person witnesses an event once per
+    /// relation — a godparent may also be a witness of the same baptism — and
+    /// a missing relation counts as one: the same link again is a conflict.
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -96,6 +98,24 @@ impl EventWitnessRepo {
         relation: Option<String>,
         sort_order: i32,
     ) -> Result<EventWitness, OxidGeneError> {
+        let same_relation = match relation.as_deref() {
+            None | Some("") => Condition::any()
+                .add(Column::Relation.is_null())
+                .add(Column::Relation.eq("")),
+            Some(relation) => Condition::all().add(Column::Relation.eq(relation)),
+        };
+        let already = Entity::find()
+            .filter(Column::EventId.eq(event_id))
+            .filter(Column::PersonId.eq(person_id))
+            .filter(same_relation)
+            .one(db)
+            .await
+            .map_err(db_err)?;
+        if already.is_some() {
+            return Err(OxidGeneError::Conflict(
+                "the person already witnesses the event in this relation".to_string(),
+            ));
+        }
         let model = event_witness::ActiveModel {
             id: Set(id),
             event_id: Set(event_id),

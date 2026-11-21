@@ -6,8 +6,13 @@
 //! incremental history of intermediate representations. A schema change
 //! edits it; nothing converts data from an earlier shape.
 
-use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend, Statement};
+use oxidgene_core::access::AuthorKind;
+use oxidgene_core::enums::{DocumentCategory, ExclusionKind};
+use oxidgene_core::history::{AuditAction, AuditCategory, AuditEntity, AuditSubject, RecordType};
+use sea_orm_migration::sea_orm::{ActiveEnum, ConnectionTrait, DbBackend, Statement};
 use sea_orm_migration::{prelude::*, schema::*};
+
+use crate::entities::sea_enums;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -19,6 +24,60 @@ pub struct Migration;
 fn one_of(column: &str, values: &[&str]) -> Expr {
     let values: Vec<String> = values.iter().map(|value| format!("'{value}'")).collect();
     Expr::cust(format!("{column} IN ({})", values.join(", ")))
+}
+
+/// The named `CHECK` holding `table.column` to the values of the SeaORM
+/// enum `E` the column is read as (docs/data-model.md §2). The list is the
+/// enum's own, so a variant added to it is accepted by the schema this
+/// migration creates without a second list to keep in step. A nullable
+/// column passes while it is `NULL`.
+fn enum_check<E>(table: &str, column: &str) -> (Alias, Expr)
+where
+    E: ActiveEnum<Value = String>,
+{
+    let values = E::values();
+    let values: Vec<&str> = values.iter().map(String::as_str).collect();
+    named_one_of(table, column, &values)
+}
+
+/// [`one_of`], named `ck_{table}_{column}`.
+fn named_one_of(table: &str, column: &str, values: &[&str]) -> (Alias, Expr) {
+    (
+        Alias::new(format!("ck_{table}_{column}")),
+        one_of(column, values),
+    )
+}
+
+/// The stored value of each of `variants`.
+fn values_of<T: Copy>(variants: &[T], value: fn(T) -> &'static str) -> Vec<&'static str> {
+    variants.iter().map(|variant| value(*variant)).collect()
+}
+
+/// How many of `columns` are set, as SQL.
+fn set_count(columns: &[&str]) -> String {
+    let terms: Vec<String> = columns
+        .iter()
+        .map(|column| format!("CASE WHEN {column} IS NULL THEN 0 ELSE 1 END"))
+        .collect();
+    format!("({})", terms.join(" + "))
+}
+
+/// The `CHECK` named `ck_{table}_{name}` that exactly one of `columns` is
+/// set: a row attached to one record, never to none nor to two.
+fn exactly_one(table: &str, name: &str, columns: &[&str]) -> (Alias, Expr) {
+    (
+        Alias::new(format!("ck_{table}_{name}")),
+        Expr::cust(format!("{} = 1", set_count(columns))),
+    )
+}
+
+/// The `CHECK` named `ck_{table}_{name}` that at most one of `columns` is
+/// set.
+fn at_most_one(table: &str, name: &str, columns: &[&str]) -> (Alias, Expr) {
+    (
+        Alias::new(format!("ck_{table}_{name}")),
+        Expr::cust(format!("{} <= 1", set_count(columns))),
+    )
 }
 
 #[async_trait::async_trait]
@@ -787,6 +846,14 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(timestamp_with_time_zone(Tree::CreatedAt))
                 .col(timestamp_with_time_zone(Tree::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Tree::DeletedAt))
+                .check(enum_check::<sea_enums::TreeDefaultPrivacy>(
+                    "tree",
+                    "default_privacy",
+                ))
+                .check(enum_check::<sea_enums::HiddenDisplay>(
+                    "tree",
+                    "hidden_display",
+                ))
                 .to_owned(),
         )
         .await?;
@@ -811,6 +878,14 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(timestamp_with_time_zone(Person::CreatedAt))
                 .col(timestamp_with_time_zone(Person::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Person::DeletedAt))
+                .check(enum_check::<sea_enums::Sex>("person", "sex"))
+                .check(enum_check::<sea_enums::Privacy>("person", "privacy"))
+                // A portrait is a whole medium or a crop, never both.
+                .check(at_most_one(
+                    "person",
+                    "portrait",
+                    &["portrait_media_id", "portrait_vignette_id"],
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_person_tree")
@@ -868,6 +943,10 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(integer(PersonName::SortOrder).default(0))
                 .col(timestamp_with_time_zone(PersonName::CreatedAt))
                 .col(timestamp_with_time_zone(PersonName::UpdatedAt))
+                .check(enum_check::<sea_enums::NameType>(
+                    "person_name",
+                    "name_type",
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_person_name_person")
@@ -886,6 +965,16 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(PersonName::PersonId)
                 .to_owned(),
         )
+        .await?;
+    // A person has at most one primary name: a partial unique index, which
+    // SQLite and PostgreSQL both support and sea-query does not express.
+    manager
+        .get_connection()
+        .execute_raw(Statement::from_string(
+            manager.get_database_backend(),
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_person_name_primary \
+             ON person_name (person_id) WHERE is_primary",
+        ))
         .await?;
     manager
         .create_index(
@@ -918,6 +1007,7 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(timestamp_with_time_zone(Family::CreatedAt))
                 .col(timestamp_with_time_zone(Family::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Family::DeletedAt))
+                .check(enum_check::<sea_enums::Privacy>("family", "privacy"))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_family_tree")
@@ -949,6 +1039,7 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid(FamilySpouse::PersonId))
                 .col(string_len(FamilySpouse::Role, 10))
                 .col(integer(FamilySpouse::SortOrder))
+                .check(enum_check::<sea_enums::SpouseRole>("family_spouse", "role"))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_family_spouse_family")
@@ -966,12 +1057,16 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // A person is a spouse of a family once, whatever the role. The index
+    // leads with the family, so it also reads a family's spouses.
     manager
         .create_index(
             Index::create()
-                .name("idx_family_spouse_family_id")
+                .name("uq_family_spouse_family_person")
                 .table(FamilySpouse::Table)
                 .col(FamilySpouse::FamilyId)
+                .col(FamilySpouse::PersonId)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -996,6 +1091,10 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid(FamilyChild::PersonId))
                 .col(string_len(FamilyChild::ChildType, 15))
                 .col(integer(FamilyChild::SortOrder))
+                .check(enum_check::<sea_enums::ChildType>(
+                    "family_child",
+                    "child_type",
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_family_child_family")
@@ -1013,12 +1112,16 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // A person is a child of a family once. The index leads with the
+    // family, so it also reads a family's children.
     manager
         .create_index(
             Index::create()
-                .name("idx_family_child_family_id")
+                .name("uq_family_child_family_person")
                 .table(FamilyChild::Table)
                 .col(FamilyChild::FamilyId)
+                .col(FamilyChild::PersonId)
+                .unique()
                 .to_owned(),
         )
         .await?;
@@ -1105,6 +1208,23 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(timestamp_with_time_zone(Event::CreatedAt))
                 .col(timestamp_with_time_zone(Event::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Event::DeletedAt))
+                .check(enum_check::<sea_enums::EventType>("event", "event_type"))
+                .check(enum_check::<sea_enums::DateQualifier>(
+                    "event",
+                    "date_qualifier",
+                ))
+                .check(enum_check::<sea_enums::Calendar>("event", "calendar"))
+                // An individual event or a family event, never both.
+                .check(at_most_one("event", "owner", &["person_id", "family_id"]))
+                // Only an individual event names a family it does not
+                // belong to.
+                .check((
+                    Alias::new("ck_event_related_family"),
+                    Expr::cust(
+                        "related_family_id IS NULL \
+                         OR (person_id IS NOT NULL AND family_id IS NULL)",
+                    ),
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_event_tree")
@@ -1199,14 +1319,17 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await?;
+    // A person witnesses an event once per relation, a missing relation
+    // counting as one: an expression index, which SQLite and PostgreSQL both
+    // support and sea-query does not express. It leads with the event, so it
+    // also reads an event's witnesses.
     manager
-        .create_index(
-            Index::create()
-                .name("idx_event_witness_event_id")
-                .table(EventWitness::Table)
-                .col(EventWitness::EventId)
-                .to_owned(),
-        )
+        .get_connection()
+        .execute_raw(Statement::from_string(
+            manager.get_database_backend(),
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_event_witness_event_person_relation \
+             ON event_witness (event_id, person_id, (COALESCE(relation, '')))",
+        ))
         .await?;
     manager
         .create_index(
@@ -1323,6 +1446,16 @@ async fn create_sources(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(text_null(Citation::Text))
                 .col(timestamp_with_time_zone(Citation::CreatedAt))
                 .col(timestamp_with_time_zone(Citation::UpdatedAt))
+                .check(enum_check::<sea_enums::Confidence>(
+                    "citation",
+                    "confidence",
+                ))
+                // A citation hangs off one record.
+                .check(exactly_one(
+                    "citation",
+                    "owner",
+                    &["person_id", "event_id", "family_id"],
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_citation_source")
@@ -1417,6 +1550,10 @@ async fn create_repositories(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(string_null(SourceRepository::CallNumber))
                 .col(string_len_null(SourceRepository::MediaType, 20))
                 .col(integer(SourceRepository::SortOrder))
+                .check(enum_check::<sea_enums::SourceMediaType>(
+                    "source_repository",
+                    "media_type",
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_source_repository_source")
@@ -1516,6 +1653,21 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(timestamp_with_time_zone(Media::CreatedAt))
                 .col(timestamp_with_time_zone(Media::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Media::DeletedAt))
+                .check(enum_check::<sea_enums::DateQualifier>(
+                    "media",
+                    "date_qualifier",
+                ))
+                .check(enum_check::<sea_enums::Calendar>("media", "calendar"))
+                .check(enum_check::<sea_enums::SourceMediaType>(
+                    "media",
+                    "source_media_type",
+                ))
+                .check(named_one_of(
+                    "media",
+                    "document_category",
+                    &DocumentCategory::ALL.map(DocumentCategory::as_str),
+                ))
+                .check(enum_check::<sea_enums::Privacy>("media", "privacy"))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_media_tree")
@@ -1560,6 +1712,12 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid_null(MediaLink::SourceId))
                 .col(uuid_null(MediaLink::FamilyId))
                 .col(integer(MediaLink::SortOrder))
+                // A link attaches a medium to one record.
+                .check(exactly_one(
+                    "media_link",
+                    "target",
+                    &["person_id", "event_id", "source_id", "family_id"],
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_media_link_media")
@@ -1632,6 +1790,19 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .col(timestamp_with_time_zone(Note::CreatedAt))
                 .col(timestamp_with_time_zone(Note::UpdatedAt))
                 .col(timestamp_with_time_zone_null(Note::DeletedAt))
+                // A note is about one record.
+                .check(exactly_one(
+                    "note",
+                    "owner",
+                    &[
+                        "person_id",
+                        "event_id",
+                        "family_id",
+                        "source_id",
+                        "media_id",
+                        "repository_id",
+                    ],
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_note_tree")
@@ -3035,6 +3206,11 @@ async fn create_exclusions(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(boolean(PrivacyExclusion::IncludeSpouses))
                 .col(uuid_null(PrivacyExclusion::CreatedBy))
                 .col(timestamp_with_time_zone(PrivacyExclusion::CreatedAt))
+                .check(named_one_of(
+                    "privacy_exclusion",
+                    "kind",
+                    &ExclusionKind::ALL.map(ExclusionKind::as_str),
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_privacy_exclusion_tree")
@@ -3232,6 +3408,31 @@ async fn create_history(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid_null(AuditEntry::AuthorUserId))
                 .col(uuid_null(AuditEntry::AuthorApiClientId))
                 .col(string_null(AuditEntry::AuthorClientId))
+                .check(named_one_of(
+                    "audit_entry",
+                    "category",
+                    &values_of(AuditCategory::ALL, AuditCategory::as_str),
+                ))
+                .check(named_one_of(
+                    "audit_entry",
+                    "action",
+                    &values_of(AuditAction::ALL, AuditAction::as_str),
+                ))
+                .check(named_one_of(
+                    "audit_entry",
+                    "entity",
+                    &values_of(AuditEntity::ALL, AuditEntity::as_str),
+                ))
+                .check(named_one_of(
+                    "audit_entry",
+                    "subject",
+                    &values_of(AuditSubject::ALL, AuditSubject::as_str),
+                ))
+                .check(named_one_of(
+                    "audit_entry",
+                    "author_kind",
+                    &AuthorKind::ALL.map(AuthorKind::as_str),
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_audit_entry_tree")
@@ -3291,6 +3492,11 @@ async fn create_history(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(boolean(RecordVersion::Deleted).default(false))
                 .col(text_null(RecordVersion::Snapshot))
                 .col(text_null(RecordVersion::Labels))
+                .check(named_one_of(
+                    "record_version",
+                    "record_type",
+                    &values_of(RecordType::ALL, RecordType::as_str),
+                ))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_record_version_tree")

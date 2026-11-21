@@ -208,6 +208,59 @@ impl Spec {
         (!schema.is_null()).then(|| self.body(schema, records, path, 0))
     }
 
+    /// [`Self::request_body`], made a body the operation accepts, for the
+    /// guards that run an operation rather than expect its refusal: a note,
+    /// a citation and a media link are attached to exactly one record
+    /// (docs/data-model.md, Integrity constraints), so a body naming a
+    /// record of every kind keeps the first of them; and a family takes a
+    /// person as a spouse once, so the spouse added is the fixture's
+    /// unrelated person rather than its anchor, who is one already.
+    pub fn accepted_body(
+        &self,
+        operation: &Value,
+        records: &Populated,
+        path: &str,
+    ) -> Option<Value> {
+        /// The fields naming what a row is attached to, by route.
+        const TARGETS: [(&str, &[&str]); 3] = [
+            (
+                "/notes",
+                &[
+                    "person_id",
+                    "event_id",
+                    "family_id",
+                    "source_id",
+                    "media_id",
+                    "repository_id",
+                ],
+            ),
+            ("/citations", &["person_id", "event_id", "family_id"]),
+            (
+                "/media-links",
+                &["person_id", "event_id", "source_id", "family_id"],
+            ),
+        ];
+        let mut body = self.request_body(operation, records, path)?;
+        let targets = TARGETS
+            .iter()
+            .find(|(route, _)| path.ends_with(route))
+            .map(|(_, targets)| *targets);
+        if let (Some(targets), Some(object)) = (targets, body.as_object_mut()) {
+            let mut attached = false;
+            for target in targets {
+                if object.contains_key(*target) && std::mem::replace(&mut attached, true) {
+                    object.remove(*target);
+                }
+            }
+        }
+        if path.ends_with("/spouses")
+            && let Some(object) = body.as_object_mut()
+        {
+            object.insert("person_id".into(), json!(records.id("other_person_id")));
+        }
+        Some(body)
+    }
+
     /// A minimal body for `schema`: its required fields, plus every field
     /// naming a record, which takes the fixture's.
     fn body(&self, schema: &Value, records: &Populated, path: &str, depth: usize) -> Value {

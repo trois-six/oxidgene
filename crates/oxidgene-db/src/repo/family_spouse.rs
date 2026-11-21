@@ -108,7 +108,8 @@ impl FamilySpouseRepo {
         .await
     }
 
-    /// Create a family–spouse link.
+    /// Create a family–spouse link. A person is a spouse of a family once,
+    /// whatever the role: a second link is a conflict.
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -117,6 +118,17 @@ impl FamilySpouseRepo {
         role: SpouseRole,
         sort_order: i32,
     ) -> Result<FamilySpouse, OxidGeneError> {
+        let already = Entity::find()
+            .filter(Column::FamilyId.eq(family_id))
+            .filter(Column::PersonId.eq(person_id))
+            .one(db)
+            .await
+            .map_err(db_err)?;
+        if already.is_some() {
+            return Err(OxidGeneError::Conflict(
+                "the person is already a spouse of the family".to_string(),
+            ));
+        }
         let model = family_spouse::ActiveModel {
             id: Set(id),
             family_id: Set(family_id),

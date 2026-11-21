@@ -516,6 +516,9 @@ pub enum AuthorKind {
 }
 
 impl AuthorKind {
+    /// Every kind: the values the `audit_entry.author_kind` column accepts.
+    pub const ALL: [Self; 3] = [Self::User, Self::ApiClient, Self::Local];
+
     /// The stored and serialized value.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -827,6 +830,26 @@ impl ViewerContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `AuthorKind::ALL` is the list the schema's `CHECK` on
+    /// `audit_entry.author_kind` is written from. The match is exhaustive:
+    /// a new variant does not compile until it is placed here.
+    #[test]
+    fn the_author_kinds_list_holds_every_variant() {
+        fn after(kind: Option<AuthorKind>) -> Option<AuthorKind> {
+            match kind {
+                None => Some(AuthorKind::User),
+                Some(AuthorKind::User) => Some(AuthorKind::ApiClient),
+                Some(AuthorKind::ApiClient) => Some(AuthorKind::Local),
+                Some(AuthorKind::Local) => None,
+            }
+        }
+        let kinds: Vec<_> = std::iter::successors(after(None), |k| after(Some(*k))).collect();
+        assert_eq!(kinds, AuthorKind::ALL);
+        for kind in AuthorKind::ALL {
+            assert_eq!(AuthorKind::parse(kind.as_str()), kind);
+        }
+    }
 
     /// The matrix of docs/authorization.md §3.2, row by row: owner, editor,
     /// guest, visitor.

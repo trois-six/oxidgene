@@ -5,6 +5,7 @@ use oxidgene_core::enums::NameType;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::PersonName;
 use sea_orm::entity::prelude::*;
+use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter, QueryOrder,
     QuerySelect, Set,
@@ -128,7 +129,28 @@ impl PersonNameRepo {
             })
     }
 
-    /// Create a new person name.
+    /// Clear the primary flag of every name of `person_id` but `except`: a
+    /// person has at most one primary name, so the name about to be written
+    /// as primary takes the place of the one that was.
+    async fn demote_others(
+        db: &impl ConnectionTrait,
+        person_id: Uuid,
+        except: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        Entity::update_many()
+            .col_expr(Column::IsPrimary, Expr::value(false))
+            .col_expr(Column::UpdatedAt, Expr::value(Utc::now()))
+            .filter(Column::PersonId.eq(person_id))
+            .filter(Column::IsPrimary.eq(true))
+            .filter(Column::Id.ne(except))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// Create a new person name. A primary one takes the place of the
+    /// person's primary name, which becomes a secondary name.
     pub async fn create(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -138,6 +160,9 @@ impl PersonNameRepo {
         is_primary: bool,
         sort_order: i32,
     ) -> Result<PersonName, OxidGeneError> {
+        if is_primary {
+            Self::demote_others(db, person_id, id).await?;
+        }
         let now = Utc::now();
         let model = person_name::ActiveModel {
             id: Set(id),
@@ -158,7 +183,8 @@ impl PersonNameRepo {
         Ok(into_domain(result))
     }
 
-    /// Update a person name.
+    /// Update a person name. Made primary, it takes the place of the
+    /// person's primary name, which becomes a secondary name.
     pub async fn update(
         db: &impl ConnectionTrait,
         id: Uuid,
@@ -176,28 +202,14 @@ impl PersonNameRepo {
                 id,
             })?;
 
+        if is_primary == Some(true) && !existing.is_primary {
+            Self::demote_others(db, existing.person_id, id).await?;
+        }
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(name_type) = name_type {
             active.name_type = Set(sea_enums::NameType::from(name_type));
         }
-        if let Some(given_names) = pieces.given_names {
-            active.given_names = Set(given_names);
-        }
-        if let Some(surname) = pieces.surname {
-            active.surname = Set(trimmed_surname(surname));
-        }
-        if let Some(surname_prefix) = pieces.surname_prefix {
-            active.surname_prefix = Set(surname_prefix);
-        }
-        if let Some(prefix) = pieces.prefix {
-            active.prefix = Set(prefix);
-        }
-        if let Some(suffix) = pieces.suffix {
-            active.suffix = Set(suffix);
-        }
-        if let Some(nickname) = pieces.nickname {
-            active.nickname = Set(nickname);
-        }
+        apply_pieces(&mut active, pieces);
         if let Some(is_primary) = is_primary {
             active.is_primary = Set(is_primary);
         }
@@ -238,6 +250,28 @@ pub(crate) fn into_domain(m: person_name::Model) -> PersonName {
         sort_order: m.sort_order,
         created_at: m.created_at,
         updated_at: m.updated_at,
+    }
+}
+
+/// Set on `active` the pieces `pieces` changes.
+fn apply_pieces(active: &mut ActiveModel, pieces: PersonNamePiecesPatch) {
+    if let Some(given_names) = pieces.given_names {
+        active.given_names = Set(given_names);
+    }
+    if let Some(surname) = pieces.surname {
+        active.surname = Set(trimmed_surname(surname));
+    }
+    if let Some(surname_prefix) = pieces.surname_prefix {
+        active.surname_prefix = Set(surname_prefix);
+    }
+    if let Some(prefix) = pieces.prefix {
+        active.prefix = Set(prefix);
+    }
+    if let Some(suffix) = pieces.suffix {
+        active.suffix = Set(suffix);
+    }
+    if let Some(nickname) = pieces.nickname {
+        active.nickname = Set(nickname);
     }
 }
 
