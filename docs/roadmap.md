@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-21T18:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T12:43:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -587,22 +587,26 @@ after a restart ([Architecture §6](architecture.md)). Post-MVP:
 
 ## 12b. Planned: research, outputs, exchange and comfort
 
-Features approved for delivery and not specified yet. Each one is specified
-in its domain document before it is built; where a line names a constraint,
-the specification starts from it.
+Features approved for delivery. Research is specified in
+[Research](research.md); each of the others is specified in its domain
+document before it is built, and where a line names a constraint, the
+specification starts from it.
 
 Research:
 
-- [ ] A list of the records to find: for each event without a source, the
-  catalogued archive and the register series that cover its place and year.
-  It is computed locally from the archive catalogue, with no request to any
-  archive portal; a portal is contacted only when the reader opens one
-  entry, exactly as for a cited source today
-  ([Archive Portals §8](archives.md#8-access-etiquette)). The feature must
+- [ ] Research items: a question, its status and the log of the steps
+  taken to answer it, whatever the lead — asking a relative, examining a
+  document, a repository, a visit, a website, a letter. They stay off the
+  pages until asked for, behind a button that opens a panel, and are listed
+  in a Research tab of the Tools, in four phases
+  ([Research §11](research.md#11-delivery-phases)).
+- [ ] The records to find: the ancestry completeness tells a missing fact
+  from an unsourced one and opens the "Find in the archives" dialog on one
+  fact at a time. Nothing is requested from an archive until the reader
+  clicks, exactly as for a cited source today
+  ([Research §6](research.md#6-records-to-find),
+  [Archive Portals §8](archives.md#8-access-etiquette)). The feature must
   never add to the load of an archive site nor risk a block.
-- [ ] Research tasks and a research log per person — a task's status, where
-  and when a search was made, negative results — beyond today's notes. Its
-  scope is confirmed with the owner before it is specified.
 - [ ] Record-based entry: a record — a marriage, a baptism, a census… — is
   entered once and creates or links its persons, events, witnesses and
   citation in one transaction. Its place in the interface is designed with
