@@ -35,6 +35,7 @@ use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaEventLinkOption, MediaGallery, MediaOwner};
 use crate::components::pedigree_chart::{Portraits, SharedPedigree};
 use crate::components::reference_tooltip::{GivenNamesHover, OccupationsHover};
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::tags::{MenuTarget, RecordMenu, RecordMenuButton, TagBadges};
 use crate::components::tree_cache::{fetch_tree_cached, use_tree_cache};
 use crate::i18n::I18n;
@@ -1522,6 +1523,7 @@ pub(crate) fn notes_section(
     notes: Option<&Result<Vec<Note>, ApiError>>,
     tree_id: Uuid,
     menu: RecordMenu,
+    retry: impl FnMut() + 'static,
 ) -> Element {
     match notes {
         Some(Ok(notes)) if !notes.is_empty() => rsx! {
@@ -1582,8 +1584,11 @@ pub(crate) fn notes_section(
                 }
             }
         },
-        Some(Err(e)) => rsx! {
-            div { class: "error-msg", {i18n.t_args("person.load_notes_error", &[("error", &e.message(i18n))])} }
+        Some(Err(error)) => rsx! {
+            div { class: "card pd-section",
+                h2 { class: "section-title section-title-spaced", {i18n.t(title_key)} }
+                {SECTION.failed(error.message(i18n), retry)}
+            }
         },
         _ => rsx! {},
     }
@@ -2068,40 +2073,42 @@ pub(crate) fn timeline_section(
     }
 }
 
-/// The events card while its profile is loading or failed to.
-pub(crate) fn timeline_placeholder(i18n: &I18n, error: Option<&str>) -> Element {
+/// How a card of the profile shows its own load.
+const SECTION: ResourceView = ResourceView::section(SkeletonShape::Lines);
+
+/// The events card while its profile is loading.
+pub(crate) fn timeline_placeholder(i18n: &I18n) -> Element {
     rsx! {
         div { class: "card pd-section",
             div { class: "section-header",
                 h2 { class: "section-title", {i18n.t("person.events_section")} }
             }
-            match error {
-                Some(error) => rsx! {
-                    div { class: "error-msg", {i18n.t_args("person.load_events_error", &[("error", error)])} }
-                },
-                None => rsx! {
-                    div { class: "loading", {i18n.t("person.loading_events")} }
-                },
-            }
+            {SECTION.labelled("person.loading_events").loading()}
         }
     }
 }
 
-/// Why a mini pedigree could not be loaded, once its load failed.
+/// The error state of a mini pedigree, once its load failed.
 pub(crate) fn pedigree_failure(
     i18n: &I18n,
-    pedigree: &Resource<Result<Option<Pedigree>, ApiError>>,
-) -> Option<String> {
+    pedigree: Resource<Result<Option<Pedigree>, ApiError>>,
+) -> Option<Element> {
     match &*pedigree.read() {
-        Some(Err(error)) => Some(error.message(i18n)),
+        Some(Err(error)) => Some(SECTION.failed(error.message(i18n), retry_of(pedigree))),
         _ => None,
     }
+}
+
+/// The error state of a mini pedigree the batch `pedigrees` answered
+/// without.
+pub(crate) fn pedigree_missing<T: 'static>(pedigrees: Resource<T>) -> Element {
+    SECTION.failed(String::new(), retry_of(pedigrees))
 }
 
 /// The Ancestors card: a small static (no pan/zoom/drag) pedigree fragment.
 pub(crate) fn ancestors_section(
     i18n: &I18n,
-    failure: Option<String>,
+    failure: Option<Element>,
     mini_pedigree: Option<(Uuid, SharedPedigree)>,
     portraits: Option<Portraits>,
     on_navigate: EventHandler<Uuid>,
@@ -2119,14 +2126,7 @@ pub(crate) fn ancestors_section(
                 portraits,
             }
         },
-        None => match failure {
-            Some(e) => rsx! {
-                div { class: "error-msg", {i18n.t_args("person.load_ancestry_error", &[("error", &e)])} }
-            },
-            None => rsx! {
-                div { class: "loading", {i18n.t("person.loading_ancestry")} }
-            },
-        },
+        None => failure.unwrap_or_else(|| SECTION.labelled("person.loading_ancestry").loading()),
     };
     rsx! {
         div { class: "card pd-section",

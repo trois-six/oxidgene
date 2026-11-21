@@ -40,6 +40,7 @@ use crate::components::media_gallery::{MediaGallery, MediaOwner};
 use crate::components::modal::Modal;
 use crate::components::parent_suggestions::ParentSuggestions;
 use crate::components::place_input::{render_place_input, resolve_place};
+use crate::components::resource_view::Skeleton;
 use crate::components::suggest_input::ValueInput;
 use crate::i18n::use_i18n;
 use crate::permissions::{IfCan, Permission};
@@ -550,6 +551,7 @@ fn footer_save(
                     return;
                 }
             };
+            crate::components::toast::success(i18n.t("toast.person_saved"));
             // A name somebody else in the tree already bears raises the
             // question before the form closes. A failed lookup is not a
             // failed save, so it closes as it always did. The button stays
@@ -597,6 +599,7 @@ fn form_body(
                     surname: fields.surname,
                     given_names: fields.given,
                     on_linked: move |()| {
+                        crate::components::toast::success(i18n.t("toast.saved"));
                         on_saved.call(());
                         on_close.call(());
                     },
@@ -781,6 +784,7 @@ fn PersonDeletion(scope: FormScope, display_name: String, on_close: EventHandler
             error.set(None);
             match api.delete_person(scope.tid, scope.pid).await {
                 Ok(_) => {
+                    crate::components::toast::success(i18n.t("toast.person_deleted"));
                     scope.on_saved.call(());
                     on_close.call(());
                 }
@@ -1754,6 +1758,18 @@ where
     })
 }
 
+/// What stands for an event's notes and source until they are read: the
+/// skeleton, or nothing once the read failed — the error says so above, and
+/// nothing is then on its way.
+fn unread_placeholder(failed: bool) -> Element {
+    if failed {
+        return rsx! {};
+    }
+    rsx! {
+        Skeleton {}
+    }
+}
+
 /// Says in `error` why `resource` could not be read, once it failed.
 fn use_read_error<T: 'static>(
     resource: Resource<Result<T, ApiError>>,
@@ -2362,7 +2378,7 @@ pub fn EventEditor(
                 div { class: "error-msg", "{err}" }
             }
             if loaded().is_none() {
-                div { class: "loading", {i18n.t("common.loading")} }
+                {unread_placeholder(error().is_some())}
             } else {
                 div { class: "form-group",
                     label { "{description_label}" }

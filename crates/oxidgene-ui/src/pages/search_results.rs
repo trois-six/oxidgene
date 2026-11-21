@@ -23,6 +23,7 @@ use crate::components::pager::Pagination;
 use crate::components::pedigree_chart::{PedigreeData, SharedPedigree};
 use crate::components::person_form::FormSection;
 use crate::components::print::{search_print_title, search_query};
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::suggest_input::ValueInput;
 use crate::components::tags::{BulkTagPicker, TagBadges, dot_style};
@@ -582,7 +583,9 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
         &search_resource.read(),
         page_results.is_empty(),
         (filters.view)(),
+        &i18n,
     );
+    let results_view = ResourceView::section(SkeletonShape::Rows).labelled("search.loading");
     let results = ResultsView {
         tree_id: &props.tree_id,
         origin: &props.origin,
@@ -642,12 +645,8 @@ pub fn SearchResults(props: SearchResultsProps) -> Element {
 
         // ── Results ──
         match body {
-            ResultsBody::Loading => rsx! {
-                div { class: "loading", {i18n.t("search.loading")} }
-            },
-            ResultsBody::Failed => rsx! {
-                div { class: "error-msg", {i18n.t("search.error")} }
-            },
+            ResultsBody::Loading => results_view.loading(),
+            ResultsBody::Failed(message) => results_view.failed(message, retry_of(search_resource)),
             ResultsBody::Empty(key) => rsx! {
                 EmptyState { p { {i18n.t(key)} } }
             },
@@ -770,7 +769,8 @@ fn use_card_pedigrees(
 /// What the results area shows.
 enum ResultsBody {
     Loading,
-    Failed,
+    /// The search failed, and why, in the reader's words.
+    Failed(String),
     /// Nothing to list, and why, by its i18n key.
     Empty(&'static str),
     Cards,
@@ -782,11 +782,12 @@ impl ResultsBody {
         search: &Option<Result<Option<Searched>, ApiError>>,
         empty: bool,
         view: ViewMode,
+        i18n: &I18n,
     ) -> Self {
         match (search, empty, view) {
             (Some(Ok(None)), ..) => Self::Empty("search.start_search"),
             (None, ..) => Self::Loading,
-            (Some(Err(_)), ..) => Self::Failed,
+            (Some(Err(error)), ..) => Self::Failed(error.message(i18n)),
             (_, true, _) => Self::Empty("search.no_results"),
             (_, _, ViewMode::Card) => Self::Cards,
             (_, _, ViewMode::List) => Self::List,

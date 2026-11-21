@@ -23,6 +23,7 @@ use crate::components::person_form::{
     spouse_ages_from_form, typed_spouse_ages, update_event_body,
 };
 use crate::components::place_input::{render_place_input, resolve_place};
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::search_person::SearchPerson;
 use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
@@ -292,7 +293,7 @@ pub fn UnionForm(props: UnionFormProps) -> Element {
                         i18n.t("common.cancel"),
                         show_add_child,
                     ),
-                    {children_section.render(&children_resource.read())}
+                    {children_section.render(children_resource)}
                 }
 
                 // ── Privacy ── to whom may change it (`privacy_edit`).
@@ -602,6 +603,7 @@ impl FormScope {
                     }
                 }
                 saving.set(false);
+                crate::components::toast::success(scope.i18n.t("toast.saved"));
                 scope.writes.on_saved.call(());
                 on_close.call(());
             });
@@ -623,6 +625,7 @@ impl FormScope {
                 delete_error.set(None);
                 match scope.api.delete_family(scope.tid, scope.fid).await {
                     Ok(_) => {
+                        crate::components::toast::success(scope.i18n.t("toast.couple_deleted"));
                         scope.writes.on_saved.call(());
                         on_close.call(());
                     }
@@ -1136,9 +1139,13 @@ struct ChildrenSection<'a> {
 }
 
 impl ChildrenSection<'_> {
-    fn render(&self, children: &Option<Result<Vec<FamilyChild>, ApiError>>) -> Element {
+    fn render(&self, children: Resource<Result<Vec<FamilyChild>, ApiError>>) -> Element {
         let i18n = self.scope.i18n;
         let mut show_add = self.show_add;
+        let view =
+            ResourceView::section(SkeletonShape::Lines).labelled("union_form.loading_children");
+        let retry = retry_of(children);
+        let children = &*children.read();
         rsx! {
             if show_add() {
                 div { class: "linking-panel",
@@ -1162,12 +1169,8 @@ impl ChildrenSection<'_> {
                         {self.child_row(child)}
                     }
                 },
-                Some(Err(e)) => rsx! {
-                    div { class: "error-msg", {i18n.t_args("union_form.load_children_error", &[("error", &e.message(&i18n))])} }
-                },
-                None => rsx! {
-                    div { class: "loading", {i18n.t("union_form.loading_children")} }
-                },
+                Some(Err(e)) => view.failed(e.message(&i18n), retry),
+                None => view.loading(),
             }
         }
     }

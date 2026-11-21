@@ -19,6 +19,7 @@ use crate::components::context_menu::{MenuButton, MenuClose};
 use crate::components::history_diff::format_timestamp;
 use crate::components::modal::Modal;
 use crate::components::paged_list::use_paged_list;
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::text_field::TextInput;
 use crate::components::user_avatar::UserAvatar;
 use crate::i18n::{I18n, use_i18n};
@@ -191,10 +192,9 @@ pub fn InstanceUsersSection() -> Element {
             }
             div { class: "app-settings-card instance-users",
                 match &*users.first.read() {
-                    None => rsx! { p { class: "loading", {i18n.t("common.loading")} } },
-                    Some(Err(_)) => rsx! {
-                        div { class: "error-msg", role: "alert", {i18n.t("instance.users.load_failed")} }
-                    },
+                    None => ResourceView::section(SkeletonShape::Rows).loading(),
+                    Some(Err(error)) => ResourceView::section(SkeletonShape::Rows)
+                        .failed(error.clone(), retry_of(users.first)),
                     Some(Ok(_)) => rsx! {
                         for user in users.items() {
                             UserRow {

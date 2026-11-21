@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-21T15:40:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:41:00Z }
 ---
 
 
@@ -72,6 +72,11 @@ carries its portrait's source and whether it is the SOSA root or one of its
 ancestors, so the pictures come from one further request and the SOSA badges
 need no ancestry of their own. The circular views (wheel, fan and their
 descendant forms) draw no portrait and ask for none.
+
+While the pedigree loads the chart's card shows the skeleton. A tree without
+anyone answers `404`, and the page offers its first person; any other
+failure shows the load error with **Retry** and **Go Home** ([Common UI §4.20](ui-common.md#420-load-states)), never
+the empty tree.
 
 Only the cards and connectors near the viewport are in the DOM, in every view
 (the wheel's and the fan's segments, the lineage view's boxes and lines

@@ -18,10 +18,12 @@ use crate::api::{ApiClient, ApiError, MediaListFilters, MediaListItem, MediaTagF
 use crate::components::empty_state::EmptyState;
 use crate::components::media_gallery::{MediaLibraryGrid, MediaLibraryTile};
 use crate::components::pager::{DEFAULT_PER_PAGE, PageSize, PageSizeSelect, Pagination};
+use crate::components::resource_view::retry_of;
 use crate::components::tags::dot_style;
 use crate::components::text_field::TextInput;
 use crate::components::year_range::YearRange;
 use crate::i18n::{I18n, use_i18n};
+use crate::pages::dictionary::TAB;
 use crate::ui_observability::use_ui_resource;
 
 /// How long typing pauses before the list is asked again.
@@ -193,6 +195,7 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
         items,
         total,
         error,
+        invalid_range,
     } = ListState::of(list.read_unchecked().as_ref(), &i18n);
     let pages = total.div_ceil(per_page).max(1);
     let tiles: Vec<MediaLibraryTile> = items
@@ -246,10 +249,13 @@ pub fn DictionaryMedia(tree_id: Uuid) -> Element {
             ActiveMediaFilters { draft }
         }
 
-        if let Some(message) = error {
-            div { class: "error-msg", "{message}" }
+        if invalid_range {
+            // The filters' own mistake: asking again would not help.
+            div { class: "error-msg", role: "alert", {i18n.t("dictionary.media.invalid_range")} }
+        } else if let Some(message) = error {
+            {TAB.failed(message, retry_of(list))}
         } else if items.is_none() {
-            div { class: "loading", {i18n.t("dictionary.loading")} }
+            {TAB.loading()}
         } else if tiles.is_empty() && *applied.read() == MediaListFilters::default() {
             EmptyState { p { {i18n.t("dictionary.media.none")} } }
         } else if tiles.is_empty() {
@@ -277,6 +283,8 @@ struct ListState {
     items: Option<Vec<MediaListItem>>,
     total: usize,
     error: Option<String>,
+    /// The server refused the years asked for: said beside the filters.
+    invalid_range: bool,
 }
 
 impl ListState {
@@ -284,10 +292,11 @@ impl ListState {
         list: Option<&Result<oxidgene_core::types::Connection<MediaListItem>, ApiError>>,
         i18n: &I18n,
     ) -> Self {
-        let failed = |key: &str| Self {
+        let unread = Self {
             items: None,
             total: 0,
-            error: Some(i18n.t(key)),
+            error: None,
+            invalid_range: false,
         };
         match list {
             Some(Ok(connection)) => Self {
@@ -300,16 +309,17 @@ impl ListState {
                 ),
                 total: connection.total_count.max(0) as usize,
                 error: None,
+                invalid_range: false,
             },
-            Some(Err(ApiError::Api { status: 400, .. })) => {
-                failed("dictionary.media.invalid_range")
-            }
-            Some(Err(_)) => failed("dictionary.error"),
-            None => Self {
-                items: None,
-                total: 0,
-                error: None,
+            Some(Err(ApiError::Api { status: 400, .. })) => Self {
+                invalid_range: true,
+                ..unread
             },
+            Some(Err(error)) => Self {
+                error: Some(error.message(i18n)),
+                ..unread
+            },
+            None => unread,
         }
     }
 }

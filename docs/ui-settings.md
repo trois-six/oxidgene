@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Tree Settings Page"
 description: "Tree settings page for roots, privacy, the thresholds of the anomaly rules, the change history, export, and, without an account, the global preferences it shares with App Settings."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T19:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 
@@ -154,7 +154,7 @@ Each section begins with:
 
 ## 6. Save Behavior
 
-Settings changes are **auto-saved** on interaction. For example, selecting a SOSA root person saves immediately upon selection from the person picker. A transient success message appears briefly to confirm the save.
+Settings changes are **auto-saved** on interaction. For example, selecting a SOSA root person saves immediately upon selection from the person picker. A toast confirms the save ([Common UI §4.21](ui-common.md#421-toasts)) — the tree's name, a root person, the thresholds, the submitter — and a failure is said in the card, under the control. An export keeps its own result in its card: where the file was saved and what the format lost are not transient.
 
 The tree cache is invalidated after each save so that navigating back to the tree view reflects the changes immediately.
 

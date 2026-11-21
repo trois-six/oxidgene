@@ -7,7 +7,7 @@
 use dioxus::prelude::*;
 use std::sync::LazyLock;
 
-use crate::components::{account_nav, history_nav, tree_cache};
+use crate::components::{account_nav, history_nav, resource_view, toast, tree_cache};
 use crate::i18n;
 use crate::router::Route;
 
@@ -76,6 +76,9 @@ pub fn AppShell() -> Element {
         let code = serde_json::to_string(lang_signal().code()).unwrap_or_default();
         document::eval(&format!("document.documentElement.lang = {code};"));
     });
+    // The crash message is kept in the reader's language where a panic hook
+    // reaches it: nothing can be translated once the application stopped.
+    use_effect(move || crate::crash::remember(&i18n::I18n::new(lang_signal())));
     // After the language, which an account may choose (web build only).
     crate::account::use_init_account();
     let _sort_particles = crate::prefs::use_init_sort_particles();
@@ -92,6 +95,8 @@ pub fn AppShell() -> Element {
     // Before the router, which takes the history it finds above it.
     let _history = crate::nav_history::use_init_app_history();
     history_nav::use_init_history_list();
+    toast::use_init_toasts();
+    resource_view::use_init_connectivity();
 
     // The palette is a block of custom properties, so it can be recomputed
     // and swapped on its own: the stylesheet below never changes, and
@@ -110,6 +115,7 @@ pub fn AppShell() -> Element {
         style { {SPINNER_STYLES} }
         Router::<Route> {}
         history_nav::HistoryListHost {}
+        toast::ToastOutlet {}
     }
 }
 
@@ -1016,6 +1022,141 @@ pub const LAYOUT_STYLES: &str = r#"
         text-align: center;
         padding: var(--space-24);
         color: var(--text-secondary);
+    }
+
+    /* Read by assistive technology, drawn nowhere. */
+    .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    /* ── Loading and error states (components/resource_view.rs) ────────
+       The skeleton holds its place from the start and shows after a moment,
+       so a load answered at once never flashes it and nothing moves when
+       it appears. Its bars follow the label, the container's first child. */
+    .skeleton {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-5);
+        padding: var(--space-8) 0;
+        animation: skeleton-in 0.2s ease-out 0.15s both;
+    }
+    .skeleton-bar {
+        display: block;
+        height: var(--space-6);
+        border-radius: var(--radius-xs);
+        background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+        animation: skeleton-pulse 1.4s ease-in-out infinite;
+    }
+    .skeleton-lines .skeleton-bar:nth-child(2) { width: 55%; }
+    .skeleton-lines .skeleton-bar:nth-child(3) { width: 90%; }
+    .skeleton-lines .skeleton-bar:nth-child(4) { width: 70%; }
+    .skeleton-rows .skeleton-bar {
+        height: var(--space-16);
+        border-radius: var(--radius-sm);
+    }
+    .skeleton-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--space-40) * 3)), 1fr));
+        gap: var(--space-8);
+    }
+    .skeleton-cards .skeleton-bar {
+        height: calc(var(--space-32) * 2);
+        border-radius: var(--radius);
+    }
+    @keyframes skeleton-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes skeleton-pulse {
+        50% { opacity: 0.45; }
+    }
+
+    /* The pedigree page's load, inside the chart's card. */
+    .pedigree-load-state { flex: 1; padding: var(--space-12); }
+
+    .load-error {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-6);
+        background: color-mix(in srgb, var(--danger) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+        color: var(--danger-text);
+        padding: var(--space-6) var(--space-8);
+        border-radius: var(--radius);
+        margin-bottom: var(--space-8);
+    }
+    .load-error-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .load-error-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-4);
+    }
+    .load-error-actions a.btn { text-decoration: none; }
+
+    /* ── Toasts (components/toast.rs) ──────────────────────────────────
+       One outlet in the shell and one in every open dialog; the queue is
+       drawn in the one mounted last. */
+    .toast-outlet {
+        position: fixed;
+        inset-block-end: var(--space-8);
+        inset-inline-end: var(--space-8);
+        z-index: 400;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-4);
+        width: min(26rem, calc(100vw - 2 * var(--space-8)));
+        pointer-events: none;
+    }
+    .toast {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-5);
+        padding: var(--space-5) var(--space-6);
+        background: var(--bg-panel);
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        border-inline-start: var(--space-2) solid var(--green-accent);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-lg);
+        font-size: var(--text-90);
+        pointer-events: auto;
+        animation: toast-in 0.2s ease-out;
+    }
+    .toast-error { border-inline-start-color: var(--danger); }
+    .toast-mark::before { content: '✓'; color: var(--green-accent); font-weight: 700; }
+    .toast-error .toast-mark::before { content: '!'; color: var(--danger-text); }
+    .toast-text {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+    .toast-dismiss {
+        flex-shrink: 0;
+        border: none;
+        background: none;
+        color: var(--text-secondary);
+        font-size: var(--text-110);
+        line-height: 1;
+        padding: var(--space-1) var(--space-2);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+    }
+    .toast-dismiss:hover { color: var(--text-primary); }
+    @keyframes toast-in {
+        from { opacity: 0; transform: translateY(var(--space-4)); }
+        to { opacity: 1; transform: none; }
     }
 
     .error-msg {
@@ -8132,7 +8273,6 @@ pub const LAYOUT_STYLES: &str = r#"
     }
 
     .stats-empty,
-    .stats-loading,
     .stats-note {
         color: var(--text-muted);
         font-size: var(--text-80);
@@ -8916,7 +9056,7 @@ pub const LAYOUT_STYLES: &str = r#"
         .app-nav, .tree-icon-sidebar, .isb, .ev-panel,
         .modal-backdrop, .context-menu, .context-menu-backdrop,
         .ref-tooltip, .mini-pedigree-tooltip, .pedigree-depth-popover,
-        .import-overlay, .cropper-backdrop,
+        .import-overlay, .cropper-backdrop, .toast-outlet,
         .btn, .td-btn, .td-search-btn, .isb-btn, .pd-header-buttons, .cp-actions,
         .cp-bar, .pf-row-btn, .pf-add-btn, .pf-confirm-btn, .dict-row-action, .dict-row-chevron,
         .dict-letter-strip, .dict-filter-row, .dict-page-size,

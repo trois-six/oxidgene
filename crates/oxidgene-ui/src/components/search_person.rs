@@ -19,6 +19,7 @@ use crate::api::{ApiClient, CroppedSource};
 use crate::components::cropped_image::CroppedImage;
 use crate::components::event_icon::EventIcon;
 use crate::components::pedigree_chart::lifespan_tooltip;
+use crate::components::resource_view::{Skeleton, SkeletonShape};
 use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 use crate::placeholder::Placeholder;
@@ -357,7 +358,7 @@ pub fn SearchPerson(props: SearchPersonProps) -> Element {
             }
 
             if is_loading {
-                div { class: "loading", {i18n.t("search.loading")} }
+                Skeleton { shape: SkeletonShape::Rows, label_key: "search.loading" }
             } else if results.is_empty() {
                 div { class: "text-muted search-person-empty",
                     {i18n.t("search.no_match")}

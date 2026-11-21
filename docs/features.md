@@ -187,6 +187,7 @@ persons, real place names, and public-domain portraits of anonymous sitters.
 - English, French, German, Spanish, Italian, Dutch, Polish and Portuguese, switched without a restart ([Cross-cutting Rules §3](cross-cutting.md#3-internationalization)).
 - Pedigree chart, theme and depth preferences, and name display ([App Settings](ui-app-settings.md)).
 - A responsive layout from phones to wide screens ([Common UI §6](ui-common.md#6-responsive-behavior)).
+- Loads that say where they stand — a skeleton, then the content or an error with its retry — toasts for the outcome of a write, a web client that asks again by itself when the network blinked or came back, and a message with a reload instead of a frozen page if the application stops on a bug ([Cross-cutting Rules §6](cross-cutting.md#6-ui-feedback-states)).
 
 ## 16. Privacy, accounts and sharing
 

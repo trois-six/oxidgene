@@ -20,8 +20,10 @@ use crate::components::context_menu::{MenuButton, MenuClose};
 use crate::components::empty_state::EmptyState;
 use crate::components::import_modal::ImportModal;
 use crate::components::modal::Modal;
+use crate::components::resource_view::{ResourceView, SkeletonShape};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::text_field::{TextArea, TextInput};
+use crate::components::toast::{Toasts, use_toasts};
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::view_toggle::ViewToggle;
 use crate::i18n::{I18n, use_i18n};
@@ -101,8 +103,9 @@ fn HomeBody() -> Element {
     // Import state: which tree the modal is importing into, and its name for
     // the modal's title. The modal owns everything else about the run.
     let mut importing = use_signal(|| None::<(Uuid, String)>);
-    // Errors from the card actions that have nowhere of their own to show one.
-    let action_error = use_signal(|| None::<String>);
+    // The outcome of the card actions, which have nowhere of their own to
+    // show one.
+    let toasts = use_toasts();
     let mut renaming = use_signal(|| None::<(Uuid, String)>);
     let duplicating_tree_id = use_signal(|| None::<Uuid>);
     let search_query = use_signal(String::new);
@@ -135,6 +138,7 @@ fn HomeBody() -> Element {
                     delete_error.set(None);
                     tree_cache.forget(id);
                     refresh_counter += 1;
+                    toasts.success(i18n.t("toast.tree_deleted"));
                 }
                 Err(e) => delete_error.set(Some(e.message(&i18n))),
             }
@@ -150,7 +154,7 @@ fn HomeBody() -> Element {
             name,
             duplicating_tree_id,
             refresh_counter,
-            action_error,
+            toasts,
         ));
     };
 
@@ -171,8 +175,11 @@ fn HomeBody() -> Element {
                 }
 
                 // ── Trees grid ───────────────────────────────────────
-                match &*trees_resource.read() {
-                    Some(Ok(trees)) => rsx! {
+                // The list of trees is where a page's error leads back to:
+                // its own offers the retry alone.
+                {ResourceView::section(SkeletonShape::Cards)
+                    .labelled("home.loading")
+                    .show(&i18n, trees_resource, |trees| rsx! {
                         TreesGrid {
                             trees: trees.iter().map(TreeSummary::of).collect::<Vec<_>>(),
                             query: search_query(),
@@ -195,14 +202,7 @@ fn HomeBody() -> Element {
                             on_import: move |tree| importing.set(Some(tree)),
                             on_import_over,
                         }
-                    },
-                    Some(Err(_)) => rsx! {
-                        div { class: "error-msg", {i18n.t("home.load_error")} }
-                    },
-                    None => rsx! {
-                        div { class: "loading", {i18n.t("home.loading")} }
-                    },
-                }
+                    })}
             }
         }
 
@@ -212,6 +212,7 @@ fn HomeBody() -> Element {
                 on_created: move |_| {
                     show_create.set(false);
                     refresh_counter += 1;
+                    toasts.success(i18n.t("toast.tree_created"));
                 },
             }
         }
@@ -241,6 +242,7 @@ fn HomeBody() -> Element {
                 on_renamed: move |_| {
                     renaming.set(None);
                     refresh_counter += 1;
+                    toasts.success(i18n.t("toast.saved"));
                 },
             }
         }
@@ -269,11 +271,6 @@ fn HomeBody() -> Element {
             }
         }
 
-        // ── Card action feedback ──
-        if let Some(err) = action_error() {
-            div { class: "home-import-banner error-msg", "{err}" }
-        }
-
         style { {HOME_STYLES} }
         style { {HOME_SHARING_STYLES} }
     }
@@ -287,15 +284,18 @@ async fn duplicate_tree(
     name: String,
     mut duplicating: Signal<Option<Uuid>>,
     mut refresh_counter: Signal<u32>,
-    mut action_error: Signal<Option<String>>,
+    toasts: Toasts,
 ) {
     duplicating.set(Some(tid));
     let body = DuplicateTreeBody { name };
     let result = trace_ui_action(UiCommand::DuplicateTree, api.duplicate_tree(tid, &body)).await;
     duplicating.set(None);
     match result {
-        Ok(_) => refresh_counter += 1,
-        Err(e) => action_error.set(Some(e.message(&i18n))),
+        Ok(_) => {
+            refresh_counter += 1;
+            toasts.success(i18n.t("toast.tree_duplicated"));
+        }
+        Err(e) => toasts.error(e.message(&i18n)),
     }
 }
 
@@ -1731,21 +1731,6 @@ const HOME_STYLES: &str = r#"
     @keyframes home-fade-in {
         from { opacity: 0; }
         to   { opacity: 1; }
-    }
-
-    /* ── Import banner ────────────────────────────────────────────── */
-
-    .home-import-banner {
-        position: fixed;
-        bottom: 1.5rem;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 1000;
-        padding: var(--space-6) var(--space-12);
-        border-radius: var(--radius);
-        font-size: var(--text-85);
-        max-width: 600px;
-        box-shadow: var(--shadow-md);
     }
 
     /* ── Responsive ──────────────────────────────────────────────── */

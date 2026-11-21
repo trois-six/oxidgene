@@ -21,6 +21,7 @@ use crate::components::merge_fields::{
 };
 use crate::components::modal::Modal;
 use crate::components::person_form::{DeleteSection, MoreDetails};
+use crate::components::resource_view::{ResourceView, SkeletonShape};
 use crate::components::text_field::{TextArea, TextInput};
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
@@ -138,7 +139,10 @@ pub fn SourceEditor(
         error.set(None);
         spawn(async move {
             match api.update_source(tree_id, source_id, &body).await {
-                Ok(_) => on_saved.call(()),
+                Ok(_) => {
+                    crate::components::toast::success(i18n.t("toast.saved"));
+                    on_saved.call(());
+                }
                 Err(e) => {
                     saving.set(false);
                     error.set(Some(e.message(&i18n)));
@@ -159,7 +163,7 @@ pub fn SourceEditor(
                 button { class: "person-form-close", onclick: move |_| on_close.call(()), "✕" }
             }
             match &loaded_state {
-                None => rsx! { div { class: "loading", {i18n.t("common.loading")} } },
+                None => ResourceView::section(SkeletonShape::Lines).pending(&i18n, state),
                 Some(loaded_state) => rsx! {
                     div { class: "form-group",
                         label { {i18n.t("dictionary.source.field_title")} }
@@ -772,7 +776,10 @@ pub fn RepositoryEditor(
         error.set(None);
         spawn(async move {
             match save_or_merge(&api, tree_id, &current, fields, merge).await {
-                Ok(()) => on_saved.call(()),
+                Ok(()) => {
+                    crate::components::toast::success(i18n.t("toast.saved"));
+                    on_saved.call(());
+                }
                 Err(e) => {
                     saving.set(false);
                     error.set(Some(e.message(&i18n)));
@@ -896,7 +903,10 @@ pub fn RepositoryEditor(
                         saving.set(true);
                         spawn(async move {
                             match api.delete_repository(tree_id, id).await {
-                                Ok(()) => on_saved.call(()),
+                                Ok(()) => {
+                                    crate::components::toast::success(i18n.t("toast.deleted"));
+                                    on_saved.call(());
+                                }
                                 Err(e) => {
                                     saving.set(false);
                                     error.set(Some(e.message(&i18n)));

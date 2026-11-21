@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T15:51:49Z }
+generated: { by: human:maintainer, at: 2026-11-21T19:30:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -565,13 +565,28 @@ or a portal's answer ([Archive Portals §5.3](archives.md#53-api)).
 
 ## 6. UI feedback states
 
+The components named here are specified in
+[Common UI §4.7](ui-common.md#47-emptystate),
+[§4.20](ui-common.md#420-load-states) and [§4.21](ui-common.md#421-toasts).
+
 ### 6.1 Errors
 
 - Inline errors belong below the affected control and are linked through
   accessibility attributes.
-- Toasts are for transient operation outcomes, not field validation or content
-  required to complete a task.
-- Full-page errors provide localized retry and safe-navigation actions.
+- A load that failed is drawn by the one error state: a line saying that the
+  content could not be loaded, the reason, and **Retry**, which starts the
+  load again. Where the failed load is what the page is for — a person, a
+  couple, a pedigree, a person's history — the error also offers the way
+  back to the list of trees; the shared navigation stays around it. A list
+  or a card that failed inside a page that otherwise drew keeps the retry
+  alone.
+- Toasts say the transient outcome of an operation that leaves nothing else
+  on screen to say it — a tree created, renamed, duplicated or deleted, a
+  person saved or deleted, a merge, a dictionary entry or a tag saved, a
+  version restored, a setting saved — and the failure of an action that has
+  no place of its own for an error (duplicating a tree from its card). They
+  are never used for field validation or for content required to complete a
+  task: a failed save keeps its error in the form.
 - A failed mutation retains or restores the user's staged input.
 - A failed request is shown as the translation of its error code (§4.2), or
   of how it failed when no envelope came back (unreachable server, unreadable
@@ -581,9 +596,17 @@ or a portal's answer ([Archive Portals §5.3](archives.md#53-api)).
 
 ### 6.2 Loading
 
-- Page loads use layout-matched skeletons while shared navigation remains
-  stable.
-- Component loads preserve existing content and avoid layout shift.
+- A load is drawn by the one skeleton: grey bars in the place the content
+  will take, in one of three shapes — lines of text, rows of a list, a grid
+  of cards — chosen by the page. It takes its place at once and becomes
+  visible only after 150 ms, so a load answered within that time — from the
+  client's cache, or by the desktop's own backend — never flashes it and
+  nothing moves when it appears. Shared navigation (navbar, breadcrumb,
+  sidebar) is drawn from the start and does not wait for the load.
+- A load that runs again because what it depends on changed — a filter, a
+  page number, a write — keeps the content already shown until the new
+  answer replaces it. Only a retry after a failure clears the error for the
+  skeleton, so that the retry is seen to run.
 - Async buttons are disabled and show a localized busy label or accessible
   spinner to prevent duplicate submission.
 - Progress reports determinate values when known and an honest indeterminate
@@ -597,16 +620,56 @@ states with different localized text and actions.
 
 ### 6.4 Connectivity
 
-- Desktop startup failure is a blocking local-server error with a restart
-  action.
-- Web network failures use bounded exponential retry where the operation is
-  idempotent.
-- Non-idempotent mutations are never retried automatically unless an
-  idempotency contract exists.
-- Recovery refreshes stale reads and announces restored connectivity.
+- **Reads on the web.** A cached `GET` that ended without the server's
+  answer — the request failed in the network, or a proxy in front of the
+  server answered `502`, `503` or `504` in its place, without the error
+  envelope — is sent again, twice at most, after 0.4 and 0.8 seconds
+  (`Backoff`, `crates/oxidgene-ui/src/backoff.rs`). Only then does the load
+  fail, 1.2 seconds later than it otherwise would. An answer carrying the
+  server's envelope is final whatever its status: the server decided, and
+  asking again would repeat its work — an archive portal's refusal, a
+  timeout it reported. The desktop never retries: its backend is in the
+  process.
+- **Writes** are never sent again automatically: no idempotency contract
+  exists.
+- **The notification follower** (`GET /me/updates`) pauses after a failure,
+  one second doubling up to a minute, for as long as the page is open.
+- **Recovery on the web.** The browser reporting the network gone is said
+  in a toast, and its return in another; on that return every failed load
+  on screen is asked again without a press on Retry. What had loaded is not
+  asked again: it is as fresh as its cache entry.
+- **Desktop start-up.** A start-up that cannot reach its directories or its
+  database ends the process with a logged error. When it ends on a panic,
+  the crash dialog of §6.5 says so.
 
 Optimistic updates are allowed only when rollback is deterministic and the
 user cannot lose entered data.
+
+### 6.5 Crashes
+
+A panic ends the application: release builds abort, and a browser's
+WebAssembly has no unwinding either. Without a word the page would stay
+drawn and answer nothing. A panic hook therefore says what happened, by
+means that do not need the renderer:
+
+- **Web.** The page is replaced by a crash screen written in plain DOM
+  (`crates/oxidgene-ui/src/crash_screen.js`, tested under Node): a title,
+  one sentence — what was saved is safe, a form being filled in is lost —
+  and **Reload**, which reloads the page and holds the focus. It keeps the
+  active theme's colours and removes everything the application drew, open
+  dialogs included.
+- **Desktop.** A dialog of the operating system carries the same title and
+  sentence, asking to start the application again. It is raised when the
+  panic ends the process: always in a release build, and in a development
+  build only on the main thread — a request handler's panic is answered as
+  an error there, and a worker's loop is started again. On Linux the dialog
+  needs `zenity`; without it the application ends as before.
+
+The text is the interface language's: the shell keeps it where the hook
+reaches it and renews it on a language switch (`crash.rs`). Before the
+interface drew anything — a desktop start-up failure — it is English. The
+panic's own message goes to the browser console or the process's standard
+error only: it is English and may hold identifiers.
 
 ## 7. Privacy and anonymization
 

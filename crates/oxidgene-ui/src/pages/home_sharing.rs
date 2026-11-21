@@ -9,11 +9,12 @@
 use dioxus::prelude::*;
 use oxidgene_core::access::TreeRole;
 
-use super::sharing_settings::Listed;
+use super::sharing_settings::{LISTED, Listed};
 use crate::account::use_account;
 use crate::api::ApiClient;
 use crate::api::sharing::MyInvitation;
 use crate::components::date_input::format_day;
+use crate::components::resource_view::retry_of;
 use crate::i18n::use_i18n;
 use crate::sharing::use_sharing_surfaces;
 use crate::ui_observability::use_ui_resource;
@@ -152,7 +153,7 @@ pub fn HomeInvitations(on_accepted: EventHandler<()>) -> Element {
                 InvitationRow { key: "{invitation.id}", invitation, on_answer: answer.clone() }
             }
             if let Some(error) = listed.error {
-                div { class: "error-msg", role: "alert", "{error}" }
+                {LISTED.failed(error, retry_of(invitations))}
             }
             if let Some(error) = error() {
                 div { class: "error-msg", role: "alert", "{error}" }

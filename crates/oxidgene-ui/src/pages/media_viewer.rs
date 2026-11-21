@@ -54,7 +54,12 @@ pub fn Media(tree_id: String, media_id: String) -> Element {
                 Some((tree, media)) => rsx! {
                     MediaRouteViewer { tree_id: tree, media_id: media, on_close }
                 },
-                None => rsx! { div { class: "error-msg", {i18n.t("dictionary.error")} } },
+                // An address that names no document: nothing to ask again.
+                None => rsx! {
+                    div { class: "error-msg", role: "alert",
+                        {crate::api::ApiError::invalid_ids().message(&i18n)}
+                    }
+                },
             }
         }
     }

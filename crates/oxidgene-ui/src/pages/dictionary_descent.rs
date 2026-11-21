@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::api::{ApiClient, ApiError};
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::person_profile::{sex_mark, sosa_ring};
+use crate::components::resource_view::{ResourceView, Skeleton, SkeletonShape};
 use crate::components::tabs::Tabs;
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary::reveal_row;
@@ -390,20 +391,13 @@ fn DescentView(
     let snapshot = first.read();
     let descent = match &*snapshot {
         Some(Some(Ok(descent))) => descent,
-        Some(Some(Err(_))) => {
-            return rsx! {
-                div { class: "error-msg", {i18n.t("dictionary.descent.error")} }
-                button {
-                    r#type: "button",
-                    class: "dict-descent-more",
-                    onclick: move |_| on_retry.call(()),
-                    {i18n.t("dictionary.descent.retry")}
-                }
-            };
+        Some(Some(Err(error))) => {
+            return ResourceView::section(SkeletonShape::Lines)
+                .failed(error.message(&i18n), move || on_retry.call(()));
         }
         _ => {
             return rsx! {
-                div { class: "dict-accordion-empty", {i18n.t("common.loading")} }
+                Skeleton {}
             };
         }
     };

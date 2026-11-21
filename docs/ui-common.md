@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Common UI"
 description: "Shared layout, navigation, design tokens, components, accessibility, and responsive behavior."
 tags: [oxidgene, specification, ui, ux, design-system]
-generated: { by: human:maintainer, at: 2026-11-21T10:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Visual & Functional Specifications — Common UI
@@ -840,9 +840,9 @@ The one empty state (`components/empty_state.rs`, `.empty-state`), used only
 for genuinely empty content — no tree, no event, no match for a filter — with
 an optional icon, localized title, localized explanation, and one relevant
 action (clearing the filter, creating the first tree, choosing a root).
-Loading and error states never reuse the empty state: they are written with
-`.loading` and `.error-msg`. A page may give it a class of its own for
-spacing, as the homepage does.
+Loading and error states never reuse the empty state: they are the skeleton
+and the load error of [§4.20](#420-load-states). A page may give it a class
+of its own for spacing, as the homepage does.
 
 ### 4.8 ContextMenu
 
@@ -1246,6 +1246,68 @@ its centre. It never leaves the picture. It is sent in pixels of the upright
 picture. The vignette cropper (§4.5), which draws a free rectangle on a
 stored media, is a different tool.
 
+### 4.20 Load states
+
+One module, `components/resource_view.rs`, draws what a load shows while it
+runs and when it failed ([Cross-cutting Rules §6](cross-cutting.md#6-ui-feedback-states)).
+No page writes a loading line or a failed-load message of its own.
+
+- **`Skeleton`** — the loading state: grey bars in one of three shapes,
+  `Lines` (a card's body, a sentence), `Rows` (a list) and `Cards` (a grid).
+  It is a `status` named for assistive technology by a hidden label —
+  *Loading…*, or what the page says is loading — and marked `aria-busy`. It
+  holds its place at once and fades in after 150 ms; its bars pulse, and
+  stand still for a reader who asks for reduced motion ([§5](#5-accessibility)).
+- **`LoadError`** — the error state, an `alert`: *This could not be loaded.*,
+  the translated reason, **Retry**, and on a page whose own load failed
+  **Go Home**. It asks again by itself when the browser reports the network
+  back.
+- **`ResourceView`** — which of the two a load is in, or the caller's
+  content once it has its value. A page names the skeleton's shape and
+  whether the load is the page's (`ResourceView::page`) or a part's
+  (`ResourceView::section`), then hands it a resource (`show`; `show_gated`
+  for one that waits to know what to ask) or a state it holds otherwise
+  (`state`, `loading`, `failed`). Retry clears the failure and starts the
+  resource again (`retry_of`).
+
+What stays outside it, on purpose: the error of a write, shown where the
+write was asked (`.error-msg`, an `alert` beside the control or in the form's
+footer); a refusal of the filters themselves, such as an impossible range of
+years; the one-line status of a menu or a picker (the tag pickers, the chart's
+highlight list), where a block with a button does not fit; the fixed-size
+cards of the search results, which say *Loading…* or that their mini
+pedigree failed in their own frame; and the progress of an operation the
+reader started (an import's steps, a document being attached), which is
+progress, not a load.
+
+### 4.21 Toasts
+
+A toast says the transient outcome of an operation
+([Cross-cutting Rules §6.1](cross-cutting.md#61-errors)) in the bottom corner
+of the window, at the end of the reading direction: a mark, one sentence and
+a **Dismiss** button. A success leaves by itself after 5 seconds, a failure
+after 10. At most four are shown, the oldest leaving first; the same outcome
+said again replaces its earlier toast instead of stacking under it.
+
+The application has one queue (`components/toast.rs`), created by the shell.
+A component raises a toast through the handle `use_toasts()` gives
+(`success`, `error`), an event handler or a task through the functions of
+the same names; the text is already translated. The timer that removes a
+toast belongs to the application, not to the component that raised it, which
+is often a dialog closing as it does.
+
+The shell has an outlet for the queue, and so has every open dialog
+([§4.13](#413-modal)): everything outside an open dialog is inert and painted
+under its backdrop, so a toast raised while a dialog is open — a person
+saved while the homonym question is asked — would otherwise be neither seen
+nor reachable. The queue is drawn in the outlet mounted last, which is the
+dialog opened last, or the shell's when no dialog is open; when that dialog
+closes, the toasts still due move to the outlet under it. Each outlet is a
+polite live region (`status`) that stays mounted while empty, so a toast
+added to it is announced; a failure is an `alert` of its own. The entrance
+animation ends at once for a reader who asks for reduced motion. Toasts do
+not print.
+
 ## 5. Accessibility
 
 - All controls have programmatic labels; icon-only actions have localized
@@ -1289,7 +1351,9 @@ stored media, is a different tool.
   pedigree's cards are links, each a stop of its own.
 - Errors are linked to their controls and announced without relying on color.
 - Dynamic status uses polite live regions; rapid progress ticks are not each
-  announced.
+  announced. A load is a `status` while it runs and an `alert` when it
+  failed ([§4.20](#420-load-states)); a toast is announced by its outlet
+  ([§4.21](#421-toasts)).
 - **Motion** respects `prefers-reduced-motion` through one rule of the
   stylesheet: every transition and animation ends at once and nothing
   scrolls smoothly. The two spinners are the exception, turning three times

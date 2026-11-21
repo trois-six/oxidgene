@@ -11,9 +11,12 @@ use oxidgene_core::types::{Event as DomainEvent, PersonName, join_surname_partic
 use oxidgene_core::{DateQualifier, EventType, Sex};
 use uuid::Uuid;
 
-use crate::api::{ApiClient, CroppedSource, MediaWithLink, MergeChoices, PersonDetailBundle};
+use crate::api::{
+    ApiClient, ApiError, CroppedSource, MediaWithLink, MergeChoices, PersonDetailBundle,
+};
 use crate::components::date_input::format_event_date;
 use crate::components::modal::Modal;
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::search_person::{
     PersonSearchSummary, SearchPerson, render_person_search_summary,
 };
@@ -424,17 +427,21 @@ fn merged_name(kept: &Record, absorbed: &Record, picks: &Picks) -> String {
 }
 
 /// The records to compare, loaded together.
-async fn load_records(api: ApiClient, tree_id: Uuid, ids: [Uuid; 2]) -> Option<[Record; 2]> {
+async fn load_records(
+    api: ApiClient,
+    tree_id: Uuid,
+    ids: [Uuid; 2],
+) -> Result<[Record; 2], ApiError> {
     let load = |id: Uuid| {
         let api = api.clone();
         async move {
-            let profile = api.get_person_profile(tree_id, id).await.ok()?;
-            let bundle = api.get_person_detail_bundle(tree_id, id).await.ok()?;
-            Some(Record { profile, bundle })
+            let profile = api.get_person_profile(tree_id, id).await?;
+            let bundle = api.get_person_detail_bundle(tree_id, id).await?;
+            Ok::<_, ApiError>(Record { profile, bundle })
         }
     };
     let (a, b) = futures_util::join!(load(ids[0]), load(ids[1]));
-    Some([a?, b?])
+    Ok([a?, b?])
 }
 
 /// The merge wizard. `other_id` given, it opens on the comparison; otherwise
@@ -471,7 +478,7 @@ pub fn MergeDialog(
     let records = use_ui_resource("merge_records", move || {
         let api = api_records.clone();
         let other = other();
-        async move { load_records(api, tree_id, [person_id, other?]).await }
+        async move { Some(load_records(api, tree_id, [person_id, other?]).await) }
     });
     let api_portraits = api.clone();
     let portraits = use_ui_resource("merge_portraits", move || {
@@ -481,7 +488,11 @@ pub fn MergeDialog(
     });
     let portraits = portraits.read().clone().unwrap_or_default();
 
-    let loaded = records.read().clone().flatten();
+    let (loaded, load_failure) = match &*records.read() {
+        Some(Some(Ok(pair))) => (Some(pair.clone()), None),
+        Some(Some(Err(error))) => (None, Some(error.message(&i18n))),
+        _ => (None, None),
+    };
     let pair = loaded.as_ref().map(|[source, other]| {
         if kept_is_source() {
             (source.clone(), other.clone())
@@ -512,9 +523,13 @@ pub fn MergeDialog(
                 },
             }
         },
-        (_, None) => rsx! {
-            p { class: "stats-loading", {i18n.t("common.loading")} }
-        },
+        (_, None) => {
+            let view = ResourceView::section(SkeletonShape::Lines);
+            match load_failure {
+                Some(message) => view.failed(message, retry_of(records)),
+                None => view.loading(),
+            }
+        }
         (Step::Compare, Some((kept, absorbed))) => render_compare(CompareView {
             i18n,
             kept,
@@ -936,7 +951,10 @@ fn render_actions(view: ActionsView) -> Element {
             error.set(None);
             let merged = api.merge_persons(tree_id, kept, absorbed, &choices);
             match trace_ui_action(UiCommand::Merge, merged).await {
-                Ok(_) => on_merged.call(kept),
+                Ok(_) => {
+                    crate::components::toast::success(i18n.t("toast.merged"));
+                    on_merged.call(kept);
+                }
                 Err(_) => error.set(Some(i18n.t("homonym.merge_failed"))),
             }
             busy.set(false);

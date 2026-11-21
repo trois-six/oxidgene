@@ -18,8 +18,10 @@ use crate::components::person_profile::{
     EnrichedEvent, EventOrigin, PagePictures, Profile, ProfileMediaCard, SHOW_MANUAL_REFRESH,
     SectionContext, SharedProfile, ancestors_section, build_profile, children_list, couple_sides,
     family_section, header_section, media_event_links, notes_section, page_gallery, page_portraits,
-    refresh_button, timeline_section, union_line, use_page_pictures, use_tree_resource,
+    pedigree_missing, refresh_button, timeline_section, union_line, use_page_pictures,
+    use_tree_resource,
 };
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::tags::{RecordTagMenu, TagBadges, TagsButton, use_record_menu};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
@@ -325,6 +327,7 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
                     nav,
                     self_person_id,
                     photos: page_portraits(&pictures),
+                    pedigrees,
                     data,
                     columns: &columns,
                     unknown: &unknown,
@@ -339,14 +342,13 @@ pub fn CoupleDetail(tree_id: String, family_id: String) -> Element {
                     {view.grid()}
                 }
             }
-            _ => match load_error {
-                Some(error) => rsx! {
-                    div { class: "error-msg", {i18n.t_args("couple.load_error", &[("error", &error)])} }
-                },
-                None => rsx! {
-                    div { class: "loading", {i18n.t("couple.loading")} }
-                },
-            },
+            _ => {
+                let page_view = ResourceView::page(SkeletonShape::Lines).labelled("couple.loading");
+                match load_error {
+                    Some(error) => page_view.failed(error, retry_of(couple_resource)),
+                    None => page_view.loading(),
+                }
+            }
         }
         }
     }
@@ -514,6 +516,8 @@ struct CoupleView<'a> {
     nav: dioxus::router::Navigator,
     self_person_id: Option<Uuid>,
     photos: Option<Portraits>,
+    /// Both spouses' ancestors, to ask again when one's are missing.
+    pedigrees: Resource<HashMap<Uuid, Pedigree>>,
     data: &'a CoupleData,
     columns: &'a [Column; 2],
     unknown: &'a str,
@@ -642,13 +646,13 @@ impl CoupleView<'_> {
         rsx! {
             if !self.data.notes.is_empty() {
                 div { class: "cp-span",
-                    {notes_section(i18n, "couple.notes_section", Some(&Ok(self.data.notes.clone())), self.ctx.tree_id, self.ctx.record_menu)}
+                    {notes_section(i18n, "couple.notes_section", Some(&Ok(self.data.notes.clone())), self.ctx.tree_id, self.ctx.record_menu, || ())}
                 }
             }
             if has_person_notes {
                 for column in self.columns.iter() {
                     div { class: "cp-cell",
-                        {notes_section(i18n, "person.notes_section", Some(&Ok(column.notes.clone())), self.ctx.tree_id, self.ctx.record_menu)}
+                        {notes_section(i18n, "person.notes_section", Some(&Ok(column.notes.clone())), self.ctx.tree_id, self.ctx.record_menu, || ())}
                     }
                 }
             }
@@ -754,7 +758,7 @@ impl CoupleView<'_> {
             for column in self.columns.iter() {
                 div { class: "cp-cell",
                     if column.person_id.is_some() {
-                        {ancestors_section(&self.ctx.i18n, column.pedigree_missing.then(String::new), column.mini.clone(), self.photos.clone(), on_navigate)}
+                        {ancestors_section(&self.ctx.i18n, column.pedigree_missing.then(|| pedigree_missing(self.pedigrees)), column.mini.clone(), self.photos.clone(), on_navigate)}
                     }
                 }
             }

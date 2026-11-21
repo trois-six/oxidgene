@@ -287,6 +287,10 @@ fn main() {
     // see `oxidgene_api::memory`.
     oxidgene_api::memory::tune();
 
+    // A panic that ends the application says so in a dialog of the
+    // operating system (docs/cross-cutting.md §6.5).
+    oxidgene_ui::crash::install_native_hook();
+
     // A release build is a GUI program with no console of its own: attach to
     // the console of the process that started it, if any, so what it prints
     // reaches that terminal.

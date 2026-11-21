@@ -24,6 +24,7 @@ use crate::api::{
 };
 use crate::components::date_input::{DateInput, DateParts, format_event_date};
 use crate::components::place_input::{render_place_input, resolve_place};
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::suggest_input::ValueInput;
 use crate::components::text_field::{TextArea, TextInput};
 use crate::i18n::I18n;
@@ -627,12 +628,12 @@ pub(super) fn InformationBlock(
                 }
             }
         }
-        Some(Err(e)) => rsx! {
-            div { class: "error-msg", {i18n.t_args("person_form.load_names_error", &[("error", &e.message(&i18n))])} }
-        },
-        None => rsx! {
-            div { class: "loading", {i18n.t("person_form.loading_names")} }
-        },
+        Some(Err(e)) => {
+            ResourceView::section(SkeletonShape::Lines).failed(e.message(&i18n), retry_of(names))
+        }
+        None => ResourceView::section(SkeletonShape::Lines)
+            .labelled("person_form.loading_names")
+            .loading(),
     };
 
     rsx! {

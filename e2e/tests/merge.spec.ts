@@ -72,8 +72,10 @@ test("a profile's Merge with… finds the other record, and the merged profile c
     const wizard = page.locator(".merge-card");
     await expect(wizard.locator(".merge-step")).toHaveText("Step 1 of 3 · Choose the other record");
     await wizard.getByPlaceholder("Search for person to merge...").fill("Dorian");
-    // The other record: the one married, whose death is recorded.
-    await wizard.getByRole("button", { name: /Dorian.*1900/ }).click();
+    // The other record: the one married, whose death is recorded. Named by
+    // its family too: once the search is narrowed to "Dorian", the Dunmores'
+    // Dorian, who died the same year, is listed beside him.
+    await wizard.getByRole("button", { name: /Ashdown Dorian.*1900/ }).click();
 
     await expect(wizard.locator(".merge-step")).toHaveText("Step 2 of 3 · Compare and choose");
     // The profile's own record is the one kept by default.

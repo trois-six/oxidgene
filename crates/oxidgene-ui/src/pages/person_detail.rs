@@ -15,6 +15,7 @@ use crate::components::person_profile::{
     timeline_placeholder, timeline_section, use_ancestor_pedigree, use_mini_pedigree,
     use_page_pictures, use_tree_resource,
 };
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::tags::{RecordTagMenu, TagsButton, use_record_menu};
 use crate::components::topbar_search::TopbarSearch;
 use crate::components::trash_icon::TrashIcon;
@@ -177,6 +178,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         Some(Err(error)) => Some(error.message(&i18n)),
         _ => None,
     };
+    let page_view = ResourceView::page(SkeletonShape::Lines).labelled("person.loading");
     let profile = profile();
     // Blank while loading — better than flashing a loading label in the
     // breadcrumb and page header.
@@ -199,6 +201,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
         spawn(async move {
             match api.delete_person(tid, pid).await {
                 Ok(_) => {
+                    crate::components::toast::success(i18n.t("toast.person_deleted"));
                     nav.push(Route::TreeDetail {
                         tree_id: tree_id_nav,
                         person: None,
@@ -381,7 +384,7 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                             },
                         ),
                     )}
-                    {notes_section(&i18n, "person.notes_section", notes_resource.read().as_ref(), ctx.tree_id, ctx.record_menu)}
+                    {notes_section(&i18n, "person.notes_section", notes_resource.read().as_ref(), ctx.tree_id, ctx.record_menu, retry_of(notes_resource))}
                     ProfileMediaCard {
                         tree_id: ctx.tree_id,
                         owner: MediaOwner::Person(profile.person_id),
@@ -400,19 +403,15 @@ pub fn PersonDetail(tree_id: String, person_id: String) -> Element {
                     }
                     {family_section(ctx, profile, None)}
                     {timeline_section(ctx, profile, i18n.t("person.events_section"), &events)}
-                    {ancestors_section(&i18n, pedigree_failure(&i18n, &ancestor_pedigree_resource), mini_pedigree(), portraits.clone(), on_navigate)}
+                    {ancestors_section(&i18n, pedigree_failure(&i18n, ancestor_pedigree_resource), mini_pedigree(), portraits.clone(), on_navigate)}
                 }
             }
-            _ => rsx! {
-                match detail_error.as_deref() {
-                    Some(error) => rsx! {
-                        div { class: "error-msg", {i18n.t_args("person.load_error", &[("error", error)])} }
-                    },
-                    None => rsx! {
-                        div { class: "loading", {i18n.t("person.loading")} }
-                    },
-                }
-                {timeline_placeholder(&i18n, detail_error.as_deref())}
+            _ => match detail_error {
+                Some(error) => page_view.failed(error, retry_of(detail_resource)),
+                None => rsx! {
+                    {page_view.loading()}
+                    {timeline_placeholder(&i18n)}
+                },
             },
         }
         }

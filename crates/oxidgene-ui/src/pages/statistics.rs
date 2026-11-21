@@ -12,8 +12,8 @@ use oxidgene_core::calendar::{DAYS_PER_MONTH, DAYS_PER_YEAR};
 use uuid::Uuid;
 
 use crate::api::{
-    ApiClient, GrowthDay, StatCount, StatDate, StatPerson, StatPersonRef, StatRecord, StatSummary,
-    StatYearCounts, StatYearSum, TreeGrowth, TreeStatistics,
+    ApiClient, ApiError, GrowthDay, StatCount, StatDate, StatPerson, StatPersonRef, StatRecord,
+    StatSummary, StatYearCounts, StatYearSum, TreeGrowth, TreeStatistics,
 };
 use crate::components::charts::{
     BarChart, ChartCard, ChartMarker, ChartSeries, DonutChart, HeatMap, LineChart, MapCity,
@@ -21,6 +21,7 @@ use crate::components::charts::{
 };
 use crate::components::date_input::{format_date, format_day};
 use crate::components::history_diff::format_timestamp;
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::tabs::{Tab, Tabs, use_stored_tab};
 use crate::components::tags::{TagSelect, Vocabulary, use_tag_filter};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
@@ -29,6 +30,9 @@ use crate::prefs::{store, stored};
 use crate::router::Route;
 use crate::ui_observability::{UiPage, measure_ui, use_traced_resource, use_ui_load_trace};
 use crate::utils::event_type_label_key;
+
+/// How a tab shows the load of its figures.
+const TAB: ResourceView = ResourceView::section(SkeletonShape::Cards);
 
 /// The period widths offered, in years.
 const INTERVALS: [i32; 4] = [10, 25, 50, 100];
@@ -183,9 +187,7 @@ pub fn Statistics(tree_id: String) -> Element {
             if !wanted {
                 return None;
             }
-            api.tree_statistics(tid?, approximate?, lang, chosen)
-                .await
-                .ok()
+            Some(api.tree_statistics(tid?, approximate?, lang, chosen).await)
         }
     });
     let api_growth = api.clone();
@@ -196,7 +198,7 @@ pub fn Statistics(tree_id: String) -> Element {
             if !wanted {
                 return None;
             }
-            api.tree_growth(tid?).await.ok()
+            Some(api.tree_growth(tid?).await)
         }
     });
     let api_map = api.clone();
@@ -285,16 +287,14 @@ pub fn Statistics(tree_id: String) -> Element {
                     class: "stats-tabs",
                 }
             }
-            match (tab(), stats_value) {
-                (None, _) => rsx! {},
-                (Some(StatsTab::Growth), _) => match growth_value {
-                    None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-                    Some(value) => measure_ui("statistics_growth", || {
+            match tab() {
+                None => rsx! {},
+                Some(StatsTab::Growth) => TAB.state(&i18n, growth_value, retry_of(growth), |value| {
+                    measure_ui("statistics_growth", || {
                         render_growth(value, Utc::now().date_naive(), limited, &i18n)
-                    }),
-                },
-                (_, None) => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-                (Some(current), Some(value)) => rsx! {
+                    })
+                }),
+                Some(current) => TAB.state(&i18n, stats_value, retry_of(stats), |value| rsx! {
                     match current {
                         StatsTab::Overview => render_overview(value, limited, &i18n),
                         StatsTab::Population => rsx! {
@@ -313,7 +313,7 @@ pub fn Statistics(tree_id: String) -> Element {
                         },
                         StatsTab::Growth => rsx! {},
                     }
-                },
+                }),
             }
         }
     }
@@ -915,7 +915,7 @@ enum PeriodView {
 /// and is only read here, so moving it redraws these charts alone.
 #[component]
 fn PeriodCharts(
-    stats: Resource<Option<TreeStatistics>>,
+    stats: Resource<Option<Result<TreeStatistics, ApiError>>>,
     interval: Signal<i32>,
     range: Signal<Option<(i32, i32)>>,
     view: PeriodView,
@@ -924,7 +924,7 @@ fn PeriodCharts(
     let mut interval = interval;
     let mut range = range;
     let stats_read = stats.read();
-    let Some(stats) = stats_read.as_ref().and_then(Option::as_ref) else {
+    let Some(Ok(stats)) = stats_read.as_ref().and_then(Option::as_ref) else {
         return rsx! {};
     };
     let bounds = year_bounds(stats);

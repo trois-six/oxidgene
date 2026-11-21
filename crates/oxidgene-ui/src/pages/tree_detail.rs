@@ -18,6 +18,7 @@ use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::{PedigreeChart, PedigreeData, Portraits, SharedPedigree};
 use crate::components::person_form::{PersonForm, PersonFormCreateContext};
 use crate::components::print::PrintHeading;
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::search_person::SearchPerson;
 use crate::components::tags::{TagBranchDialog, TagPicker};
 use crate::components::topbar_search::TopbarSearch;
@@ -327,6 +328,7 @@ impl TreeWrites {
                         selected_root.set(None);
                     }
                     tree_cache.invalidate();
+                    crate::components::toast::success(i18n.t("toast.person_deleted"));
                 }
                 Err(e) => delete_error.set(Some(e.message(&i18n))),
             }
@@ -728,12 +730,7 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
                         on_couple_view: push_tree_route(&tree_id, couple_route),
                     }
                 },
-                // Show the empty-tree UI once the pedigree has loaded without
-                // one: an error means no persons, or a network failure.
-                _ if pedigree_resource.read().is_some() => empty_tree(&i18n, writes.clone(), adds),
-                _ => rsx! {
-                    div { class: "loading", {i18n.t("tree.loading_pedigree")} }
-                },
+                _ => pedigree_state(&i18n, pedigree_resource, writes.clone(), adds),
             }
         }
 
@@ -1017,6 +1014,29 @@ fn add_parent_context(
 
 /// A tree with no one yet: the button creating its first person, when the
 /// viewer may create one.
+/// The chart's place while the pedigree has nothing to draw: its load, its
+/// failure with a retry, or the empty tree. A tree without anyone answers
+/// `404`, and the page offers its first person; any other failure is said.
+fn pedigree_state<T: 'static>(
+    i18n: &I18n,
+    pedigree: Resource<Result<T, ApiError>>,
+    writes: TreeWrites,
+    adds: bool,
+) -> Element {
+    let view = ResourceView::page(SkeletonShape::Cards).labelled("tree.loading_pedigree");
+    match &*pedigree.read() {
+        Some(Err(error)) if error.status() != Some(404) => rsx! {
+            div { class: "pedigree-load-state",
+                {view.failed(error.message(i18n), retry_of(pedigree))}
+            }
+        },
+        Some(_) => empty_tree(i18n, writes, adds),
+        None => rsx! {
+            div { class: "pedigree-load-state", {view.loading()} }
+        },
+    }
+}
+
 fn empty_tree(i18n: &I18n, writes: TreeWrites, adds: bool) -> Element {
     rsx! {
         div { class: "empty-tree-container",

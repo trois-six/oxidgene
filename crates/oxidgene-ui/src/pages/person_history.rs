@@ -13,6 +13,7 @@ use crate::components::history_diff::{
     VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name, version_label,
 };
 use crate::components::paged_list::use_paged_list;
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::tree_cache::{use_track_current_person, use_tree_cache};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::use_i18n;
@@ -126,6 +127,7 @@ fn HistoryPage(tree_id: String, person_id: String) -> Element {
                         compare_with.set(None);
                         tree_cache.invalidate();
                         refresh += 1;
+                        crate::components::toast::success(i18n.t("toast.restored"));
                     }
                     Err(error) => restore_error.set(Some(error.message(&i18n))),
                 }
@@ -200,10 +202,8 @@ fn HistoryPage(tree_id: String, person_id: String) -> Element {
             }
 
             match &*list.first.read() {
-                None => rsx! { div { class: "loading", {i18n.t("common.loading")} } },
-                Some(Err(error)) => rsx! {
-                    div { class: "error-msg", {i18n.t_args("history.load_error", &[("error", error)])} }
-                },
+                None => ResourceView::page(SkeletonShape::Rows).loading(),
+                Some(Err(error)) => ResourceView::page(SkeletonShape::Rows).failed(error.clone(), retry_of(list.first)),
                 Some(Ok(_)) if versions.read().is_empty() => rsx! {
                     EmptyState { class: "card",
                         p { {i18n.t("history.no_versions")} }

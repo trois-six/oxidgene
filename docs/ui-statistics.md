@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: human:maintainer, at: 2026-10-31T21:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -384,7 +384,8 @@ first person was added to today.
 
 ## 11. States
 
-- While loading, the charts show the shared loading placeholder.
+- While a tab's figures load it shows the skeleton, and the load error with
+  its **Retry** when the read failed ([Common UI §4.20](ui-common.md#420-load-states)).
 - A chart without any data shows "Not enough dated records" instead of an
   empty frame.
 - A tree without any located place shows the map empty with the reason.

@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, HeldSource};
 use crate::components::empty_state::EmptyState;
+use crate::components::resource_view::Skeleton;
 use crate::components::source_forms::{RepositoryEditor, medium_label};
 use crate::components::tags::{
     MenuTarget, RecordMenuButton, RecordTagMenu, TagBadges, is_enter_or_space, stop_row_activation,
@@ -15,7 +16,7 @@ use crate::components::tags::{
 };
 use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
-use crate::pages::dictionary::reveal_row;
+use crate::pages::dictionary::{TAB, reveal_row};
 use crate::permissions::{IfCan, Permission};
 use crate::ui_observability::use_ui_resource;
 use oxidgene_core::types::RecordKind;
@@ -157,7 +158,6 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
         }
         _ => None,
     };
-    let failed = matches!(&*repositories.read(), Some(Err(_)));
 
     rsx! {
         div { class: "dict-filter-row",
@@ -180,8 +180,7 @@ pub fn DictionaryRepositories(tree_id: Uuid, open: Option<Uuid>) -> Element {
             }
         }
         match listed {
-            None if failed => rsx! { div { class: "error-msg", {i18n.t("dictionary.error")} } },
-            None => rsx! { div { class: "loading", {i18n.t("dictionary.loading")} } },
+            None => TAB.pending(&i18n, repositories),
             Some(list) if list.is_empty() => rsx! {
                 EmptyState { p { {i18n.t("dictionary.no_entries_repositories")} } }
             },
@@ -316,9 +315,7 @@ fn render_held(i18n: I18n, id: Uuid, held: &Option<(Option<Uuid>, Vec<HeldSource
             }
         },
         _ => rsx! {
-            div { class: "dict-accordion",
-                div { class: "dict-accordion-empty", {i18n.t("common.loading")} }
-            }
+            div { class: "dict-accordion", Skeleton {} }
         },
     }
 }

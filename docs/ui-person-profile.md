@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Profile"
 description: "Full person detail view with identity, timeline, family connections, media, and notes."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 
@@ -635,7 +635,8 @@ in the footer.
 
 The **Notes** card sits directly below the identity header, and only when the
 person has notes; while they load, or when there are none, nothing is drawn.
-A failed read shows its error in place of the card.
+A failed read shows the card with the load error and its **Retry**
+([Common UI §4.20](ui-common.md#420-load-states)).
 
 ```
 +--------------------------------------+

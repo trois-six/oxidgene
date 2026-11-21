@@ -21,6 +21,7 @@ use crate::components::event_icon::EventIcon;
 use crate::components::merge_dialog::MergeDialog;
 use crate::components::pedigree_chart::format_lifespan;
 use crate::components::place_input::PlaceInput;
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tabs::{Tab, Tabs, use_stored_tab};
 use crate::components::tags::{TagSelect, Vocabulary, use_tag_filter};
@@ -36,6 +37,9 @@ use crate::ui_observability::{
     UiCommand, UiPage, trace_ui_action, use_ui_load_trace, use_ui_resource,
 };
 use oxidgene_core::enums::EventType;
+
+/// How a tool shows the load of what it lists.
+const TOOL: ResourceView = ResourceView::section(SkeletonShape::Rows);
 
 const TAB_STORAGE_KEY: &str = "oxidgene-tools-tab";
 const GENERATIONS_STORAGE_KEY: &str = "oxidgene-tools-generations";
@@ -491,8 +495,8 @@ fn Anomalies(tree_id: Uuid, tree_route: String) -> Element {
     });
 
     let body = match &*anomalies.read() {
-        None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-        Some(Err(_)) => rsx! { p { class: "error-msg", {i18n.t("tools.load_failed")} } },
+        None => TOOL.loading(),
+        Some(Err(error)) => TOOL.failed(error.message(&i18n), retry_of(anomalies)),
         Some(Ok(result)) if result.rules.is_empty() => rsx! {
             p { class: "stats-empty", {i18n.t_plural("tools.anomalies.none", result.persons as usize)} }
         },
@@ -634,8 +638,8 @@ fn UnlocatedPlaces(tree_id: Uuid, tree_route: String) -> Element {
     };
 
     let body = match &*places.read() {
-        None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-        Some(Err(_)) => rsx! { p { class: "error-msg", {i18n.t("tools.load_failed")} } },
+        None => TOOL.loading(),
+        Some(Err(error)) => TOOL.failed(error.message(&i18n), retry_of(places)),
         Some(Ok(list)) if list.is_empty() => rsx! {
             p { class: "stats-empty", {i18n.t("tools.places.none")} }
         },
@@ -832,8 +836,8 @@ fn Ancestry(tree_id: Uuid, tree_route: String) -> Element {
     });
 
     let body = match &*ancestry.read() {
-        None | Some(None) => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-        Some(Some(Err(_))) => rsx! { p { class: "error-msg", {i18n.t("tools.load_failed")} } },
+        None | Some(None) => TOOL.loading(),
+        Some(Some(Err(error))) => TOOL.failed(error.message(&i18n), retry_of(ancestry)),
         Some(Some(Ok(result))) if result.root.is_none() => rsx! {
             EmptyState {
                 class: "tools-empty",
@@ -1090,8 +1094,8 @@ fn Duplicates(tree_id: Uuid, tree_route: String) -> Element {
     };
 
     let body = match &*duplicates.read() {
-        None => rsx! { p { class: "stats-loading", {i18n.t("common.loading")} } },
-        Some(Err(_)) => rsx! { p { class: "error-msg", {i18n.t("tools.load_failed")} } },
+        None => TOOL.loading(),
+        Some(Err(error)) => TOOL.failed(error.message(&i18n), retry_of(duplicates)),
         Some(Ok(result)) if result.pairs.is_empty() => rsx! {
             p { class: "stats-empty", {i18n.t("tools.duplicates.none")} }
         },

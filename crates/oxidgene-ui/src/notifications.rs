@@ -14,14 +14,15 @@ use oxidgene_core::notification::NotificationKind;
 
 use crate::api::notification::Notification;
 use crate::api::{ApiClient, ApiError};
+use crate::backoff::Backoff;
 use crate::i18n::I18n;
 use crate::router::Route;
 
 /// How long the server holds a long poll, in seconds.
 const WAIT_SECONDS: u32 = 25;
 
-/// The longest pause after errors, in milliseconds.
-const MAX_BACKOFF_MS: u32 = 60_000;
+/// The pauses after errors: a second, doubling up to a minute.
+const BACKOFF: Backoff = Backoff::unbounded(1_000, 60_000);
 
 /// What the bell shows.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -58,18 +59,18 @@ pub async fn refresh(api: &ApiClient, mut state: Signal<Notifications>) -> Resul
 /// Keep `state` current for as long as the application runs, signed in.
 pub(crate) async fn follow(api: ApiClient, state: Signal<Notifications>) {
     let mut cursor: Option<String> = None;
-    let mut backoff = 1_000_u32;
+    // How many requests failed in a row.
+    let mut failures = 0_u32;
     loop {
         until_shown().await;
         let first = cursor.is_none();
         if first && refresh(&api, state).await.is_err() {
-            crate::utils::sleep_ms(backoff).await;
-            backoff = (backoff * 2).min(MAX_BACKOFF_MS);
+            pause_after_failure(&mut failures).await;
             continue;
         }
         match api.updates(cursor.as_deref(), WAIT_SECONDS).await {
             Ok(updates) => {
-                backoff = 1_000;
+                failures = 0;
                 let happened = !updates.events.is_empty();
                 cursor = Some(updates.cursor);
                 if happened {
@@ -84,12 +85,18 @@ pub(crate) async fn follow(api: ApiClient, state: Signal<Notifications>) {
             // The session ended: the account UI says so, and nothing more is
             // asked until the page is loaded again.
             Err(error) if error.status() == Some(401) => return,
-            Err(_) => {
-                crate::utils::sleep_ms(backoff).await;
-                backoff = (backoff * 2).min(MAX_BACKOFF_MS);
-            }
+            Err(_) => pause_after_failure(&mut failures).await,
         }
     }
+}
+
+/// Wait the pause [`BACKOFF`] gives after `failures` failures in a row, and
+/// count one more.
+async fn pause_after_failure(failures: &mut u32) {
+    if let Some(pause) = BACKOFF.delay(*failures) {
+        crate::utils::sleep_ms(pause).await;
+    }
+    *failures = failures.saturating_add(1);
 }
 
 /// Wait until the page is shown: a hidden tab keeps no request open.

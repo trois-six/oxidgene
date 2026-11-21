@@ -15,10 +15,14 @@ use crate::components::history_diff::{
     VersionDiff, describe_entry, entry_details, format_timestamp, snapshot_name,
 };
 use crate::components::paged_list::{PagedList, use_paged_list};
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::tree_cache::use_tree_cache;
 use crate::i18n::{I18n, use_i18n};
 use crate::router::Route;
 use crate::ui_observability::{UiCommand, trace_ui_action};
+
+/// How the log and a change's records show their own load.
+const LIST: ResourceView = ResourceView::section(SkeletonShape::Rows);
 
 /// The Tools › History section of the tree settings.
 #[component]
@@ -70,10 +74,8 @@ pub fn AuditLogSection(tree_id: Uuid) -> Element {
             }
 
             match &*entries.first.read() {
-                None => rsx! { div { class: "loading", {i18n.t("common.loading")} } },
-                Some(Err(error)) => rsx! {
-                    div { class: "error-msg", {i18n.t_args("history.load_error", &[("error", error)])} }
-                },
+                None => LIST.loading(),
+                Some(Err(error)) => LIST.failed(error.clone(), retry_of(entries.first)),
                 Some(Ok(_)) => {
                     let loaded: Vec<AuditEntry> = entries.items();
                     rsx! {
@@ -192,6 +194,7 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
                         restore_error.set(None);
                         tree_cache.invalidate();
                         refresh += 1;
+                        crate::components::toast::success(i18n.t("toast.restored"));
                     }
                     Err(error) => restore_error.set(Some(error.message(&i18n))),
                 }
@@ -225,10 +228,8 @@ fn EntryChanges(tree_id: Uuid, entry_id: Uuid, refresh: Signal<u32>) -> Element 
                 }
             }
             match &*changes.first.read() {
-                None => rsx! { div { class: "loading", {i18n.t("common.loading")} } },
-                Some(Err(error)) => rsx! {
-                    div { class: "error-msg", {i18n.t_args("history.load_error", &[("error", error)])} }
-                },
+                None => LIST.loading(),
+                Some(Err(error)) => LIST.failed(error.clone(), retry_of(changes.first)),
                 Some(Ok(_)) => {
                     let loaded: Vec<VersionChange> = changes.items();
                     rsx! {

@@ -80,6 +80,21 @@ The macOS application is not yet signed by Apple. Open it once, close the
 warning, then choose **Open Anyway** in **System Settings → Privacy &
 Security** ([Start it on macOS](@/guide/install.md#start-it-on-macos)).
 
+## A page says "This could not be loaded." What now?
+
+The message gives the reason — most often the server could not be reached.
+Choose **Retry** to ask again; on the web version the page also asks again
+by itself as soon as your browser is back online, and a short notice in the
+corner of the window says when the connection is lost and when it returns.
+What you had already saved is not affected.
+
+## OxidGene says it stopped unexpectedly.
+
+An internal error ended the application. What you had saved is safe; only a
+form you were filling in at that moment is lost. Choose **Reload** on the
+web version, or start the desktop application again, and please report what
+you were doing (see below).
+
 ## Where do I report a problem or suggest an idea?
 
 Open an issue on the [GitHub repository](https://github.com/trois-six/oxidgene/issues).

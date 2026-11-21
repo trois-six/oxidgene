@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::api::{ApiClient, ApiError, CroppedSource};
 use crate::components::person_picker::PersonPicker;
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, use_i18n};
@@ -191,6 +192,7 @@ pub fn Kinship(tree_id: String, from: String, to: String) -> Element {
                 &portraits,
                 &tree_id,
                 &i18n,
+                retry_of(kinship_resource),
             )}
         }
     }
@@ -205,7 +207,9 @@ fn kinship_status(
     portraits: &HashMap<Uuid, CroppedSource>,
     tree_id: &str,
     i18n: &I18n,
+    retry: impl FnMut() + 'static,
 ) -> Element {
+    let view = ResourceView::section(SkeletonShape::Lines).labelled("kinship.loading");
     match report {
         _ if ends.0.is_none() || ends.1.is_none() => rsx! {
             p { class: "text-muted kin-status", {i18n.t("kinship.pick_target")} }
@@ -214,12 +218,10 @@ fn kinship_status(
             p { class: "text-muted kin-status", {i18n.t("kinship.same_person")} }
         },
         None | Some(None) => rsx! {
-            div { class: "loading kin-status", {i18n.t("kinship.loading")} }
+            div { class: "kin-status", {view.loading()} }
         },
         Some(Some(Err(error))) => rsx! {
-            div { class: "error-msg kin-status",
-                {i18n.t_args("kinship.error", &[("error", &error.message(i18n))])}
-            }
+            div { class: "kin-status", {view.failed(error.message(i18n), retry)} }
         },
         Some(Some(Ok(report))) => render_report(report, selected, portraits, tree_id, i18n),
     }

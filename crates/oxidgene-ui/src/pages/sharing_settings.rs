@@ -27,6 +27,7 @@ use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::copy_field::CopyField;
 use crate::components::date_input::format_day;
 use crate::components::person_picker::PersonPicker;
+use crate::components::resource_view::{ResourceView, Skeleton, SkeletonShape, retry_of};
 use crate::components::search_person::PersonSearchSummary;
 use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
@@ -294,7 +295,12 @@ pub(crate) struct Listed<T> {
     /// The read succeeded and found nothing: the only case for the card's
     /// "none" line.
     pub empty: bool,
+    /// Whether the list is still being read.
+    pub loading: bool,
 }
+
+/// How a list of the sharing settings shows its failed read.
+pub(crate) const LISTED: ResourceView = ResourceView::section(SkeletonShape::Lines);
 
 impl<T: Clone> Listed<T> {
     /// The list of `read`. A failed read must not pass for an empty list:
@@ -306,16 +312,19 @@ impl<T: Clone> Listed<T> {
                 rows: rows.clone(),
                 error: None,
                 empty: rows.is_empty(),
+                loading: false,
             },
             Some(Err(e)) => Self {
                 rows: Vec::new(),
                 error: Some(e.message(i18n)),
                 empty: false,
+                loading: false,
             },
             None => Self {
                 rows: Vec::new(),
                 error: None,
                 empty: false,
+                loading: true,
             },
         }
     }
@@ -378,8 +387,11 @@ pub fn MembersSection(tree_id: Uuid) -> Element {
                 for member in member_list.rows {
                     MemberRow { key: "{member.user_id}", tree_id, member, error, on_change: changed }
                 }
+                if member_list.loading {
+                    Skeleton {}
+                }
                 if let Some(err) = member_list.error {
-                    div { class: "error-msg settings-feedback", role: "alert", "{err}" }
+                    {LISTED.failed(err, retry_of(members))}
                 }
             }
 
@@ -391,8 +403,11 @@ pub fn MembersSection(tree_id: Uuid) -> Element {
                 for invitation in invitation_list.rows {
                     InvitationRow { key: "{invitation.id}", tree_id, invitation, error, on_change: changed }
                 }
+                if invitation_list.loading {
+                    Skeleton {}
+                }
                 if let Some(err) = invitation_list.error {
-                    div { class: "error-msg settings-feedback", role: "alert", "{err}" }
+                    {LISTED.failed(err, retry_of(invitations))}
                 }
             }
             if let Some(err) = error() {
@@ -966,8 +981,11 @@ fn ShareLinksCard(tree_id: Uuid) -> Element {
             for link in listed.rows {
                 ShareLinkRow { key: "{link.id}", link, on_revoke: revoke.clone() }
             }
+            if listed.loading {
+                Skeleton {}
+            }
             if let Some(err) = listed.error {
-                div { class: "error-msg settings-feedback", role: "alert", "{err}" }
+                {LISTED.failed(err, retry_of(links))}
             }
             h3 { class: "settings-card-title", {i18n.t("sharing.links.new")} }
             label { class: "settings-check-label", r#for: "link-label", {i18n.t("sharing.links.label")} }

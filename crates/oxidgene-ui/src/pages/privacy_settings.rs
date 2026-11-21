@@ -14,9 +14,10 @@ use oxidgene_core::types::{PrivacySettings, Tree};
 use uuid::Uuid;
 
 use super::settings::SettingsCheck;
-use super::sharing_settings::Listed;
+use super::sharing_settings::{LISTED, Listed};
 use crate::api::{ApiClient, UpdateTreeBody};
 use crate::components::confirm_dialog::ConfirmDialog;
+use crate::components::resource_view::{Skeleton, retry_of};
 use crate::components::text_field::TextInput;
 use crate::components::tree_cache::{TreeCache, use_tree_cache};
 use crate::i18n::{I18n, use_i18n};
@@ -328,8 +329,11 @@ fn ExclusionsCard(tree_id: Uuid) -> Element {
             if listed.empty {
                 p { class: "settings-check-desc", {i18n.t("settings.exclusions_empty")} }
             }
+            if listed.loading {
+                Skeleton {}
+            }
             if let Some(err) = listed.error {
-                div { class: "error-msg settings-feedback", role: "alert", "{err}" }
+                {LISTED.failed(err, retry_of(exclusions))}
             }
             for row in listed.rows {
                 div { key: "{row.id}", class: "settings-export-row",

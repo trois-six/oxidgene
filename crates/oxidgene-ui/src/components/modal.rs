@@ -88,6 +88,9 @@ pub fn Modal(
                 onclick: move |e: Event<MouseData>| e.stop_propagation(),
                 {children}
             }
+            // Everything outside the dialog is inert and under its
+            // backdrop: a toast raised while it is open is drawn in it.
+            crate::components::toast::ToastOutlet {}
         }
     }
 }

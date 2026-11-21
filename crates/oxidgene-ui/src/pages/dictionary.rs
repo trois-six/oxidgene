@@ -19,6 +19,7 @@ use crate::components::empty_state::EmptyState;
 use crate::components::modal::Modal;
 use crate::components::pager::{DEFAULT_PER_PAGE, PageSize, PageSizeSelect, Pagination};
 use crate::components::pedigree_chart::format_lifespan;
+use crate::components::resource_view::{ResourceView, Skeleton, SkeletonShape, retry_of};
 use crate::components::source_forms::SourceEditor;
 use crate::components::suggest_input::ValueInput;
 use crate::components::tabs::Tabs;
@@ -458,6 +459,18 @@ fn place_position<'a>(
 /// A value tab's data: `None` until the tab is first opened, then the
 /// aggregation's answer.
 type TabResource<T> = Resource<Option<Result<T, ApiError>>>;
+
+/// How a tab of the Dictionary shows its own load.
+pub(crate) const TAB: ResourceView =
+    ResourceView::section(SkeletonShape::Rows).labelled("dictionary.loading");
+
+/// Why a tab's load failed, once it did.
+fn tab_failure<T>(resource: TabResource<T>, i18n: &I18n) -> Option<String> {
+    match &*resource.read() {
+        Some(Some(Err(error))) => Some(error.message(i18n)),
+        _ => None,
+    }
+}
 
 /// What a source's link found: the source asked for, and the clicks that
 /// reach its row (see `locate_source`).
@@ -1310,7 +1323,10 @@ fn FamilyNameEditor(
                     recut(&api, tree_id, &value, &particle).await
                 };
                 match result {
-                    Ok(()) => on_saved.call(()),
+                    Ok(()) => {
+                        crate::components::toast::success(i18n.t("toast.saved"));
+                        on_saved.call(());
+                    }
                     Err(e) => {
                         saving.set(false);
                         error.set(Some(e.message(&i18n)));
@@ -1830,7 +1846,7 @@ fn render_usage_list(
             div { class: "dict-accordion-empty", {i18n.t("dictionary.usage_empty")} }
         },
         None => rsx! {
-            div { class: "dict-accordion-empty", {i18n.t("common.loading")} }
+            Skeleton {}
         },
     }
 }
@@ -1950,7 +1966,7 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
     let letters = &filed.letters;
 
     let is_loading = !matches!(&*resource.read(), Some(Some(_)));
-    let is_error = matches!(&*resource.read(), Some(Some(Err(_))));
+    let failure = tab_failure(resource, &i18n);
 
     let quick = quick_filter();
     let letter = letter_filter();
@@ -1969,9 +1985,9 @@ fn render_value_tab(ctx: TabContext, tab: ValueTab) -> Element {
         {render_toolbar(i18n, letters, filters, total_filtered)}
 
         if is_loading {
-            div { class: "loading", {i18n.t("dictionary.loading")} }
-        } else if is_error {
-            div { class: "error-msg", {i18n.t("dictionary.error")} }
+            {TAB.loading()}
+        } else if let Some(message) = failure {
+            {TAB.failed(message, retry_of(resource))}
         } else if all_entries.is_empty() {
             EmptyState { p { {i18n.t(empty_key)} } }
         } else if rows.is_empty() {
@@ -2348,7 +2364,7 @@ fn render_sources_tab(
     let TabContext { i18n, filters, .. } = ctx;
     let quick_filter = filters.quick;
     let is_loading = !matches!(&*resource.read(), Some(Some(_)));
-    let is_error = matches!(&*resource.read(), Some(Some(Err(_))));
+    let failure = tab_failure(resource, &i18n);
     let view: Option<SourcesView> = match &*resource.read() {
         Some(Some(Ok(v))) => Some(v.clone()),
         _ => None,
@@ -2369,9 +2385,9 @@ fn render_sources_tab(
         {render_sources_breadcrumb(i18n, history, quick_filter, &active_prefix)}
 
         if is_loading {
-            div { class: "loading", {i18n.t("dictionary.loading")} }
-        } else if is_error {
-            div { class: "error-msg", {i18n.t("dictionary.error")} }
+            {TAB.loading()}
+        } else if let Some(message) = failure {
+            {TAB.failed(message, retry_of(resource))}
         } else {
             match view {
                 Some(SourcesView::Groups { prefix, total, groups }) if !groups.is_empty() => {
@@ -2415,7 +2431,7 @@ fn render_places_tab(
     let letters = &filed.letters;
 
     let is_loading = !matches!(&*resource.read(), Some(Some(_)));
-    let is_error = matches!(&*resource.read(), Some(Some(Err(_))));
+    let failure = tab_failure(resource, &i18n);
 
     let quick = quick_filter();
     let letter = letter_filter();
@@ -2434,9 +2450,9 @@ fn render_places_tab(
         {render_toolbar(i18n, letters, filters, total_filtered)}
 
         if is_loading {
-            div { class: "loading", {i18n.t("dictionary.loading")} }
-        } else if is_error {
-            div { class: "error-msg", {i18n.t("dictionary.error")} }
+            {TAB.loading()}
+        } else if let Some(message) = failure {
+            {TAB.failed(message, retry_of(resource))}
         } else if all_entries.is_empty() {
             EmptyState { p { {i18n.t("dictionary.no_entries_places")} } }
         } else if rows.is_empty() {

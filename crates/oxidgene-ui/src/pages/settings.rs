@@ -18,6 +18,7 @@ use crate::components::person_picker::PersonPicker;
 use crate::components::search_person::{PersonSearchSummary, render_person_search_summary};
 use crate::components::tags::{TagSelect, carried_tags};
 use crate::components::text_field::{TextArea, TextInput};
+use crate::components::toast::use_toasts;
 use crate::components::tree_cache::use_tree_cache;
 use crate::components::tree_page::{ToolPageFrame, use_tree_page};
 use crate::i18n::{I18n, Language, use_i18n};
@@ -866,10 +867,10 @@ fn TreeNameCard(tree_id: Uuid, name: String) -> Element {
     let i18n = use_i18n();
     let api = use_context::<ApiClient>();
     let tree_cache = use_tree_cache();
+    let toasts = use_toasts();
     let mut local_name = use_signal(|| None::<String>);
     let mut loading = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
-    let mut success = use_signal(|| None::<String>);
     let current = local_name().unwrap_or(name);
     let on_rename = {
         let current = current.clone();
@@ -877,7 +878,6 @@ fn TreeNameCard(tree_id: Uuid, name: String) -> Element {
             let api = api.clone();
             let name = current.trim().to_string();
             error.set(None);
-            success.set(None);
             if name.is_empty() {
                 error.set(Some(i18n.t("tree.form.name_required").to_string()));
                 return;
@@ -892,7 +892,7 @@ fn TreeNameCard(tree_id: Uuid, name: String) -> Element {
                     Ok(tree) => {
                         local_name.set(Some(tree.name.clone()));
                         tree_cache.refresh_tree(tree_id, tree);
-                        success.set(Some(i18n.t("settings.tree_name_saved").to_string()));
+                        toasts.success(i18n.t("settings.tree_name_saved"));
                     }
                     Err(e) => error.set(Some(e.message(&i18n))),
                 }
@@ -944,9 +944,6 @@ fn TreeNameCard(tree_id: Uuid, name: String) -> Element {
                         }
                     }
                 }
-            }
-            if let Some(message) = success() {
-                div { class: "success-msg settings-feedback", "{message}" }
             }
             if let Some(error) = error() {
                 div { class: "error-msg settings-feedback", "{error}" }
@@ -1014,7 +1011,7 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
     let tree_cache = use_tree_cache();
     let load_trace = use_context::<UiLoadTrace>();
     let [title, description, search, change, clear, none, saved] = setting.keys();
-    let mut message = use_signal(|| false);
+    let toasts = use_toasts();
     let mut error = use_signal(|| None::<String>);
     // Local override so the UI updates immediately after save/clear, without
     // waiting for the tree to be read again.
@@ -1044,14 +1041,13 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
 
     let set_person = use_callback(move |person: Option<Uuid>| {
         let api = api.clone();
-        message.set(false);
         error.set(None);
         spawn(async move {
             match api.update_tree(tree_id, &setting.update(person)).await {
                 Ok(_) => {
                     tree_cache.invalidate();
                     local.set(Some(person));
-                    message.set(true);
+                    toasts.success(i18n.t(saved));
                 }
                 Err(e) => error.set(Some(e.message(&i18n))),
             }
@@ -1097,9 +1093,6 @@ fn TreePersonCard(tree_id: Uuid, setting: TreePerson, stored: Option<Uuid>) -> E
                 clear_label: i18n.t(clear),
                 empty_label: i18n.t(none),
                 on_change: move |person| set_person.call(person),
-            }
-            if message() {
-                div { class: "success-msg settings-feedback", {i18n.t(saved)} }
             }
             if let Some(err) = error() {
                 div { class: "error-msg settings-feedback", "{err}" }
@@ -1192,7 +1185,7 @@ fn ThresholdsForm(tree_id: Uuid, thresholds: oxidgene_core::types::AnomalyThresh
     let mut texts = use_signal(|| text_of(&thresholds));
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
-    let mut saved = use_signal(|| false);
+    let toasts = use_toasts();
 
     // The values typed, each `None` while it is not a number in its range.
     let defaults = oxidgene_core::types::AnomalyThresholds::default();
@@ -1228,13 +1221,12 @@ fn ThresholdsForm(tree_id: Uuid, thresholds: oxidgene_core::types::AnomalyThresh
             ..Default::default()
         };
         saving.set(true);
-        saved.set(false);
         error.set(None);
         spawn(async move {
             match api.update_tree(tree_id, &body).await {
                 Ok(tree) => {
                     tree_cache.refresh_tree(tree_id, tree);
-                    saved.set(true);
+                    toasts.success(i18n.t("settings.thresholds_saved"));
                 }
                 Err(e) => error.set(Some(e.message(&i18n))),
             }
@@ -1268,7 +1260,6 @@ fn ThresholdsForm(tree_id: Uuid, thresholds: oxidgene_core::types::AnomalyThresh
                                         value: "{text}",
                                         on_input: move |text: String| {
                                             texts.write().insert(name, text);
-                                            saved.set(false);
                                         },
                                     }
                                     if out_of_range.contains(&name) {
@@ -1294,7 +1285,6 @@ fn ThresholdsForm(tree_id: Uuid, thresholds: oxidgene_core::types::AnomalyThresh
                     disabled: saving(),
                     onclick: move |_| {
                         texts.set(text_of(&oxidgene_core::types::AnomalyThresholds::default()));
-                        saved.set(false);
                     },
                     {i18n.t("settings.thresholds_reset")}
                 }
@@ -1308,9 +1298,6 @@ fn ThresholdsForm(tree_id: Uuid, thresholds: oxidgene_core::types::AnomalyThresh
             }
             if let Some(err) = error() {
                 div { class: "error-msg settings-feedback", "{err}" }
-            }
-            if saved() {
-                div { class: "success-msg settings-feedback", {i18n.t("settings.thresholds_saved")} }
             }
         }
     }
@@ -2012,7 +1999,7 @@ fn SubmitterCard(tree_id: Uuid, tree: oxidgene_core::types::Tree) -> Element {
     let mut address = use_signal(|| tree.submitter_address.clone().unwrap_or_default());
     let mut saving = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
-    let mut saved = use_signal(|| false);
+    let toasts = use_toasts();
     let field = |text: String| Some(Some(text.trim().to_string()).filter(|t| !t.is_empty()));
     let save = move |_| {
         let api = api.clone();
@@ -2023,13 +2010,12 @@ fn SubmitterCard(tree_id: Uuid, tree: oxidgene_core::types::Tree) -> Element {
             ..Default::default()
         };
         saving.set(true);
-        saved.set(false);
         error.set(None);
         spawn(async move {
             match api.update_tree(tree_id, &body).await {
                 Ok(tree) => {
                     tree_cache.refresh_tree(tree_id, tree);
-                    saved.set(true);
+                    toasts.success(i18n.t("settings.submitter_saved"));
                 }
                 Err(e) => error.set(Some(e.message(&i18n))),
             }
@@ -2077,9 +2063,6 @@ fn SubmitterCard(tree_id: Uuid, tree: oxidgene_core::types::Tree) -> Element {
             }
             if let Some(err) = error() {
                 div { class: "error-msg settings-feedback", "{err}" }
-            }
-            if saved() {
-                div { class: "success-msg settings-feedback", {i18n.t("settings.submitter_saved")} }
             }
         }
     }

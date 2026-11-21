@@ -92,8 +92,39 @@ impl AccountHost for BrowserAccounts {
     }
 }
 
+/// Replace the page with the crash screen when the application panics
+/// (docs/cross-cutting.md §6.5), after whatever the hook already in place
+/// does: the development build's logs the panic, a release build has none
+/// and would leave a page that answers nothing, with nothing said.
+///
+/// Called from the root component rather than `main`: the renderer installs
+/// the development hook as it starts, and would replace one set earlier.
+fn install_crash_screen() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        previous(info);
+        show_crash_screen(&info.to_string());
+    }));
+}
+
+/// Draw the crash screen, in plain DOM: nothing here may rely on the
+/// renderer, nor panic.
+fn show_crash_screen(report: &str) {
+    let text = oxidgene_ui::crash::text();
+    let screen = js_sys::Function::new_with_args(
+        "title, message, action, report",
+        oxidgene_ui::crash::SCREEN_JS,
+    );
+    let arguments = js_sys::Array::new();
+    for argument in [&text.title, &text.message, &text.action, report] {
+        arguments.push(&wasm_bindgen::JsValue::from_str(argument));
+    }
+    let _ = screen.apply(&wasm_bindgen::JsValue::NULL, &arguments);
+}
+
 #[component]
 fn WebApp() -> Element {
+    use_hook(install_crash_screen);
     use_context_provider(|| ApiClient::new(&api_base_url()));
     // Accounts are the web build's: the desktop provides no such capability.
     use_context_provider(|| Accounts::new(Arc::new(BrowserAccounts)));

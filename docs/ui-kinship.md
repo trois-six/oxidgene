@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Kinship"
 description: "Every way two persons of a tree are related, each path drawn generation by generation from the ancestors they share, or through unions when they share none."
 tags: [oxidgene, specification, ui, ux, kinship]
-generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Visual & Functional Specifications — Kinship
@@ -128,9 +128,9 @@ stand on the same generation.
 |---|---|
 | A person missing | A prompt to choose one, with the search open |
 | The same person at both ends | A prompt to choose two different persons |
-| Loading | The shared loading message |
+| Loading | The skeleton ([Common UI §4.20](ui-common.md#420-load-states)) |
 | No path | "No recorded link connects these two persons." |
-| Error | The shared error message with the failure |
+| Error | The load error with the failure and **Retry** |
 
 ## 3. Relationship rules
 

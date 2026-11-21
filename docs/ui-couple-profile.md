@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Couple Profile"
 description: "Side-by-side view of both spouses of a couple, with the union, its events, media, and notes shared across the two."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-20T12:36:03Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 
@@ -198,8 +198,11 @@ is in:
   both portraits — in one request, after the text is shown;
 - both spouses' two-generation pedigrees, in one batched request.
 
-While the couple loads, the page shows a single loading message. Selecting
-another couple scrolls the content back to the top.
+While the couple loads, the page shows the skeleton; a failed load shows the
+load error with **Retry** and **Go Home** ([Common UI §4.20](ui-common.md#420-load-states)). A spouse whose ancestors
+the batch answered without shows the load error in the Ancestors card, whose
+**Retry** asks for both spouses' again. Selecting another couple scrolls the
+content back to the top.
 
 ---
 

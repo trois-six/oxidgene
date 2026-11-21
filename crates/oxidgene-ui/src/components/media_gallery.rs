@@ -48,6 +48,7 @@ use crate::components::pdf_viewer::{
     PdfFile, PdfPreview, PdfViewer, opens_in_pdf_viewer, pdf_preview_page,
 };
 use crate::components::place_input::{render_place_input, resolve_place};
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::search_person::SearchPerson;
 use crate::components::tags::{TagBadges, TagPicker};
 use crate::components::text_field::{TextArea, TextInput};
@@ -471,8 +472,8 @@ pub fn MediaGallery(props: MediaGalleryProps) -> Element {
     let items: Vec<MediaWithLink> = match &*tiles.read_unchecked() {
         Some(Ok(items)) => items.clone(),
         Some(Err(e)) => {
-            let message = e.message(&i18n);
-            return rsx! { div { class: "error-msg", "{message}" } };
+            return ResourceView::section(SkeletonShape::Lines)
+                .failed(e.message(&i18n), retry_of(tiles));
         }
         None => Vec::new(),
     };
@@ -3632,14 +3633,14 @@ fn MediaViewer(
         Some(Err(message)) => {
             return viewer_placeholder(
                 &i18n,
-                rsx! { div { class: "error-msg", "{message}" } },
+                ResourceView::section(SkeletonShape::Lines).failed(message, retry_of(viewer)),
                 on_close,
             );
         }
         None => {
             return viewer_placeholder(
                 &i18n,
-                rsx! { div { class: "loading", {i18n.t("common.loading")} } },
+                ResourceView::section(SkeletonShape::Lines).loading(),
                 on_close,
             );
         }

@@ -17,11 +17,12 @@ use crate::components::empty_state::EmptyState;
 use crate::components::modal::Modal;
 use crate::components::paged_list::use_paged_list;
 use crate::components::pager::{DEFAULT_PER_PAGE, PageSize, Pagination};
+use crate::components::resource_view::{ResourceView, Skeleton, SkeletonShape, retry_of};
 use crate::components::tags::{dot_style, error_message, is_enter_or_space, next_color};
 use crate::components::text_field::TextInput;
 use crate::i18n::{I18n, use_i18n};
 use crate::pages::dictionary::{
-    ListFilters, available_letters, matches_filters, paginate, person_usage_link,
+    ListFilters, TAB, available_letters, matches_filters, paginate, person_usage_link,
     person_usage_parts, render_clear_filters, render_toolbar_with, surname_first, total_pages,
     with_headers,
 };
@@ -155,7 +156,6 @@ pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
     });
 
     let loaded = matches!(&*vocabulary.read(), Some(Ok(_)));
-    let failed = matches!(&*vocabulary.read(), Some(Err(_)));
     let all_tags: Vec<TagSummary> = match &*vocabulary.read() {
         Some(Ok(list)) => list.clone(),
         _ => Vec::new(),
@@ -191,6 +191,7 @@ pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
                         expanded.set(None);
                     }
                     vocabulary.restart();
+                    crate::components::toast::success(i18n.t("toast.deleted"));
                 }
                 Err(err) => delete_error.set(Some(error_message(&i18n, &err))),
             }
@@ -211,11 +212,7 @@ pub fn DictionaryTags(tree_id: Uuid, open_tag: Option<Uuid>) -> Element {
     rsx! {
         {render_toolbar_with(i18n, &letters, filters, total_filtered, add)}
         if !loaded {
-            if failed {
-                div { class: "error-msg", {i18n.t("dictionary.error")} }
-            } else {
-                div { class: "loading", {i18n.t("dictionary.loading")} }
-            }
+            {TAB.pending(&i18n, vocabulary)}
         } else if all_tags.is_empty() {
             EmptyState { p { {i18n.t("tag.dictionary.empty")} } }
         } else if rows.is_empty() {
@@ -493,7 +490,10 @@ fn TaggedKind(
         }
     });
     let loading = first.read().is_none();
-    let failed = matches!(&*first.read(), Some(Err(_)));
+    let failure = match &*first.read() {
+        Some(Err(error)) => Some(error.clone()),
+        _ => None,
+    };
     let items: Vec<TaggedRecord> = records
         .items()
         .into_iter()
@@ -505,9 +505,9 @@ fn TaggedKind(
         div { class: "dict-accordion-group",
             div { class: "dict-group-header", {i18n.t(kind_key(kind))} }
             if loading {
-                div { class: "dict-accordion-empty", {i18n.t("common.loading")} }
-            } else if failed {
-                div { class: "error-msg", {i18n.t("dictionary.error")} }
+                Skeleton {}
+            } else if let Some(message) = failure {
+                {ResourceView::section(SkeletonShape::Lines).failed(message, retry_of(first))}
             }
             if let Some(err) = untag_error() {
                 div { class: "error-msg", role: "alert", "{err}" }
@@ -839,7 +839,10 @@ fn TagEditor(
                 };
                 saving.set(false);
                 match written {
-                    Ok(()) => on_saved.call(()),
+                    Ok(()) => {
+                        crate::components::toast::success(i18n.t("toast.saved"));
+                        on_saved.call(());
+                    }
                     Err(err) => error.set(Some(error_message(&i18n, &err))),
                 }
             });
@@ -859,7 +862,10 @@ fn TagEditor(
                 let merged = api.merge_tag(tree_id, id, other.id).await;
                 saving.set(false);
                 match merged {
-                    Ok(_) => on_saved.call(()),
+                    Ok(_) => {
+                        crate::components::toast::success(i18n.t("toast.saved"));
+                        on_saved.call(());
+                    }
                     Err(err) => error.set(Some(error_message(&i18n, &err))),
                 }
             });

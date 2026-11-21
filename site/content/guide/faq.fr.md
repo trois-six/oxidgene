@@ -86,6 +86,22 @@ fermez l’avertissement, puis choisissez **Ouvrir quand même** dans **Réglage
 Système → Confidentialité et sécurité**
 ([Le lancer sous macOS](@/guide/install.fr.md#le-lancer-sous-macos)).
 
+## Une page indique « Le chargement a échoué. » Que faire ?
+
+Le message en donne la raison — le plus souvent, le serveur est injoignable.
+Choisissez **Réessayer** pour redemander ; sur la version web, la page
+redemande aussi d’elle-même dès que votre navigateur retrouve le réseau, et
+une courte notification dans le coin de la fenêtre signale la perte de la
+connexion puis son retour. Ce que vous aviez déjà enregistré n’est pas
+touché.
+
+## OxidGene indique qu’il s’est arrêté de façon inattendue.
+
+Une erreur interne a arrêté l’application. Ce que vous aviez enregistré est
+conservé ; seul un formulaire en cours de saisie à ce moment-là est perdu.
+Choisissez **Recharger** sur la version web, ou relancez l’application de
+bureau, et signalez ce que vous étiez en train de faire (voir ci-dessous).
+
 ## Où signaler un problème ou proposer une idée ?
 
 Ouvrez un ticket sur le [dépôt GitHub](https://github.com/trois-six/oxidgene/issues).

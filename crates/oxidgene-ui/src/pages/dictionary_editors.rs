@@ -61,7 +61,10 @@ pub fn OccupationEditor(
             error.set(None);
             spawn(async move {
                 match api.rename_occupation(tree_id, &value, &new_value).await {
-                    Ok(_) => on_saved.call(()),
+                    Ok(_) => {
+                        crate::components::toast::success(i18n.t("toast.saved"));
+                        on_saved.call(());
+                    }
                     Err(e) => {
                         saving.set(false);
                         error.set(Some(e.message(&i18n)));
@@ -289,7 +292,10 @@ pub fn PlaceEditor(
                     None => api.update_place(tree_id, id, &update).await,
                 };
                 match result {
-                    Ok(_) => on_saved.call(()),
+                    Ok(_) => {
+                        crate::components::toast::success(i18n.t("toast.saved"));
+                        on_saved.call(());
+                    }
                     Err(e) => {
                         saving.set(false);
                         error.set(Some(e.message(&i18n)));

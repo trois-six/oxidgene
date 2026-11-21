@@ -2939,6 +2939,9 @@ pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
     cache: ResponseCache,
+    /// How a read the network failed is asked again ([`READ_RETRY`] on the
+    /// web, never on the desktop, whose backend is in the process).
+    read_retry: crate::backoff::Backoff,
     /// The shell that serves backend-held pictures from its own origin, when
     /// this build has one. Absent on the web, where pictures are drawn from
     /// the API's own addresses.
@@ -2978,6 +2981,12 @@ impl SessionLink {
         }
     }
 }
+
+/// How a cached read is asked again when no answer of the server came back
+/// (`cross-cutting.md` §6.4): twice more, after 0.4 and 0.8 seconds. A
+/// reader then waits 1.2 seconds longer for the error of a server that is
+/// really down, and a network that blinked costs them nothing but that.
+const READ_RETRY: crate::backoff::Backoff = crate::backoff::Backoff::new(400, 2_000, 2);
 
 /// Errors returned by the API client.
 ///
@@ -3101,6 +3110,20 @@ impl ApiError {
         };
         let envelope: serde_json::Value = serde_json::from_str(body).ok()?;
         envelope["error"].as_str().map(str::to_owned)
+    }
+
+    /// Whether the request may succeed if sent again as it is: the server's
+    /// answer never came back — the network failed, or a proxy in front of
+    /// the server answered `502`, `503` or `504` in its place. An answer in
+    /// the server's own envelope is its decision, a timeout or an archive
+    /// portal's failure included, and asking again would only repeat the
+    /// work.
+    fn is_transient(&self) -> bool {
+        match self {
+            Self::Http(error) => error.status().is_none() && !error.is_builder(),
+            Self::Api { status, .. } => matches!(status, 502..=504) && self.code().is_none(),
+            Self::Json(_) | Self::Io(_) | Self::Client(_) => false,
+        }
     }
 
     /// The HTTP status the request ended with, when it got one.
@@ -3270,6 +3293,11 @@ impl ApiClient {
             client: builder.build().expect("failed to build reqwest client"),
             base_url: base_url.trim_end_matches('/').to_string(),
             cache: ResponseCache::default(),
+            read_retry: if cfg!(target_arch = "wasm32") {
+                READ_RETRY
+            } else {
+                crate::backoff::Backoff::NONE
+            },
             image_host: None,
             auth: None,
             session: std::sync::Arc::default(),
@@ -3520,7 +3548,7 @@ impl ApiClient {
     async fn get_deduplicated<T: serde::de::DeserializeOwned>(
         &self,
         cache_key: &str,
-        request: impl FnOnce() -> reqwest::RequestBuilder,
+        request: impl Fn() -> reqwest::RequestBuilder,
     ) -> Result<T, ApiError> {
         if let Some(val) = self.cached(cache_key, false) {
             return Ok(val);
@@ -3530,7 +3558,7 @@ impl ApiClient {
             let _guard = wait_for_gate(&gate, cache_key).await;
             match self.cached(cache_key, true) {
                 Some(val) => Ok(val),
-                None => self.fetch_and_cache(cache_key, request()).await,
+                None => self.fetch_and_cache(cache_key, &request).await,
             }
         };
         self.cache.release_gate(cache_key);
@@ -3576,18 +3604,51 @@ impl ApiClient {
     ///
     /// The body is not stored when a write invalidated its tree while the
     /// request was in flight: it may predate that write.
+    ///
+    /// A GET changes nothing, so one the network failed
+    /// ([`ApiError::is_transient`]) is sent again after the pauses of
+    /// `read_retry`, the caller still holding the key's gate: whoever waits
+    /// for the same read waits for its last attempt. Writes never come here.
     async fn fetch_and_cache<T: serde::de::DeserializeOwned>(
         &self,
         cache_key: &str,
-        request: reqwest::RequestBuilder,
+        request: &impl Fn() -> reqwest::RequestBuilder,
     ) -> Result<T, ApiError> {
-        let generation = self.cache.generation(cache_key);
+        let mut retry = 0;
+        loop {
+            let generation = self.cache.generation(cache_key);
+            let error = match self.fetch_body(request()).await {
+                Ok(bytes) => {
+                    let val: T = Self::deserialize(&bytes)?;
+                    self.cache
+                        .set_if_current(cache_key.to_string(), bytes, generation);
+                    return Ok(val);
+                }
+                Err(error) => error,
+            };
+            let pause = self
+                .read_retry
+                .delay(retry)
+                .filter(|_| error.is_transient());
+            let Some(pause) = pause else {
+                return Err(error);
+            };
+            tracing::debug!(
+                method = "GET",
+                path = route_template(cache_key),
+                error = error.kind(),
+                retry,
+                "API request failed without an answer, asking again"
+            );
+            crate::utils::sleep_ms(pause).await;
+            retry += 1;
+        }
+    }
+
+    /// Sends one GET and reads the body of its successful answer.
+    async fn fetch_body(&self, request: reqwest::RequestBuilder) -> Result<Vec<u8>, ApiError> {
         let resp = self.send_request("GET", request).await?;
-        let bytes = Self::successful_body("GET", resp).await?;
-        let val: T = Self::deserialize(&bytes)?;
-        self.cache
-            .set_if_current(cache_key.to_string(), bytes, generation);
-        Ok(val)
+        Self::successful_body("GET", resp).await
     }
 
     /// Helper: send a cached GET request with query parameters.
@@ -6441,6 +6502,68 @@ pub(crate) mod test_server {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What the network failed is worth asking again; what the server
+    /// decided is not.
+    #[test]
+    fn only_a_request_without_the_servers_answer_is_transient() {
+        let api = |status: u16, body: &str| ApiError::Api {
+            status,
+            body: body.to_string(),
+        };
+        // A proxy answering in the server's place.
+        assert!(api(502, "<html>Bad Gateway</html>").is_transient());
+        assert!(api(503, "").is_transient());
+        assert!(api(504, "upstream timed out").is_transient());
+        // The server's own envelope, whatever its status.
+        assert!(!api(502, r#"{"error":"unreachable"}"#).is_transient());
+        assert!(!api(504, r#"{"error":"timeout"}"#).is_transient());
+        assert!(!api(500, "").is_transient());
+        assert!(!api(404, r#"{"error":"not_found"}"#).is_transient());
+        assert!(!api(429, "").is_transient());
+        assert!(!ApiError::invalid_tree_id().is_transient());
+    }
+
+    /// A cached read is asked again after a failure without an answer, and
+    /// not after the server's own refusal. A write is sent once.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn a_read_the_network_failed_is_asked_again_and_a_write_never() {
+        let (listener, address) = test_server::listen().await;
+        let mut client = ApiClient::new(&address);
+        client.read_retry = crate::backoff::Backoff::new(1, 1, 2);
+
+        // Two gateway errors, then the answer: the read succeeds.
+        let served = test_server::serve_json(
+            &listener,
+            &[(503, "busy"), (502, "busy"), (200, r#"{"ok":true}"#)],
+        );
+        let (lines, read) = tokio::join!(served, client.get::<serde_json::Value>("/api/v1/x"));
+        assert_eq!(read.unwrap()["ok"], true);
+        assert_eq!(lines.len(), 3);
+
+        // The retries are bounded: a third failure is the read's error.
+        let served = test_server::serve_json(&listener, &[(503, "busy"); 3]);
+        let (lines, read) = tokio::join!(served, client.get::<serde_json::Value>("/api/v1/y"));
+        assert_eq!(read.unwrap_err().status(), Some(503));
+        assert_eq!(lines.len(), 3);
+
+        // The server's own answer is final, and so is any answer to a write.
+        let served = test_server::serve_json(
+            &listener,
+            &[(404, r#"{"error":"not_found"}"#), (503, "busy")],
+        );
+        let (lines, (read, write)) = tokio::join!(served, async {
+            let read = client.get::<serde_json::Value>("/api/v1/z").await;
+            let write = client
+                .post::<serde_json::Value, _>("/api/v1/z", &serde_json::json!({}))
+                .await;
+            (read, write)
+        });
+        assert_eq!(read.unwrap_err().status(), Some(404));
+        assert_eq!(write.unwrap_err().status(), Some(503));
+        assert_eq!(lines, ["GET /api/v1/z HTTP/1.1", "POST /api/v1/z HTTP/1.1"]);
+    }
 
     #[test]
     fn a_job_status_read_asks_to_wait_only_once_it_knows_a_version() {

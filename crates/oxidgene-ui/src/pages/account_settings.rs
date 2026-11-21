@@ -18,10 +18,14 @@ use crate::api::{ApiClient, ApiError};
 use crate::components::avatar_cropper::AvatarCropper;
 use crate::components::confirm_dialog::ConfirmDialog;
 use crate::components::history_diff::format_timestamp;
+use crate::components::resource_view::{ResourceView, SkeletonShape, retry_of};
 use crate::components::text_field::TextInput;
 use crate::components::user_avatar::{AvatarSize, UserAvatar};
 use crate::i18n::{I18n, use_i18n};
 use crate::ui_observability::use_ui_resource;
+
+/// How a card of the account settings shows its own load.
+const CARD: ResourceView = ResourceView::section(SkeletonShape::Lines);
 
 /// The largest avatar file the server takes (docs/authentication.md §6.7).
 const MAX_AVATAR_BYTES: usize = 5 * 1024 * 1024;
@@ -442,10 +446,8 @@ pub(crate) fn NotificationsSection() -> Element {
                             }
                         }
                     },
-                    (None, Some(Err(_))) => rsx! {
-                        div { class: "error-msg", role: "alert", {i18n.t("notifications.settings_failed")} }
-                    },
-                    (None, _) => rsx! { p { class: "loading", {i18n.t("common.loading")} } },
+                    (None, Some(Err(error))) => CARD.failed(error.message(&i18n), retry_of(loaded)),
+                    (None, _) => CARD.loading(),
                 }
                 if let Some(error) = error() {
                     div { class: "error-msg", role: "alert", "{error}" }
@@ -524,10 +526,8 @@ pub(crate) fn SessionsSection() -> Element {
             }
             div { class: "app-settings-card profile-sessions",
                 match &*sessions.read() {
-                    None => rsx! { p { class: "loading", {i18n.t("common.loading")} } },
-                    Some(Err(_)) => rsx! {
-                        div { class: "error-msg", role: "alert", {i18n.t("profile.sessions_failed")} }
-                    },
+                    None => CARD.loading(),
+                    Some(Err(error)) => CARD.failed(error.message(&i18n), retry_of(sessions)),
                     Some(Ok(list)) => rsx! {
                         for session in list.clone() {
                             SessionRow { key: "{session.id}", session, on_end: end.clone() }

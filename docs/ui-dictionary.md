@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Dictionary"
 description: "Index of family names, sources, places, and occupations with usage counts, and the bulk editors: family names (rename, merge, particle), occupations (rename, merge), places and repositories (edit, merge field by field)."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-31T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 
@@ -258,9 +258,10 @@ number of grouped queries, then bounded twice:
   least their own unions — and puts it in place. The focus moves to the first
   line shown.
 
-**States.** While the descent loads, the row's panel reads *Loading…*; a
-failure reads *The descent could not be loaded.* with **Retry**, and a
-failed **Show more** keeps its button. A name no one bears but by marriage
+**States.** While the descent loads, the row's panel shows the skeleton; a
+failure shows the load error with its **Retry**
+([Common UI §4.20](ui-common.md#420-load-states)), and a failed **Show
+more** keeps its button. A name no one bears but by marriage
 reads *No one bears this name other than by marriage.* above the list of
 those who do.
 

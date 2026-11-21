@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Homepage"
 description: "Tree dashboard with tree cards listing recently modified persons, search and sort, and the create and delete modals."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-19T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 
@@ -167,6 +167,11 @@ Appears in the top-right of each card. Opens a dropdown with the entries the vie
   requires confirmation
 
 The dropdown closes on outside click or Escape.
+
+Creating, renaming, duplicating and deleting a tree are each confirmed by a
+toast ([Common UI §4.21](ui-common.md#421-toasts)). A duplication that fails says so in a toast too: the card
+has no place for an error of its own. The other failures stay in their
+dialog.
 
 ---
 
