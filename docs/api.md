@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-21T11:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T12:10:00Z }
 ---
 
 
@@ -46,6 +46,18 @@ GraphQL does not duplicate those payloads as base64. GraphQL exposes the same
 durable job status and can create export jobs, while clients use REST to upload
 import sources and download export artifacts. Pagination envelopes follow each
 transport's conventions.
+
+One family of operations exists on one build only, and so on one surface:
+those that exchange **paths of the server's own disk** — indexing data
+archives, saving, loading and releasing a Geneanet session's files, and
+the path-based Geneanet import ([Geneanet import](#geneanet-import)). They
+are sound only where the server is in-process and reads the very files its
+one user picked: the desktop, which serves REST alone. A standalone server
+does not mount them — they answer `404 not_found` like any path it does not
+have, before a byte of their body is read —, its OpenAPI document does not
+describe them, and the GraphQL schema, which only that server builds, has
+no field for them. The parity table marks each as such, and the guard
+checks that they are exactly what a backend with local file access adds.
 
 Direct media reads (`/file`, `/download`, `/archive`, `/thumbnail`, `/card`, and vignette `/image` and `/card`)
 remain HTTP representations because their versioned addresses and caching,
@@ -1673,11 +1685,15 @@ job-owned `MediaStore` keys before committing the job and returning. The worker
 therefore never depends on the WebView's temporary files.
 
 This data plane requires an explicit runtime capability. It is disabled by
-default, including in the standalone server and the public GraphQL schema
-constructor, and enabled only when the desktop application builds its embedded
-backend state. REST and GraphQL reject archive indexing, a preview or plan naming archive
-paths, session encoding, decoding and release, and the path-based import
-before any local path is accessed when the capability is absent.
+default, including in the standalone server, and enabled only when the
+desktop application builds its embedded backend state. Without it the
+router does not mount archive indexing, session encoding, decoding and
+release, nor the path-based import: the routes do not exist, so nothing of
+their bodies — up to a gibibyte for the import — is read before the
+refusal, and the OpenAPI document leaves them out. A preview or a plan
+naming archive paths is refused (`400`) before any local path is accessed.
+The GraphQL schema has none of these operations, and its preview input no
+archive path.
 
 The web build's data plane carries bytes instead, and is served everywhere:
 raw `.gw` inspection, a preview or plan naming no archive path, reading a
@@ -1690,14 +1706,14 @@ answering.
 |---|---|---|
 | `POST` | `/geneweb/inspect?filename=name.gw` | **GeneWeb step.** Parse a `.gw` and report `person_count`, `family_count` and `skipped_blocks`, writing nothing. Body is the raw file bytes, for the same encoding reason as the import above |
 | `POST` | `/geneanet/archives` | **Archives step.** JSON `{ "paths": [...] }`. Index each data archive's ZIP central directory **in place** — nothing is extracted and no bytes are uploaded. Returns per-archive `file_count`/`image_count`, and a per-archive `error` for one that could not be read, so the others still stand. Desktop only: it takes filesystem paths, which is sound because there the server is in-process |
-| `POST` | `/geneanet/session/encode` | Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all. `media` maps each URL to the path of its local file, streamed into the archive; a path that cannot be read fails the save with `400` rather than leaving the medium out. `archive_paths` (default empty) names step 2's data archives: each single-page deposit whose byte length names one of their entries, and whose original `media` does not hold, gets that entry written under its original's URL, so a build given no archive imports the original from the file |
-| `POST` | `/geneanet/session/decode` | Read a ZIP session or raw browser JSON collection, detected by content. Media references must resolve to archive entries; inline base64 media and missing entries are rejected, and so is a deposit size past 2^63 − 1. Refuses anything that is not a collection |
+| `POST` | `/geneanet/session/encode` | **Desktop only.** Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all. `media` maps each URL to the path of its local file, streamed into the archive; a path that cannot be read fails the save with `400` rather than leaving the medium out. `archive_paths` (default empty) names step 2's data archives: each single-page deposit whose byte length names one of their entries, and whose original `media` does not hold, gets that entry written under its original's URL, so a build given no archive imports the original from the file |
+| `POST` | `/geneanet/session/decode` | **Desktop only.** Read a ZIP session or raw browser JSON collection, detected by content. Media references must resolve to archive entries; inline base64 media and missing entries are rejected, and so is a deposit size past 2^63 − 1. Refuses anything that is not a collection |
 | `POST` | `/geneanet/session/read` | Read a session as `decode` does — the same formats and refusals — keeping nothing: its media are checked and passed over. Answers `{ collection, deposit_sizes, account, photo_count, media_urls }`, `media_urls` the sorted addresses of the media the file carries. Served without local file access: the web build's step 3, which sends the same file again with its import. At most 10 GiB, as for `decode` (`413 payload_too_large`) |
-| `POST` | `/geneanet/session/release` | JSON `{ "paths": [...] }`. Delete the media a decoded session staged that the wizard no longer needs — closed, or reset without importing. A path the backend did not stage is ignored. Returns `204` |
+| `POST` | `/geneanet/session/release` | **Desktop only.** JSON `{ "paths": [...] }`. Delete the media a decoded session staged that the wizard no longer needs — closed, or reset without importing. A path the backend did not stage is ignored. Returns `204` |
 | `POST` | `/geneanet/preview` | **Preview.** Join the collected mapping onto the `.gw` and report what an import *would* do. No writes, no network. Sets `mismatch` when under 10 % of keyed references find a person, which the wizard blocks on. Needs local file access only when `archive_paths` names one |
 | `POST` | `/geneanet/plan` | **Preview**, and the saved-connection step's coverage. List the media the server cannot produce on its own, for the login window to fetch. Same body as the preview. Under `media_fidelity: "renditions"` that is one `normal` rendition per page of every attached deposit; under `"originals"` it is each single-page deposit's download that no archive length accounts for, plus a rendition per document page to recognise it by |
 | `POST` | `/trees/{tree_id}/geneanet/session-import` | **Import, web build.** `multipart/form-data`: a `gw` part, the GeneWeb file, whose file name is the import's origin (at most 32 MiB); a `session` part, a saved session as `/geneanet/session/read` takes it; and an optional `media_fidelity` part, `renditions` (the default) or `originals`. Any other part, or a missing one, is a `400`. The session's media are extracted and copied into job storage with the `.gw`, then the job is queued as `/geneanet/import` queues it, with no archive; what the session lacks is skipped. Returns `202 { "job_id": UUID }`. Requires the tree's import permission; a session of at most 10 GiB, as for `decode`. GraphQL: `importGeneanetSession(treeId, input: { gwBase64, fileName, sessionBase64, mediaFidelity })` |
-| `POST` | `/trees/{tree_id}/geneanet/import` | **Import.** Copy every local input to durable job storage and queue the tree-and-media import. `fetched` maps source URLs to temporary filesystem paths; it never carries media bytes. Returns `202 { "job_id": UUID }` only after staging and job creation succeed. The UI then polls the common import-job status; its completed `geneanet_result` is the full Geneanet receipt: the import receipt's counts (`persons_count`, `families_count`, `events_count`, `sources_count`, `places_count`, `notes_count`, `images_count`, `documents_count`, `document_pages_count`, see `GET /import-jobs/{job_id}`), then the `links_count`, `portraits_count`, `isolated_count` and `vignettes_count` written, `isolated_people` (`[{ person_id, surname, given_names }]`, the persons created for identifications outside the tree, in creation order), and the `skipped` photos and `warnings`, one line each |
+| `POST` | `/trees/{tree_id}/geneanet/import` | **Import, desktop only.** Copy every local input to durable job storage and queue the tree-and-media import. `fetched` maps source URLs to temporary filesystem paths; it never carries media bytes. Returns `202 { "job_id": UUID }` only after staging and job creation succeed. The UI then polls the common import-job status; its completed `geneanet_result` is the full Geneanet receipt: the import receipt's counts (`persons_count`, `families_count`, `events_count`, `sources_count`, `places_count`, `notes_count`, `images_count`, `documents_count`, `document_pages_count`, see `GET /import-jobs/{job_id}`), then the `links_count`, `portraits_count`, `isolated_count` and `vignettes_count` written, `isolated_people` (`[{ person_id, surname, given_names }]`, the persons created for identifications outside the tree, in creation order), and the `skipped` photos and `warnings`, one line each |
 
 These steps parse, spool and inflate what the user sends before any tree
 is chosen, so the tree-less ones (`/geneweb/inspect`, `/geneanet/*`) take
@@ -2145,20 +2161,17 @@ exports with `startExportJob`, which takes the export options of
 
 ### Geneanet operations
 
-`GeneanetPreviewInput` carries the same `gwBase64`, collection, deposit-size,
-archive-path and `mediaFidelity` data as REST's preview and plan bodies
-(`mediaFidelity` is `GeneanetMediaFidelity`: `RENDITIONS`, the default, or
-`ORIGINALS`). `GeneanetImportInput` adds the source-URL-to-local-path map.
-These paths are the staging handoff: GraphQL does not carry the corresponding
-bytes, and the mutation copies every input to job-owned durable storage before
-returning its job id. `indexGeneanetArchives`, `releaseGeneanetSessionMedia`
-and paths returned from `decodeGeneanetSession` are desktop-only because they
-refer to the local filesystem. The runtime capability that protects the REST
-data plane also protects these GraphQL fields; `geneanetPreview` and
-`geneanetPlan` need it only when they name archive paths.
+`GeneanetPreviewInput` carries the same `gwBase64`, collection, deposit-size
+and `mediaFidelity` data as REST's preview and plan bodies (`mediaFidelity`
+is `GeneanetMediaFidelity`: `RENDITIONS`, the default, or `ORIGINALS`), and
+no archive path. The operations that exchange paths of the server's disk —
+archive indexing, session encoding, decoding and release, and the
+path-based import — have no GraphQL field: only the desktop serves them,
+and it serves REST alone ([Surfaces and parity](#surfaces-and-parity)).
 `readGeneanetSession(archiveBase64)` and `importGeneanetSession` carry the
-session file base64-encoded, as `decodeGeneanetSession` does, exchange no
-path, and are served everywhere. A caller polls
+session file base64-encoded, exchange no path, and are the wizard's
+GraphQL operations with `inspectGeneweb`, `geneanetPreview` and
+`geneanetPlan`. A caller polls
 `importJobStatus`; `result` is set for GEDCOM/GEDZIP/GeneWeb jobs and
 `geneanetResult` is set for a completed Geneanet job.
 

@@ -15,6 +15,7 @@ use super::Requirement::{self, Administrator, Open, SignedIn, Tree, TreeCreation
 pub fn rest(method: &str, route: &str) -> Option<Requirement> {
     let path = route.strip_prefix("/api/v1")?;
     REST.iter()
+        .chain(LOCAL_FILE_REST)
         .chain(ACCOUNT_REST)
         .find(|(m, p, _)| *m == method && *p == path)
         .map(|(_, _, requirement)| *requirement)
@@ -33,13 +34,36 @@ pub fn graphql(field: &str) -> Option<Requirement> {
 /// Every declared REST operation, the account ones included: what the
 /// guard compares with the router.
 pub fn rest_operations() -> impl Iterator<Item = (&'static str, &'static str, Requirement)> {
-    REST.iter().chain(ACCOUNT_REST).copied()
+    REST.iter()
+        .chain(LOCAL_FILE_REST)
+        .chain(ACCOUNT_REST)
+        .copied()
+}
+
+/// Whether the REST operation `method` on `route`, the `/api/v1` prefix
+/// left out, exchanges paths of the server's own disk: one only a backend
+/// with local file access mounts — the desktop's.
+pub fn is_local_file(method: &str, route: &str) -> bool {
+    LOCAL_FILE_REST
+        .iter()
+        .any(|(m, p, _)| *m == method && *p == route)
 }
 
 /// Every declared GraphQL root field.
 pub fn graphql_fields() -> impl Iterator<Item = (&'static str, Requirement)> {
     GRAPHQL.iter().chain(ACCOUNT_GRAPHQL).copied()
 }
+
+/// The operations exchanging paths of the server's own disk
+/// (docs/api.md, Surfaces and parity): mounted only by a backend with
+/// local file access, the desktop's, and without a GraphQL twin.
+const LOCAL_FILE_REST: &[(&str, &str, Requirement)] = &[
+    ("POST", "/geneanet/archives", TreeCreation),
+    ("POST", "/geneanet/session/decode", TreeCreation),
+    ("POST", "/geneanet/session/encode", TreeCreation),
+    ("POST", "/geneanet/session/release", TreeCreation),
+    ("POST", "/trees/{tree_id}/geneanet/import", Tree(P::Import)),
+];
 
 /// The tree operations, served by every build.
 const REST: &[(&str, &str, Requirement)] = &[
@@ -54,13 +78,9 @@ const REST: &[(&str, &str, Requirement)] = &[
     // The Geneanet wizard's first steps read what the user sends — parsed,
     // spooled, inflated — before a tree is chosen: they take the right the
     // tree they prepare will need.
-    ("POST", "/geneanet/archives", TreeCreation),
     ("POST", "/geneanet/plan", TreeCreation),
     ("POST", "/geneanet/preview", TreeCreation),
-    ("POST", "/geneanet/session/decode", TreeCreation),
-    ("POST", "/geneanet/session/encode", TreeCreation),
     ("POST", "/geneanet/session/read", TreeCreation),
-    ("POST", "/geneanet/session/release", TreeCreation),
     ("POST", "/geneweb/inspect", TreeCreation),
     // The tree list is the viewer's memberships.
     ("GET", "/trees", SignedIn),
@@ -236,7 +256,6 @@ const REST: &[(&str, &str, Requirement)] = &[
         "/trees/{tree_id}/import-jobs/{job_id}/cancel",
         Tree(P::Import),
     ),
-    ("POST", "/trees/{tree_id}/geneanet/import", Tree(P::Import)),
     (
         "POST",
         "/trees/{tree_id}/geneanet/session-import",
@@ -777,13 +796,9 @@ const GRAPHQL: &[(&str, Requirement)] = &[
     ("occupationReference", Open),
     ("occupationReferences", Open),
     ("placeSuggestions", Open),
-    ("indexGeneanetArchives", TreeCreation),
     ("geneanetPlan", TreeCreation),
     ("geneanetPreview", TreeCreation),
-    ("decodeGeneanetSession", TreeCreation),
-    ("encodeGeneanetSession", TreeCreation),
     ("readGeneanetSession", TreeCreation),
-    ("releaseGeneanetSessionMedia", TreeCreation),
     ("inspectGeneweb", TreeCreation),
     ("trees", SignedIn),
     ("createTree", TreeCreation),
@@ -833,7 +848,6 @@ const GRAPHQL: &[(&str, Requirement)] = &[
     ("exportGedcom", Tree(P::Export)),
     ("importJobStatus", Tree(P::Import)),
     ("cancelImportJob", Tree(P::Import)),
-    ("importGeneanet", Tree(P::Import)),
     ("importGeneanetSession", Tree(P::Import)),
     ("families", Tree(P::Read)),
     ("family", Tree(P::Read)),

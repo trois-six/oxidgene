@@ -494,7 +494,12 @@ async fn rest_matrix(fixture: &Fixture, viewers: &[Who], public: bool, least: us
     // Refusals first: a permitted viewer's call must not change what the
     // refused ones meet.
     for refusals_only in [true, false] {
-        for (method, route, requirement) in operations::rest_operations() {
+        // What a standalone server serves: the operations exchanging paths
+        // of the server's disk are the desktop's, which has no viewer but
+        // its owner.
+        for (method, route, requirement) in operations::rest_operations()
+            .filter(|(method, route, _)| !operations::is_local_file(method, route))
+        {
             let operation = format!("{method} /api/v1{route}");
             for &who in viewers {
                 let wanted = narrowed(&operation, who, requirement, public)

@@ -19,9 +19,16 @@ const GENEANET_BODY_LIMIT: usize = 32 * 1024 * 1024;
 /// The import body is the preview's plus the fetched-media map, and that map
 /// is what outgrows the wizard's allowance on a real tree: every deposit and
 /// view a large Geneanet account holds is listed in it. A real tree's import
-/// needed more than 32 MiB, so the import keeps the 1 GiB ceiling the other
-/// imports had; the media bytes still never travel in it.
+/// needed more than 32 MiB, so the import keeps a 1 GiB ceiling; the media
+/// bytes still never travel in it. Only the desktop's in-process server
+/// mounts the route, for its own window.
 const GENEANET_IMPORT_BODY_LIMIT: usize = 1024 * 1024 * 1024;
+
+/// Body limit of a GraphQL request (2 MiB): operations and their variables,
+/// a `.gw` or a small file in base64 at most. Files go through REST, which
+/// streams them.
+#[cfg(feature = "graphql")]
+const GRAPHQL_BODY_LIMIT: usize = 2 * 1024 * 1024;
 
 use tower_http::compression::CompressionLayer;
 use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
@@ -577,13 +584,6 @@ pub fn build_router(state: AppState) -> Router {
             "/{tree_id}/gedcom/export",
             get(gedcom::export_gedcom_handler),
         )
-        // The wizard's import body is its preview body plus the fetched-media
-        // map, which is what a large account fills: see
-        // `GENEANET_IMPORT_BODY_LIMIT`.
-        .route(
-            "/{tree_id}/geneanet/import",
-            post(geneanet::import_handler).layer(DefaultBodyLimit::max(GENEANET_IMPORT_BODY_LIMIT)),
-        )
         // A saved session carries its media, with no size limit of its own
         // (docs/geneanet-media-import.md §8).
         .route(
@@ -595,25 +595,53 @@ pub fn build_router(state: AppState) -> Router {
     // before the user has decided whether to create one — so they cannot sit
     // under the tree-scoped nest.
     let geneanet_routes = Router::new()
-        .route("/archives", post(geneanet::index_archives_handler))
         .route("/preview", post(geneanet::preview_handler))
         .route("/plan", post(geneanet::plan_handler))
-        .route("/session/encode", post(geneanet::encode_session_handler))
-        .route(
-            "/session/release",
-            post(geneanet::release_session_media_handler),
-        )
-        .route(
-            "/session/decode",
-            post(geneanet::decode_session_handler)
-                // Saved sessions contain media bytes, not only metadata paths.
-                .layer(DefaultBodyLimit::disable()),
-        )
         .route(
             "/session/read",
+            // Saved sessions contain media bytes, not only metadata.
             post(geneanet::read_session_handler).layer(DefaultBodyLimit::disable()),
         )
         .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT));
+
+    // The operations that exchange paths of the server's own disk
+    // (docs/api.md, Geneanet import): the desktop's, whose in-process
+    // server reads the very files its one user picked. They are bound
+    // apart and mounted only where the state grants local file access, so
+    // that a standalone server does not have them at all — rather than
+    // refusing them once their body, up to a gibibyte of it, is read — and
+    // the build script describes them in the desktop's OpenAPI document
+    // alone.
+    let local_file_routes = Router::new()
+        .nest(
+            "/api/v1/geneanet",
+            Router::new()
+                .route("/archives", post(geneanet::index_archives_handler))
+                .route("/session/encode", post(geneanet::encode_session_handler))
+                .route(
+                    "/session/release",
+                    post(geneanet::release_session_media_handler),
+                )
+                .route(
+                    "/session/decode",
+                    post(geneanet::decode_session_handler)
+                        // Saved sessions contain media bytes, not only
+                        // metadata paths.
+                        .layer(DefaultBodyLimit::disable()),
+                )
+                .layer(DefaultBodyLimit::max(GENEANET_BODY_LIMIT)),
+        )
+        .nest(
+            "/api/v1/trees",
+            // The wizard's import body is its preview body plus the
+            // fetched-media map, which is what a large account fills: see
+            // `GENEANET_IMPORT_BODY_LIMIT`.
+            Router::new().route(
+                "/{tree_id}/geneanet/import",
+                post(geneanet::import_handler)
+                    .layer(DefaultBodyLimit::max(GENEANET_IMPORT_BODY_LIMIT)),
+            ),
+        );
 
     let geneweb_routes = Router::new()
         .route("/inspect", post(geneanet::inspect_geneweb_handler))
@@ -635,23 +663,17 @@ pub fn build_router(state: AppState) -> Router {
     let auth_state = state.clone();
 
     #[cfg(feature = "graphql")]
-    let schema = crate::graphql::build_schema_with_local_file_access(
+    let schema = crate::graphql::build_schema_on(
         state.connections(),
         state.profiles.clone(),
         state.purge.clone(),
         state.media.clone(),
         state.work_dir.clone(),
         state.archives.clone(),
-        state.local_file_access,
     );
 
     #[cfg(feature = "graphql")]
-    let graphql_body_limit = if state.local_file_access.require().is_ok() {
-        // The desktop-only session operation carries an archive in base64.
-        DefaultBodyLimit::disable()
-    } else {
-        DefaultBodyLimit::max(2 * 1024 * 1024)
-    };
+    let graphql_body_limit = DefaultBodyLimit::max(GRAPHQL_BODY_LIMIT);
 
     // The accounts of the web build (docs/authentication.md §6): not tied to
     // a tree, so kept out of the `/trees` nest.
@@ -788,6 +810,11 @@ pub fn build_router(state: AppState) -> Router {
             get(gedcom::export_destinations),
         )
         .route("/api/v1/openapi.json", get(openapi::spec));
+    let api_routes = if state.local_file_access.is_granted() {
+        api_routes.merge(local_file_routes)
+    } else {
+        api_routes
+    };
     #[cfg(feature = "auth")]
     let api_routes = api_routes.nest("/api/v1", account_routes);
     // The exclusions from sharing (docs/privacy.md §6): tree-scoped, and

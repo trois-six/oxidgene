@@ -453,23 +453,6 @@ async fn person_detail_bundle_query_names_the_couple_a_profile_media_comes_from(
     }
 }
 
-#[tokio::test]
-async fn graphql_geneanet_local_paths_are_refused_by_default() {
-    let response = graphql(
-        setup_app().await,
-        r#"{ indexGeneanetArchives(paths: ["/does/not/exist"]) { fileCount } }"#,
-        None,
-    )
-    .await;
-
-    assert!(response["data"].is_null());
-    assert_eq!(
-        response["errors"][0]["extensions"]["code"],
-        "VALIDATION_ERROR"
-    );
-    assert_eq!(response["errors"][0]["message"], "The request is invalid");
-}
-
 // ── Tree CRUD ────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -3350,8 +3333,7 @@ async fn test_geneanet_wizard_operations_over_graphql() {
             "oxidgene-gql-geneanet-wizard-{}",
             uuid::Uuid::now_v7()
         )),
-    )
-    .with_local_file_access();
+    );
     let app = build_router(state);
     let gw_base64 = base64::engine::general_purpose::STANDARD.encode(minimal_geneweb());
     let collection = r#"{"deposits":[],"references":[],"view_references":{}}"#;
@@ -3366,57 +3348,6 @@ async fn test_geneanet_wizard_operations_over_graphql() {
     .await;
     assert_eq!(data(&inspection)["inspectGeneweb"]["personCount"], 3);
     assert_eq!(data(&inspection)["inspectGeneweb"]["familyCount"], 1);
-
-    let encoded = graphql(
-        app.clone(),
-        &format!(
-            r#"mutation {{
-            encodeGeneanetSession(input: {{ collection: "{collection_graphql}", account: "test-account" }}) {{
-                archiveBase64
-            }}
-        }}"#
-        ),
-        None,
-    )
-    .await;
-    let archive_base64 = data(&encoded)["encodeGeneanetSession"]["archiveBase64"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let decoded = graphql(
-        app.clone(),
-        &format!(
-            r#"mutation {{ decodeGeneanetSession(archiveBase64: "{archive_base64}") {{ collection account photoCount media {{ url path }} }} }}"#
-        ),
-        None,
-    )
-    .await;
-    let session = &data(&decoded)["decodeGeneanetSession"];
-    let restored_collection: Value =
-        serde_json::from_str(session["collection"].as_str().unwrap()).unwrap();
-    assert_eq!(restored_collection["deposits"], serde_json::json!([]));
-    assert_eq!(restored_collection["references"], serde_json::json!([]));
-    assert_eq!(
-        restored_collection["view_references"],
-        serde_json::json!({})
-    );
-    assert_eq!(session["account"], "test-account");
-    assert_eq!(session["photoCount"], 0);
-    assert!(session["media"].as_array().unwrap().is_empty());
-
-    let indexed = graphql(
-        app.clone(),
-        r#"{ indexGeneanetArchives(paths: []) { fileCount archives { path } } }"#,
-        None,
-    )
-    .await;
-    assert_eq!(data(&indexed)["indexGeneanetArchives"]["fileCount"], 0);
-    assert!(
-        data(&indexed)["indexGeneanetArchives"]["archives"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
 
     let rejected = graphql(
         app,
@@ -3653,8 +3584,7 @@ async fn test_graphql_geneanet_import_job() {
             "oxidgene-gql-geneanet-import-{}",
             uuid::Uuid::now_v7()
         )),
-    )
-    .with_local_file_access();
+    );
     let app = build_router(state.clone());
     let response = graphql(
         app.clone(),
@@ -3680,15 +3610,18 @@ async fn test_graphql_geneanet_import_job() {
         }],
     })
     .to_string();
+    // A session holding its collection alone: the import GraphQL serves,
+    // which exchanges no path.
+    let session_base64 = base64::engine::general_purpose::STANDARD.encode(collection);
     let response = graphql(
         app.clone(),
-        r#"mutation($tree: ID!, $gw: String!, $collection: String!) {
-            importGeneanet(treeId: $tree, input: { gwBase64: $gw, fileName: "family.gw", collection: $collection }) { jobId }
+        r#"mutation($tree: ID!, $gw: String!, $session: String!) {
+            importGeneanetSession(treeId: $tree, input: { gwBase64: $gw, fileName: "family.gw", sessionBase64: $session }) { jobId }
         }"#,
-        Some(json!({ "tree": tree_id, "gw": gw_base64, "collection": collection })),
+        Some(json!({ "tree": tree_id, "gw": gw_base64, "session": session_base64 })),
     )
     .await;
-    let job_id = data(&response)["importGeneanet"]["jobId"]
+    let job_id = data(&response)["importGeneanetSession"]["jobId"]
         .as_str()
         .expect("job id");
     let worker = oxidgene_api::service::background_job::BackgroundJobWorker::new(

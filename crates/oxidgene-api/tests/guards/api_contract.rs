@@ -6,6 +6,10 @@
 //! - a REST route without its GraphQL operation, or the reverse — the
 //!   strict symmetry AGENTS.md requires (`PARITY` below is the declared
 //!   mapping, with the few transport exceptions docs/api.md allows);
+//! - an operation exchanging paths of the server's own disk served by a
+//!   backend without local file access, or described in its OpenAPI
+//!   document: those are exactly the `LocalFiles` rows of `PARITY`, which
+//!   the desktop alone mounts and no GraphQL schema has;
 //! - a route missing from docs/api.md's tables, or a documented route that
 //!   no longer exists;
 //! - a GraphQL schema change nobody reviewed: the SDL is committed as
@@ -33,9 +37,15 @@ enum Twin {
     Gql(&'static [&'static str]),
     /// A transport exception docs/api.md (Surfaces and parity) allows.
     RestOnly(&'static str),
+    /// An operation exchanging paths of the server's own disk: mounted
+    /// only by a backend with local file access, the desktop's, which
+    /// compiles no GraphQL.
+    LocalFiles(&'static str),
 }
 
-use Twin::{Gql, RestOnly};
+use Twin::{Gql, LocalFiles, RestOnly};
+
+const LOCAL_FILES: &str = "exchanges paths of the server's own disk: served by the desktop's in-process backend alone, which compiles no GraphQL (docs/api.md, Surfaces and parity)";
 
 const BINARY: &str = "direct media read: an HTTP representation with its cache validators (docs/api.md, Surfaces and parity)";
 
@@ -261,11 +271,7 @@ const PARITY: &[(&str, &str, Twin)] = &[
         "/api/v1/gedcom/export-destinations",
         Gql(&["Query.exportDestinations"]),
     ),
-    (
-        "POST",
-        "/api/v1/geneanet/archives",
-        Gql(&["Query.indexGeneanetArchives"]),
-    ),
+    ("POST", "/api/v1/geneanet/archives", LocalFiles(LOCAL_FILES)),
     (
         "POST",
         "/api/v1/geneanet/plan",
@@ -279,12 +285,12 @@ const PARITY: &[(&str, &str, Twin)] = &[
     (
         "POST",
         "/api/v1/geneanet/session/decode",
-        Gql(&["Mutation.decodeGeneanetSession"]),
+        LocalFiles(LOCAL_FILES),
     ),
     (
         "POST",
         "/api/v1/geneanet/session/encode",
-        Gql(&["Mutation.encodeGeneanetSession"]),
+        LocalFiles(LOCAL_FILES),
     ),
     (
         "POST",
@@ -294,7 +300,7 @@ const PARITY: &[(&str, &str, Twin)] = &[
     (
         "POST",
         "/api/v1/geneanet/session/release",
-        Gql(&["Mutation.releaseGeneanetSessionMedia"]),
+        LocalFiles(LOCAL_FILES),
     ),
     (
         "POST",
@@ -608,7 +614,7 @@ const PARITY: &[(&str, &str, Twin)] = &[
     (
         "POST",
         "/api/v1/trees/{tree_id}/geneanet/import",
-        Gql(&["Mutation.importGeneanet"]),
+        LocalFiles(LOCAL_FILES),
     ),
     (
         "POST",
@@ -1165,10 +1171,22 @@ const PARITY: &[(&str, &str, Twin)] = &[
 ];
 
 /// The `(METHOD, path)` of every operation of the OpenAPI document the
-/// router serves.
+/// router serves: a standalone server's.
 async fn router_operations() -> BTreeSet<(String, String)> {
-    let app = app_on(setup_db().await);
-    let spec = ok(&app, Method::GET, "/api/v1/openapi.json", None).await;
+    operations_of(&app_on(setup_db().await)).await
+}
+
+/// The same of a backend with local file access: the desktop's.
+async fn local_router_operations() -> BTreeSet<(String, String)> {
+    let state = oxidgene_api::AppState::new(setup_db().await, crate::common::test_media_root())
+        .with_local_file_access();
+    operations_of(&oxidgene_api::build_router(crate::common::offline(state))).await
+}
+
+/// The `(METHOD, path)` of every operation of the OpenAPI document `app`
+/// serves.
+async fn operations_of(app: &axum::Router) -> BTreeSet<(String, String)> {
+    let spec = ok(app, Method::GET, "/api/v1/openapi.json", None).await;
     let mut operations = BTreeSet::new();
     for (path, methods) in spec["paths"].as_object().expect("paths") {
         for method in methods.as_object().expect("operations").keys() {
@@ -1188,9 +1206,17 @@ fn declared_operations() -> BTreeSet<(String, String)> {
         .collect()
 }
 
+/// The declared operations only a backend with local file access serves.
+fn local_file_operations() -> BTreeSet<(String, String)> {
+    parity()
+        .filter(|(_, _, twin)| matches!(twin, LocalFiles(_)))
+        .map(|(method, path, _)| (method.to_string(), path.to_string()))
+        .collect()
+}
+
 #[tokio::test]
 async fn every_route_is_in_the_parity_table() {
-    let routes = router_operations().await;
+    let routes = local_router_operations().await;
     let declared = declared_operations();
     assert_eq!(
         declared.len(),
@@ -1209,12 +1235,54 @@ async fn every_route_is_in_the_parity_table() {
     );
     for (method, path, twin) in parity() {
         let named = match twin {
-            RestOnly(reason) => !reason.is_empty(),
+            RestOnly(reason) | LocalFiles(reason) => !reason.is_empty(),
             Gql(operations) => !operations.is_empty(),
         };
         assert!(
             named,
             "{method} {path}: name its GraphQL twin or its reason"
+        );
+    }
+}
+
+/// A standalone server mounts, and describes, every declared operation but
+/// those exchanging paths of its own disk — which are exactly what a
+/// backend with local file access adds — and answers them as it answers
+/// any path it does not have, before reading a byte of their body.
+#[tokio::test]
+async fn a_server_without_local_file_access_has_no_path_taking_route() {
+    let remote = router_operations().await;
+    let local = local_router_operations().await;
+    let added: BTreeSet<_> = local.difference(&remote).cloned().collect();
+    assert_eq!(added, local_file_operations());
+    assert!(remote.is_subset(&local));
+    assert_eq!(added.len(), 5, "{added:#?}");
+
+    let app = app_on(setup_db().await);
+    for (method, path) in &added {
+        use tower::ServiceExt as _;
+        let uri = path.replace("{tree_id}", &uuid::Uuid::nil().to_string());
+        let unread = axum::body::Body::from_stream(futures_util::stream::poll_fn(
+            |_| -> std::task::Poll<Option<Result<Vec<u8>, std::io::Error>>> {
+                panic!("a route that does not exist must not read its body");
+            },
+        ));
+        let response = app
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(method.as_str())
+                    .uri(&uri)
+                    .header("content-type", "application/json")
+                    .body(unread)
+                    .expect("a request"),
+            )
+            .await
+            .expect("infallible router");
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::NOT_FOUND,
+            "{method} {path}"
         );
     }
 }
@@ -1304,7 +1372,8 @@ fn shape(path: &str) -> String {
 
 #[tokio::test]
 async fn api_md_documents_exactly_the_router() {
-    let routes: BTreeSet<_> = router_operations()
+    // Every operation a build can serve: the desktop's router has them all.
+    let routes: BTreeSet<_> = local_router_operations()
         .await
         .into_iter()
         .map(|(m, p)| (m, shape(&p)))

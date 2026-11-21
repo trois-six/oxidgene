@@ -226,13 +226,6 @@ pub struct GeneanetDepositSizeInput {
     pub size: i64,
 }
 
-/// A string-keyed path entry used for locally staged media.
-#[derive(Debug, InputObject)]
-pub struct GeneanetMediaPathInput {
-    pub url: String,
-    pub path: String,
-}
-
 /// Shared inputs for Geneanet preview and fetch planning.
 #[derive(Debug, InputObject)]
 pub struct GeneanetPreviewInput {
@@ -241,42 +234,8 @@ pub struct GeneanetPreviewInput {
     pub collection: String,
     #[graphql(default)]
     pub deposit_sizes: Vec<GeneanetDepositSizeInput>,
-    #[graphql(default)]
-    pub archive_paths: Vec<String>,
     /// Which bytes to keep per medium. `RENDITIONS`, the default, ignores
-    /// `depositSizes` and `archivePaths`.
-    #[graphql(default)]
-    pub media_fidelity: GqlGeneanetMediaFidelity,
-}
-
-/// Session content to encode as a downloadable Geneanet archive.
-#[derive(Debug, InputObject)]
-pub struct GeneanetSessionEncodeInput {
-    pub collection: String,
-    #[graphql(default)]
-    pub deposit_sizes: Vec<GeneanetDepositSizeInput>,
-    pub account: Option<String>,
-    #[graphql(default)]
-    pub media: Vec<GeneanetMediaPathInput>,
-    /// The data archives, whose originals the file carries too.
-    #[graphql(default)]
-    pub archive_paths: Vec<String>,
-}
-
-/// Inputs needed to import a Geneanet tree and its already fetched media.
-#[derive(Debug, InputObject)]
-pub struct GeneanetImportInput {
-    pub gw_base64: String,
-    pub file_name: String,
-    pub collection: String,
-    #[graphql(default)]
-    pub deposit_sizes: Vec<GeneanetDepositSizeInput>,
-    #[graphql(default)]
-    pub archive_paths: Vec<String>,
-    #[graphql(default)]
-    pub fetched: Vec<GeneanetMediaPathInput>,
-    /// Which bytes to keep per medium. `RENDITIONS`, the default, ignores
-    /// `depositSizes` and `archivePaths`.
+    /// `depositSizes`.
     #[graphql(default)]
     pub media_fidelity: GqlGeneanetMediaFidelity,
 }
@@ -307,13 +266,6 @@ pub(crate) fn geneanet_deposit_sizes(
                     ))
                 })
         })
-        .collect()
-}
-
-pub(crate) fn geneanet_media_paths(entries: &[GeneanetMediaPathInput]) -> HashMap<String, String> {
-    entries
-        .iter()
-        .map(|entry| (entry.url.clone(), entry.path.clone()))
         .collect()
 }
 

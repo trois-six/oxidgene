@@ -547,31 +547,6 @@ input GeneanetDepositSizeInput {
 }
 
 """
-Inputs needed to import a Geneanet tree and its already fetched media.
-"""
-input GeneanetImportInput {
-	gwBase64: String!
-	fileName: String!
-	collection: String!
-	depositSizes: [GeneanetDepositSizeInput!]! = []
-	archivePaths: [String!]! = []
-	fetched: [GeneanetMediaPathInput!]! = []
-	"""
-	Which bytes to keep per medium. `RENDITIONS`, the default, ignores
-	`depositSizes` and `archivePaths`.
-	"""
-	mediaFidelity: GqlGeneanetMediaFidelity! = RENDITIONS
-}
-
-"""
-A string-keyed path entry used for locally staged media.
-"""
-input GeneanetMediaPathInput {
-	url: String!
-	path: String!
-}
-
-"""
 Shared inputs for Geneanet preview and fetch planning.
 """
 input GeneanetPreviewInput {
@@ -579,26 +554,11 @@ input GeneanetPreviewInput {
 	fileName: String!
 	collection: String!
 	depositSizes: [GeneanetDepositSizeInput!]! = []
-	archivePaths: [String!]! = []
 	"""
 	Which bytes to keep per medium. `RENDITIONS`, the default, ignores
-	`depositSizes` and `archivePaths`.
+	`depositSizes`.
 	"""
 	mediaFidelity: GqlGeneanetMediaFidelity! = RENDITIONS
-}
-
-"""
-Session content to encode as a downloadable Geneanet archive.
-"""
-input GeneanetSessionEncodeInput {
-	collection: String!
-	depositSizes: [GeneanetDepositSizeInput!]! = []
-	account: String
-	media: [GeneanetMediaPathInput!]! = []
-	"""
-	The data archives, whose originals the file carries too.
-	"""
-	archivePaths: [String!]! = []
 }
 
 """
@@ -1850,11 +1810,6 @@ type GqlGalleryVignette {
 	crop: GqlImageCrop
 }
 
-type GqlGeneanetArchiveIndex {
-	archives: [GqlGeneanetIndexedArchive!]!
-	fileCount: Int!
-}
-
 type GqlGeneanetDepositSize {
 	depositId: Int!
 	size: Int!
@@ -1891,14 +1846,6 @@ type GqlGeneanetImportResult {
 	warnings: [String!]!
 }
 
-type GqlGeneanetIndexedArchive {
-	path: String!
-	fileName: String!
-	fileCount: Int!
-	imageCount: Int!
-	error: String
-}
-
 type GqlGeneanetInspection {
 	personCount: Int!
 	familyCount: Int!
@@ -1931,11 +1878,6 @@ enum GqlGeneanetMediaFidelity {
 	ORIGINALS
 }
 
-type GqlGeneanetMediaPath {
-	url: String!
-	path: String!
-}
-
 type GqlGeneanetNeededMedia {
 	depositId: Int!
 	viewId: Int!
@@ -1963,18 +1905,6 @@ type GqlGeneanetPreview {
 	outsideTreeNames: [String!]!
 	ambiguousNames: [String!]!
 	mismatch: Boolean!
-}
-
-type GqlGeneanetSession {
-	collection: String!
-	depositSizes: [GqlGeneanetDepositSize!]!
-	account: String
-	photoCount: Int!
-	media: [GqlGeneanetMediaPath!]!
-}
-
-type GqlGeneanetSessionArchive {
-	archiveBase64: String!
 }
 
 """
@@ -4873,25 +4803,6 @@ type MutationRoot {
 	"""
 	cancelExportJob(treeId: ID!, jobId: ID!): GqlExportJobStatus!
 	"""
-	Encode a Geneanet wizard session as a base64 archive.
-	"""
-	encodeGeneanetSession(input: GeneanetSessionEncodeInput!): GqlGeneanetSessionArchive!
-	"""
-	Delete the staged media of a decoded session the wizard closed or
-	reset without importing, as `POST /geneanet/session/release` does. A
-	path the backend did not stage is ignored.
-	"""
-	releaseGeneanetSessionMedia(paths: [String!]!): Boolean!
-	"""
-	Decode a saved Geneanet session. Its media are staged as local files
-	for a following desktop import, just as they are through REST.
-	"""
-	decodeGeneanetSession(archiveBase64: String!): GqlGeneanetSession!
-	"""
-	Queue a Geneanet tree import with media collected by the desktop window.
-	"""
-	importGeneanet(treeId: ID!, input: GeneanetImportInput!): GqlBackgroundJobStarted!
-	"""
 	Queue a Geneanet tree import with the media of a saved session sent
 	with it, as `POST /trees/{treeId}/geneanet/session-import` does: the
 	session's media are copied into job storage before the answer, and
@@ -5546,10 +5457,6 @@ type QueryRoot {
 	Inspect a GeneWeb export before selecting its destination tree.
 	"""
 	inspectGeneweb(gwBase64: String!, fileName: String!): GqlGeneanetInspection!
-	"""
-	Index local Geneanet archives by path.
-	"""
-	indexGeneanetArchives(paths: [String!]!): GqlGeneanetArchiveIndex!
 	"""
 	What a saved Geneanet session holds, its media checked but kept
 	nowhere, as `POST /geneanet/session/read` answers it.

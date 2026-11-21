@@ -10,7 +10,6 @@ use base64::Engine as _;
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::redaction::Redaction;
 use oxidgene_core::types::RecordKind;
-use oxidgene_geneanet::archive::LocalOriginals;
 use sea_orm::DatabaseConnection;
 use uuid::Uuid;
 
@@ -41,20 +40,19 @@ use super::scope::{
 use super::types::{
     GqlCitationConnection, GqlDictionaryEntry, GqlDownloadableExport, GqlEvent, GqlEventConnection,
     GqlEventType, GqlExportGedcomResult, GqlExportJobStatus, GqlFamily, GqlFamilyConnection,
-    GqlGalleryBundle, GqlGeneanetArchiveIndex, GqlGeneanetDepositSize, GqlGeneanetIndexedArchive,
-    GqlGeneanetInspection, GqlGeneanetNeededMedia, GqlGeneanetPreview, GqlGeneanetSessionContents,
-    GqlGivenNameReference, GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlKinship, GqlMedia,
-    GqlMediaConnection, GqlMediaDownload, GqlMediaFacets, GqlMediaLink, GqlMediaWithLink, GqlNote,
-    GqlNoteConnection, GqlOccupationReference, GqlOccupationReferenceMatch, GqlPedigree,
-    GqlPedigreeDelta, GqlPedigreeDirection, GqlPedigreeEntry, GqlPerson, GqlPersonConnection,
-    GqlPersonDetailBundle, GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry,
-    GqlPersonWithDepth, GqlPlace, GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPlaceSuggestion,
-    GqlPortrait, GqlPortraitImage, GqlRelationLabels, GqlRepository, GqlRepositoryConnection,
-    GqlSearchEntry, GqlSearchResult, GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill,
-    GqlSourceDictionaryEntry, GqlSourceDictionaryGroup, GqlSuggestionField, GqlSurnameDescent,
-    GqlTag, GqlTagTargetCounts, GqlTaggedRecordConnection, GqlTree, GqlTreeConnection,
-    GqlTreeMediaLink, GqlValueSuggestion, GqlVignette, db_from_ctx, media_from_ctx,
-    profiles_from_ctx, reader_from_ctx, require_local_file_access,
+    GqlGalleryBundle, GqlGeneanetDepositSize, GqlGeneanetInspection, GqlGeneanetNeededMedia,
+    GqlGeneanetPreview, GqlGeneanetSessionContents, GqlGivenNameReference,
+    GqlGivenNameReferenceMatch, GqlImportJobStatus, GqlKinship, GqlMedia, GqlMediaConnection,
+    GqlMediaDownload, GqlMediaFacets, GqlMediaLink, GqlMediaWithLink, GqlNote, GqlNoteConnection,
+    GqlOccupationReference, GqlOccupationReferenceMatch, GqlPedigree, GqlPedigreeDelta,
+    GqlPedigreeDirection, GqlPedigreeEntry, GqlPerson, GqlPersonConnection, GqlPersonDetailBundle,
+    GqlPersonProfile, GqlPersonSearchSort, GqlPersonUsageEntry, GqlPersonWithDepth, GqlPlace,
+    GqlPlaceConnection, GqlPlaceDictionaryEntry, GqlPlaceSuggestion, GqlPortrait, GqlPortraitImage,
+    GqlRelationLabels, GqlRepository, GqlRepositoryConnection, GqlSearchEntry, GqlSearchResult,
+    GqlSource, GqlSourceConnection, GqlSourceDictionaryDrill, GqlSourceDictionaryEntry,
+    GqlSourceDictionaryGroup, GqlSuggestionField, GqlSurnameDescent, GqlTag, GqlTagTargetCounts,
+    GqlTaggedRecordConnection, GqlTree, GqlTreeConnection, GqlTreeMediaLink, GqlValueSuggestion,
+    GqlVignette, db_from_ctx, media_from_ctx, profiles_from_ctx, reader_from_ctx,
 };
 
 /// How a job status query waits: REST's `since` and `wait`, a negative wait
@@ -154,6 +152,23 @@ fn source_entry(entry: crate::service::source::SourceDictionaryEntry) -> GqlSour
         count: entry.count,
         repositories: entry.repositories,
     }
+}
+
+/// What a Geneanet preview or plan joins, its `.gw` decoded. It names no
+/// archive: a path of the server's own disk is the desktop's to give, and
+/// the desktop serves REST alone.
+fn join_inputs(input: GeneanetPreviewInput) -> Result<crate::service::geneanet::JoinInputs> {
+    let gw = base64::engine::general_purpose::STANDARD
+        .decode(&input.gw_base64)
+        .map_err(|error| OxidGeneError::Validation(format!("invalid .gw base64: {error}")))?;
+    Ok(crate::service::geneanet::JoinInputs {
+        gw,
+        deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
+        file_name: input.file_name,
+        collection: input.collection,
+        archive_paths: Vec::new(),
+        fidelity: input.media_fidelity.into(),
+    })
 }
 
 /// The tree queries.
@@ -2014,32 +2029,6 @@ impl TreeQuery {
         .await
     }
 
-    /// Index local Geneanet archives by path.
-    async fn index_geneanet_archives(
-        &self,
-        ctx: &Context<'_>,
-        paths: Vec<String>,
-    ) -> Result<GqlGeneanetArchiveIndex> {
-        boxed(async move {
-            require_local_file_access(ctx)?;
-            let (set, reports) = crate::service::geneanet::index_archives_off_thread(paths).await?;
-            Ok(GqlGeneanetArchiveIndex {
-                file_count: set.file_count() as i64,
-                archives: reports
-                    .into_iter()
-                    .map(|report| GqlGeneanetIndexedArchive {
-                        path: report.path,
-                        file_name: report.file_name,
-                        file_count: report.file_count as i64,
-                        image_count: report.image_count as i64,
-                        error: report.error,
-                    })
-                    .collect(),
-            })
-        })
-        .await
-    }
-
     /// What a saved Geneanet session holds, its media checked but kept
     /// nowhere, as `POST /geneanet/session/read` answers it.
     async fn read_geneanet_session(
@@ -2090,30 +2079,15 @@ impl TreeQuery {
     /// Preview a Geneanet import without writing a tree or fetching media.
     async fn geneanet_preview(
         &self,
-        ctx: &Context<'_>,
+        _ctx: &Context<'_>,
         input: GeneanetPreviewInput,
     ) -> Result<GqlGeneanetPreview> {
         boxed(async move {
-            // Archive paths name files of the server's own disk.
-            if !input.archive_paths.is_empty() {
-                require_local_file_access(ctx)?;
-            }
-            let gw = base64::engine::general_purpose::STANDARD
-                .decode(&input.gw_base64)
-                .map_err(|error| {
-                    OxidGeneError::Validation(format!("invalid .gw base64: {error}"))
-                })?;
-            let inputs = crate::service::geneanet::JoinInputs {
-                gw,
-                deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
-                file_name: input.file_name,
-                collection: input.collection,
-                archive_paths: input.archive_paths,
-                fidelity: input.media_fidelity.into(),
-            };
-            Ok(crate::service::geneanet::preview_off_thread(inputs)
-                .await?
-                .into())
+            Ok(
+                crate::service::geneanet::preview_off_thread(join_inputs(input)?)
+                    .await?
+                    .into(),
+            )
         })
         .await
     }
@@ -2121,32 +2095,17 @@ impl TreeQuery {
     /// List the media that the signed-in Geneanet window still has to fetch.
     async fn geneanet_plan(
         &self,
-        ctx: &Context<'_>,
+        _ctx: &Context<'_>,
         input: GeneanetPreviewInput,
     ) -> Result<Vec<GqlGeneanetNeededMedia>> {
         boxed(async move {
-            // Archive paths name files of the server's own disk.
-            if !input.archive_paths.is_empty() {
-                require_local_file_access(ctx)?;
-            }
-            let gw = base64::engine::general_purpose::STANDARD
-                .decode(&input.gw_base64)
-                .map_err(|error| {
-                    OxidGeneError::Validation(format!("invalid .gw base64: {error}"))
-                })?;
-            let inputs = crate::service::geneanet::JoinInputs {
-                gw,
-                deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
-                file_name: input.file_name,
-                collection: input.collection,
-                archive_paths: input.archive_paths,
-                fidelity: input.media_fidelity.into(),
-            };
-            Ok(crate::service::geneanet::plan_off_thread(inputs)
-                .await?
-                .into_iter()
-                .map(Into::into)
-                .collect())
+            Ok(
+                crate::service::geneanet::plan_off_thread(join_inputs(input)?)
+                    .await?
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+            )
         })
         .await
     }

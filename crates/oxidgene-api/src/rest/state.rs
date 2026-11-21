@@ -17,6 +17,11 @@ use crate::workdir::WorkDir;
 pub(crate) struct LocalFileAccess(pub(crate) bool);
 
 impl LocalFileAccess {
+    /// Whether the backend reads paths its client names: the desktop's.
+    pub(crate) fn is_granted(self) -> bool {
+        self.0
+    }
+
     pub(crate) fn require(self) -> Result<(), OxidGeneError> {
         if self.0 {
             Ok(())

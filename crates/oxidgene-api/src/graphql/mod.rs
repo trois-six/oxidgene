@@ -62,7 +62,6 @@ pub mod types;
 
 use crate::media::MediaStore;
 use crate::profile::ProfileService;
-use crate::rest::state::LocalFileAccess;
 use crate::service::archive::ArchivePortals;
 use crate::service::purge::PurgeQueue;
 use async_graphql::{EmptySubscription, Schema, http::GraphiQLSource};
@@ -123,27 +122,29 @@ pub fn build_schema(
     purge: PurgeQueue,
     media: Arc<dyn MediaStore>,
 ) -> OxidGeneSchema {
-    build_schema_with_local_file_access(
+    build_schema_on(
         db.into(),
         profiles,
         purge,
         media,
         WorkDir::temporary(),
         Arc::new(ArchivePortals::native()),
-        LocalFileAccess(false),
     )
 }
 
 /// Queries read through the reader ([`types::reader_from_ctx`]), mutations
 /// write through the writer ([`types::db_from_ctx`]).
-pub(crate) fn build_schema_with_local_file_access(
+///
+/// The schema has no operation exchanging a path of the server's own disk:
+/// those are the desktop's, which serves REST alone (docs/api.md, Surfaces
+/// and parity).
+pub(crate) fn build_schema_on(
     db: Connections,
     profiles: Arc<ProfileService>,
     purge: PurgeQueue,
     media: Arc<dyn MediaStore>,
     work_dir: WorkDir,
     archives: Arc<ArchivePortals>,
-    local_file_access: LocalFileAccess,
 ) -> OxidGeneSchema {
     Schema::build(
         QueryRoot::default(),
@@ -163,7 +164,6 @@ pub(crate) fn build_schema_with_local_file_access(
     .data(media)
     .data(work_dir)
     .data(archives)
-    .data(local_file_access)
     .finish()
 }
 

@@ -1,4 +1,9 @@
 //! Session readers share the same external collection and archive contract.
+//!
+//! Decoding, encoding and releasing a session exchange paths of the
+//! server's own disk: the desktop's backend serves them, over REST alone.
+//! Reading a session and importing one sent with its `.gw` exchange none,
+//! and are served everywhere, on both surfaces.
 
 use crate::common;
 
@@ -12,7 +17,8 @@ use tower::ServiceExt;
 
 use common::setup_db;
 
-async fn session_contract(graphql: bool) {
+#[tokio::test]
+async fn rest_session_contract() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
@@ -29,26 +35,14 @@ async fn session_contract(graphql: bool) {
         (archive, true),
         (inline.to_string().into_bytes(), false),
     ] {
-        let (uri, body, content_type) = if graphql {
-            ("/graphql", json!({
-                "query": "mutation($archive: String!) { decodeGeneanetSession(archiveBase64: $archive) { collection photoCount media { url path } } }",
-                "variables": {"archive": base64::engine::general_purpose::STANDARD.encode(bytes)}
-            }).to_string().into_bytes(), "application/json")
-        } else {
-            (
-                "/api/v1/geneanet/session/decode",
-                bytes,
-                "application/octet-stream",
-            )
-        };
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri(uri)
-                    .header("content-type", content_type)
-                    .body(Body::from(body))
+                    .uri("/api/v1/geneanet/session/decode")
+                    .header("content-type", "application/octet-stream")
+                    .body(Body::from(bytes))
                     .unwrap(),
             )
             .await
@@ -56,36 +50,18 @@ async fn session_contract(graphql: bool) {
         let status = response.status();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let value: Value = serde_json::from_slice(&bytes).unwrap();
-        let result = if graphql {
-            assert!(status.is_success());
-            assert_eq!(value.get("errors").is_none(), accepted, "{value}");
-            &value["data"]["decodeGeneanetSession"]
-        } else {
-            assert_eq!(status.is_success(), accepted, "{value}");
-            &value
-        };
+        assert_eq!(status.is_success(), accepted, "{value}");
         if accepted {
-            assert_eq!(result["media"], if graphql { json!([]) } else { json!({}) });
+            assert_eq!(value["media"], json!({}));
             let restored: Value =
-                serde_json::from_str(result["collection"].as_str().unwrap()).unwrap();
+                serde_json::from_str(value["collection"].as_str().unwrap()).unwrap();
             assert_eq!(restored["deposits"], collection["deposits"]);
         }
     }
 }
 
-#[tokio::test]
-async fn rest_session_contract() {
-    session_contract(false).await;
-}
-
-#[cfg(feature = "graphql")]
-#[tokio::test]
-async fn graphql_session_contract() {
-    session_contract(true).await;
-}
-
 /// A session whose deposit size is past the signed range is refused, never
-/// wrapped negative — on both surfaces.
+/// wrapped negative — decoded on the desktop, or read on either surface.
 #[tokio::test]
 async fn a_session_deposit_size_past_the_signed_range_is_refused() {
     let db = setup_db().await;
@@ -120,7 +96,7 @@ async fn a_session_deposit_size_past_the_signed_range_is_refused() {
     {
         let response = common::gql(
             &app,
-            "mutation($archive: String!) { decodeGeneanetSession(archiveBase64: $archive) { depositSizes { size } } }",
+            "query($archive: String!) { readGeneanetSession(archiveBase64: $archive) { depositSizes { size } } }",
             json!({ "archive": base64::engine::general_purpose::STANDARD.encode(archive) }),
         )
         .await;
@@ -150,18 +126,9 @@ async fn session_archive_can_exceed_the_metadata_body_limit() {
     }
     let bytes = archive.finish().unwrap().into_inner();
     assert!(bytes.len() > 32 * 1024 * 1024);
-    #[cfg(feature = "graphql")]
-    {
-        let body = json!({
-            "query": "mutation($archive: String!) { decodeGeneanetSession(archiveBase64: $archive) { media { path } } }",
-            "variables": {"archive": base64::engine::general_purpose::STANDARD.encode(&bytes)}
-        }).to_string();
-        check_archive(Body::from(body), Some(513 * chunk.len()), true).await;
-    }
     check_archive(
         streamed_body(std::io::Cursor::new(bytes)),
         Some(513 * chunk.len()),
-        false,
     )
     .await;
 }
@@ -179,21 +146,16 @@ fn streamed_body(reader: impl tokio::io::AsyncRead + Unpin + Send + 'static) -> 
     ))
 }
 
-async fn check_archive(body: Body, expected_media_size: Option<usize>, graphql: bool) {
+async fn check_archive(body: Body, expected_media_size: Option<usize>) {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
-    let (uri, content_type) = if graphql {
-        ("/graphql", "application/json")
-    } else {
-        ("/api/v1/geneanet/session/decode", "application/zip")
-    };
     let response = app
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri(uri)
-                .header("content-type", content_type)
+                .uri("/api/v1/geneanet/session/decode")
+                .header("content-type", "application/zip")
                 .body(body)
                 .unwrap(),
         )
@@ -202,22 +164,12 @@ async fn check_archive(body: Body, expected_media_size: Option<usize>, graphql: 
     assert_eq!(response.status(), axum::http::StatusCode::OK);
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let result: Value = serde_json::from_slice(&bytes).unwrap();
-    let paths: Vec<_> = if graphql {
-        assert!(result.get("errors").is_none());
-        result["data"]["decodeGeneanetSession"]["media"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|item| item["path"].as_str().unwrap())
-            .collect()
-    } else {
-        result["media"]
-            .as_object()
-            .unwrap()
-            .values()
-            .map(|path| path.as_str().unwrap())
-            .collect()
-    };
+    let paths: Vec<_> = result["media"]
+        .as_object()
+        .unwrap()
+        .values()
+        .map(|path| path.as_str().unwrap())
+        .collect();
     assert!(!paths.is_empty());
     for path in paths {
         let metadata = std::fs::metadata(path).unwrap();
@@ -236,19 +188,18 @@ async fn supplied_session_archive_loads_without_logging_its_contents() {
     check_archive(
         streamed_body(tokio::fs::File::open(path).await.unwrap()),
         None,
-        false,
     )
     .await;
 }
 
 #[tokio::test]
-async fn standalone_server_rejects_session_upload_before_reading_it() {
+async fn standalone_server_has_no_session_decoding_and_reads_none_of_its_body() {
     let db = connect("sqlite::memory:").await.unwrap();
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()));
     let body = Body::from_stream(futures_util::stream::poll_fn(
         |_| -> std::task::Poll<Option<Result<Vec<u8>, std::io::Error>>> {
-            panic!("a disabled local-file capability must not consume the body");
+            panic!("a route that does not exist must not consume the body");
         },
     ));
     let response = app
@@ -261,7 +212,7 @@ async fn standalone_server_rejects_session_upload_before_reading_it() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
 }
 
 /// POST `body` as JSON to `uri` and return the status with the JSON answer.
@@ -288,7 +239,8 @@ async fn post_json(app: &axum::Router, uri: &str, body: Value) -> (axum::http::S
 
 /// A wizard closed without importing releases the photos its session staged;
 /// a path the backend did not stage is ignored.
-async fn released_session_media_are_deleted(graphql: bool) {
+#[tokio::test]
+async fn rest_releases_staged_session_media() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
@@ -324,46 +276,21 @@ async fn released_session_media_are_deleted(graphql: bool) {
     std::fs::write(&unrelated, b"kept").unwrap();
     let paths = json!([staged, unrelated.to_string_lossy()]);
 
-    if graphql {
-        let (status, value) = post_json(
-            &app,
-            "/graphql",
-            json!({
-                "query": "mutation($paths: [String!]!) { releaseGeneanetSessionMedia(paths: $paths) }",
-                "variables": {"paths": paths},
-            }),
-        )
-        .await;
-        assert!(status.is_success());
-        assert_eq!(
-            value["data"]["releaseGeneanetSessionMedia"], true,
-            "{value}"
-        );
-    } else {
-        let (status, _) = post_json(
-            &app,
-            "/api/v1/geneanet/session/release",
-            json!({ "paths": paths }),
-        )
-        .await;
-        assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
-    }
+    let (status, _) = post_json(
+        &app,
+        "/api/v1/geneanet/session/release",
+        json!({ "paths": paths }),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::NO_CONTENT);
     assert!(!std::path::Path::new(&staged).exists());
     assert!(unrelated.exists());
 }
 
+/// A standalone server has no operation releasing a path, on either
+/// surface.
 #[tokio::test]
-async fn rest_releases_staged_session_media() {
-    released_session_media_are_deleted(false).await;
-}
-
-#[tokio::test]
-async fn graphql_releases_staged_session_media() {
-    released_session_media_are_deleted(true).await;
-}
-
-#[tokio::test]
-async fn standalone_server_refuses_to_release_session_media() {
+async fn standalone_server_has_no_session_media_to_release() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()));
@@ -373,19 +300,24 @@ async fn standalone_server_refuses_to_release_session_media() {
         json!({ "paths": ["/tmp/oxidgene-geneanet-fixture"] }),
     )
     .await;
-    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
-    let (_, value) = post_json(
-        &app,
-        "/graphql",
-        json!({ "query": "mutation { releaseGeneanetSessionMedia(paths: []) }" }),
-    )
-    .await;
-    assert!(value.get("errors").is_some(), "{value}");
+    assert_eq!(status, axum::http::StatusCode::NOT_FOUND);
+    #[cfg(feature = "graphql")]
+    {
+        let (_, value) = post_json(
+            &app,
+            "/graphql",
+            json!({ "query": "mutation { releaseGeneanetSessionMedia(paths: []) }" }),
+        )
+        .await;
+        assert!(value.get("errors").is_some(), "{value}");
+        assert!(value["data"].is_null(), "{value}");
+    }
 }
 
 /// Saving a session streams each medium from its local path, and a path
 /// that cannot be read fails the save instead of leaving the medium out.
-async fn encoded_session_carries_every_medium(graphql: bool) {
+#[tokio::test]
+async fn rest_encoded_session_carries_every_medium() {
     let db = setup_db().await;
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(db, root.path()).with_local_file_access());
@@ -397,48 +329,26 @@ async fn encoded_session_carries_every_medium(graphql: bool) {
 
     for (path, saved) in [(&medium, true), (&missing, false)] {
         let path = path.to_string_lossy().into_owned();
-        let archive = if graphql {
-            let (status, value) = post_json(
-                &app,
-                "/graphql",
-                json!({
-                    "query": "mutation($input: GeneanetSessionEncodeInput!) { encodeGeneanetSession(input: $input) { archiveBase64 } }",
-                    "variables": {"input": {"collection": collection, "media": [{"url": url, "path": path}]}},
-                }),
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/geneanet/session/encode")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"collection": collection, "media": {url: path}}).to_string(),
+                    ))
+                    .unwrap(),
             )
-            .await;
-            assert!(status.is_success());
-            assert_eq!(value.get("errors").is_none(), saved, "{value}");
-            value["data"]["encodeGeneanetSession"]["archiveBase64"]
-                .as_str()
-                .map(|archive| {
-                    base64::engine::general_purpose::STANDARD
-                        .decode(archive)
-                        .unwrap()
-                })
-        } else {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .method("POST")
-                        .uri("/api/v1/geneanet/session/encode")
-                        .header("content-type", "application/json")
-                        .body(Body::from(
-                            json!({"collection": collection, "media": {url: path}}).to_string(),
-                        ))
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status().is_success(), saved);
-            if !saved {
-                assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
-            }
-            let bytes = response.into_body().collect().await.unwrap().to_bytes();
-            saved.then(|| bytes.to_vec())
-        };
-        if let Some(archive) = archive {
+            .await
+            .unwrap();
+        assert_eq!(response.status().is_success(), saved);
+        if !saved {
+            assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+        }
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        if let Some(archive) = saved.then(|| bytes.to_vec()) {
             let session = oxidgene_geneanet::session::decode(&archive).unwrap();
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(&session.media[url])
@@ -446,16 +356,6 @@ async fn encoded_session_carries_every_medium(graphql: bool) {
             assert_eq!(bytes, b"picture");
         }
     }
-}
-
-#[tokio::test]
-async fn rest_encoded_session_carries_every_medium() {
-    encoded_session_carries_every_medium(false).await;
-}
-
-#[tokio::test]
-async fn graphql_encoded_session_carries_every_medium() {
-    encoded_session_carries_every_medium(true).await;
 }
 
 // ── The web build's session import: no path exchanged ─────────────────
@@ -757,69 +657,42 @@ async fn graphql_imports_a_session_without_local_files() {
     a_session_import_runs_without_local_files(true).await;
 }
 
-/// The session file the desktop saves with the data `archive` through REST
-/// or GraphQL, for `collection` whose deposits all measure `size` bytes.
+/// The session file the desktop saves with the data `archive`, for
+/// `collection` whose deposits all measure `size` bytes.
 async fn save_session_with_archive(
     collection: &str,
     size: usize,
     archive: &std::path::Path,
-    graphql: bool,
 ) -> Vec<u8> {
     let root = tempfile::tempdir().unwrap();
     let app = build_router(AppState::new(setup_db().await, root.path()).with_local_file_access());
     let archive = archive.to_string_lossy().into_owned();
-    if graphql {
-        let (status, value) = post_json(
-            &app,
-            "/graphql",
-            json!({
-                "query": "mutation($input: GeneanetSessionEncodeInput!) { encodeGeneanetSession(input: $input) { archiveBase64 } }",
-                "variables": {"input": {
-                    "collection": collection,
-                    "depositSizes": [{"depositId": 1, "size": size}, {"depositId": 2, "size": size}],
-                    "archivePaths": [archive],
-                }},
-            }),
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/geneanet/session/encode")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "collection": collection,
+                        "deposit_sizes": {"1": size, "2": size},
+                        "archive_paths": [archive],
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
         )
-        .await;
-        assert!(
-            status.is_success() && value.get("errors").is_none(),
-            "{value}"
-        );
-        let archive = value["data"]["encodeGeneanetSession"]["archiveBase64"]
-            .as_str()
-            .unwrap();
-        base64::engine::general_purpose::STANDARD
-            .decode(archive)
-            .unwrap()
-    } else {
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/v1/geneanet/session/encode")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        json!({
-                            "collection": collection,
-                            "deposit_sizes": {"1": size, "2": size},
-                            "archive_paths": [archive],
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert!(response.status().is_success());
-        response
-            .into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-            .to_vec()
-    }
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    response
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes()
+        .to_vec()
 }
 
 /// A session saved with the data archives carries the original of each
@@ -855,7 +728,7 @@ async fn a_session_saved_with_archives_brings_their_originals(graphql: bool) {
         "view_references": {}
     })
     .to_string();
-    let saved = save_session_with_archive(&collection, photo.len(), &archive, graphql).await;
+    let saved = save_session_with_archive(&collection, photo.len(), &archive).await;
     let session = oxidgene_geneanet::session::decode(&saved).unwrap();
     let manifest = oxidgene_geneanet::manifest_from_collection(&collection).unwrap();
     let original = &manifest.deposits[0].original;
@@ -906,7 +779,8 @@ async fn graphql_session_saved_with_archives_brings_their_originals() {
 
 /// The preview and the plan read no path unless they name an archive: one
 /// naming none is served without local file access, one naming an archive
-/// is refused there.
+/// is refused there. GraphQL, which no build with local file access
+/// serves, has no archive to name.
 #[tokio::test]
 async fn a_preview_names_a_path_only_with_an_archive() {
     let db = setup_db().await;
@@ -932,11 +806,22 @@ async fn a_preview_names_a_path_only_with_an_archive() {
                     "gwBase64": base64::engine::general_purpose::STANDARD.encode(GENEWEB),
                     "fileName": "family.gw",
                     "collection": json!({"deposits": [], "references": [], "view_references": {}}).to_string(),
+                }}),
+            )
+            .await;
+            assert!(response.get("errors").is_none(), "{response}");
+            let named = common::gql(
+                &app,
+                "query($input: GeneanetPreviewInput!) { geneanetPreview(input: $input) { personCount } }",
+                json!({ "input": {
+                    "gwBase64": base64::engine::general_purpose::STANDARD.encode(GENEWEB),
+                    "fileName": "family.gw",
+                    "collection": "{}",
                     "archivePaths": archive_paths,
                 }}),
             )
             .await;
-            assert_eq!(response.get("errors").is_none(), accepted, "{response}");
+            assert!(named.get("errors").is_some(), "{named}");
         }
     }
 }

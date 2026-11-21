@@ -879,12 +879,6 @@ pub(crate) fn work_dir_from_ctx<'a>(ctx: &'a Context<'_>) -> &'a crate::workdir:
     ctx.data_unchecked::<crate::workdir::WorkDir>()
 }
 
-pub(crate) fn require_local_file_access(ctx: &Context<'_>) -> async_graphql::Result<()> {
-    ctx.data_unchecked::<crate::rest::state::LocalFileAccess>()
-        .require()
-        .map_err(Into::into)
-}
-
 // ── PageInfo ─────────────────────────────────────────────────────────
 
 /// Relay-style pagination info.
@@ -2717,21 +2711,6 @@ pub struct GqlGeneanetInspection {
 }
 
 #[derive(Debug, Clone, SimpleObject)]
-pub struct GqlGeneanetIndexedArchive {
-    pub path: String,
-    pub file_name: String,
-    pub file_count: i64,
-    pub image_count: i64,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlGeneanetArchiveIndex {
-    pub archives: Vec<GqlGeneanetIndexedArchive>,
-    pub file_count: i64,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
 pub struct GqlGeneanetPreview {
     pub person_count: i64,
     pub photo_count: i64,
@@ -2789,21 +2768,6 @@ pub struct GqlGeneanetDepositSize {
     pub size: i64,
 }
 
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlGeneanetMediaPath {
-    pub url: String,
-    pub path: String,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlGeneanetSession {
-    pub collection: String,
-    pub deposit_sizes: Vec<GqlGeneanetDepositSize>,
-    pub account: Option<String>,
-    pub photo_count: i64,
-    pub media: Vec<GqlGeneanetMediaPath>,
-}
-
 /// What a saved session holds, read without keeping its media, as
 /// `POST /geneanet/session/read` answers it.
 #[derive(Debug, Clone, SimpleObject)]
@@ -2814,11 +2778,6 @@ pub struct GqlGeneanetSessionContents {
     pub photo_count: i64,
     /// The addresses of the media the file carries, sorted.
     pub media_urls: Vec<String>,
-}
-
-#[derive(Debug, Clone, SimpleObject)]
-pub struct GqlGeneanetSessionArchive {
-    pub archive_base64: String,
 }
 
 #[derive(Debug, Clone, SimpleObject)]

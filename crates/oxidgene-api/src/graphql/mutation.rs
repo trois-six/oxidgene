@@ -22,23 +22,21 @@ use super::inputs::{
     AddChildInput, AddEventWitnessInput, AddSourceRepositoryInput, AddSpouseInput,
     CreateCitationInput, CreateEventInput, CreateMediaLinkInput, CreateNoteInput,
     CreatePersonInput, CreatePlaceInput, CreateRepositoryInput, CreateSourceInput, CreateTagInput,
-    CreateTreeInput, CreateVignetteInput, GeneanetImportInput, GeneanetSessionEncodeInput,
-    GeneanetSessionImportInput, MergeChoicesInput, MergePlaceInput, MergeRepositoryInput,
-    PersonNameInput, RenameFamilyNameInput, RenameOccupationInput, SetFamilyNameParticleInput,
-    TagTargetInput, UpdateCitationInput, UpdateEventInput, UpdateFamilyInput, UpdateMediaInput,
-    UpdateNoteInput, UpdatePersonInput, UpdatePersonNameInput, UpdatePlaceInput,
-    UpdateRepositoryInput, UpdateSourceInput, UpdateSourceRepositoryInput, UpdateTagInput,
-    UpdateTreeInput, UpdateVignetteInput, UploadMediaFileInput, UploadMediaInput,
-    geneanet_deposit_sizes, geneanet_media_paths, tag_target_spec,
+    CreateTreeInput, CreateVignetteInput, GeneanetSessionImportInput, MergeChoicesInput,
+    MergePlaceInput, MergeRepositoryInput, PersonNameInput, RenameFamilyNameInput,
+    RenameOccupationInput, SetFamilyNameParticleInput, TagTargetInput, UpdateCitationInput,
+    UpdateEventInput, UpdateFamilyInput, UpdateMediaInput, UpdateNoteInput, UpdatePersonInput,
+    UpdatePersonNameInput, UpdatePlaceInput, UpdateRepositoryInput, UpdateSourceInput,
+    UpdateSourceRepositoryInput, UpdateTagInput, UpdateTreeInput, UpdateVignetteInput,
+    UploadMediaFileInput, UploadMediaInput, tag_target_spec,
 };
 use super::scope::{boxed, job_tree, live_tree, opt_uuid, uuid, uuids, viewer_from_ctx};
 use super::types::{
     GqlBackgroundJobStarted, GqlCitation, GqlEvent, GqlEventWitness, GqlFamily, GqlFamilyChild,
-    GqlFamilyNameParticleUpdate, GqlFamilyNameRename, GqlFamilySpouse, GqlGeneanetDepositSize,
-    GqlGeneanetMediaPath, GqlGeneanetSession, GqlGeneanetSessionArchive, GqlMedia, GqlMediaLink,
+    GqlFamilyNameParticleUpdate, GqlFamilyNameRename, GqlFamilySpouse, GqlMedia, GqlMediaLink,
     GqlNote, GqlOccupationRename, GqlPerson, GqlPersonName, GqlPlace, GqlProfileRebuildResult,
     GqlRepository, GqlSource, GqlSourceRepository, GqlTag, GqlTree, GqlVignette, db_from_ctx,
-    media_from_ctx, profiles_from_ctx, purge_from_ctx, reader_from_ctx, require_local_file_access,
+    media_from_ctx, profiles_from_ctx, purge_from_ctx, reader_from_ctx,
 };
 use super::types::{GqlBulkTagAction, GqlBulkTagCount, GqlExportJobStatus, GqlImportJobStatus};
 
@@ -1850,145 +1848,6 @@ impl TreeMutation {
     }
 
     // ── Geneanet import wizard ───────────────────────────────────────
-
-    /// Encode a Geneanet wizard session as a base64 archive.
-    async fn encode_geneanet_session(
-        &self,
-        ctx: &Context<'_>,
-        input: GeneanetSessionEncodeInput,
-    ) -> Result<GqlGeneanetSessionArchive> {
-        boxed(async move {
-            require_local_file_access(ctx)?;
-            let media = input
-                .media
-                .into_iter()
-                .map(|entry| (entry.url, entry.path))
-                .collect();
-            let archive = crate::service::session_media::encode(
-                oxidgene_geneanet::session::Session {
-                    collection: input.collection,
-                    deposit_sizes: geneanet_deposit_sizes(&input.deposit_sizes)?,
-                    account: input.account,
-                    media,
-                },
-                input.archive_paths,
-            )
-            .await?;
-            Ok(GqlGeneanetSessionArchive {
-                archive_base64: base64::engine::general_purpose::STANDARD.encode(archive),
-            })
-        })
-        .await
-    }
-
-    /// Delete the staged media of a decoded session the wizard closed or
-    /// reset without importing, as `POST /geneanet/session/release` does. A
-    /// path the backend did not stage is ignored.
-    async fn release_geneanet_session_media(
-        &self,
-        ctx: &Context<'_>,
-        paths: Vec<String>,
-    ) -> Result<bool> {
-        boxed(async move {
-            require_local_file_access(ctx)?;
-            crate::service::session_media::remove_owned(paths.iter().map(String::as_str));
-            Ok(true)
-        })
-        .await
-    }
-
-    /// Decode a saved Geneanet session. Its media are staged as local files
-    /// for a following desktop import, just as they are through REST.
-    async fn decode_geneanet_session(
-        &self,
-        ctx: &Context<'_>,
-        archive_base64: String,
-    ) -> Result<GqlGeneanetSession> {
-        boxed(async move {
-            require_local_file_access(ctx)?;
-            let permit = crate::service::intake::slot(viewer_from_ctx(ctx)).await?;
-            let work_dir = super::types::work_dir_from_ctx(ctx).clone();
-            let session = crate::service::blocking::spawn(move || {
-                let _permit = permit;
-                let mut reader = base64::read::DecoderReader::new(
-                    archive_base64.as_bytes(),
-                    &base64::engine::general_purpose::STANDARD,
-                );
-                let mut upload = work_dir.anonymous_file()?;
-                std::io::copy(&mut reader, &mut upload)?;
-                std::io::Seek::rewind(&mut upload)?;
-                crate::service::session_media::decode(upload, &work_dir)
-            })
-            .await
-            .map_err(|_| {
-                oxidgene_core::OxidGeneError::Internal("session decoding failed".into())
-            })??;
-            let photo_count = oxidgene_geneanet::manifest_from_collection(&session.collection)
-                .map(|manifest| manifest.view_count as i64)
-                .unwrap_or(0);
-            Ok(GqlGeneanetSession {
-                collection: session.collection,
-                deposit_sizes: session
-                    .deposit_sizes
-                    .into_iter()
-                    .map(|(deposit_id, size)| GqlGeneanetDepositSize {
-                        deposit_id,
-                        // `decode` refuses a size past the signed range.
-                        size: i64::try_from(size).unwrap_or(i64::MAX),
-                    })
-                    .collect(),
-                account: session.account,
-                photo_count,
-                media: session
-                    .media
-                    .into_iter()
-                    .map(|(url, path)| GqlGeneanetMediaPath { url, path })
-                    .collect(),
-            })
-        })
-        .await
-    }
-
-    /// Queue a Geneanet tree import with media collected by the desktop window.
-    async fn import_geneanet(
-        &self,
-        ctx: &Context<'_>,
-        tree_id: ID,
-        input: GeneanetImportInput,
-    ) -> Result<GqlBackgroundJobStarted> {
-        boxed(async move {
-            // The tree first, as REST authorizes before its handler runs.
-            let tree_id = live_tree(ctx, &tree_id).await?;
-            require_local_file_access(ctx)?;
-            let db = db_from_ctx(ctx);
-            let media = media_from_ctx(ctx);
-            let gw = base64::engine::general_purpose::STANDARD
-                .decode(&input.gw_base64)
-                .map_err(|error| {
-                    oxidgene_core::OxidGeneError::Validation(format!("invalid .gw base64: {error}"))
-                })?;
-            let _intake = crate::service::intake::slot(viewer_from_ctx(ctx)).await?;
-            let job_id = crate::service::background_job::stage_geneanet_import(
-                viewer_from_ctx(ctx),
-                db,
-                &**media,
-                super::types::work_dir_from_ctx(ctx),
-                tree_id,
-                &gw,
-                input.file_name,
-                input.collection,
-                geneanet_deposit_sizes(&input.deposit_sizes)?,
-                &input.archive_paths,
-                &geneanet_media_paths(&input.fetched),
-                input.media_fidelity.into(),
-            )
-            .await?;
-            Ok(GqlBackgroundJobStarted {
-                job_id: ID(job_id.to_string()),
-            })
-        })
-        .await
-    }
 
     /// Queue a Geneanet tree import with the media of a saved session sent
     /// with it, as `POST /trees/{treeId}/geneanet/session-import` does: the

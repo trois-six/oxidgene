@@ -79,13 +79,19 @@ fn write_compressed(path: &Path, bytes: &[u8]) {
         .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 struct Operation {
     method: String,
     path: String,
     handler: String,
 }
 
+/// Write the two OpenAPI documents the router serves: `openapi.json.br`,
+/// the operations of a build without local file access — the standalone
+/// server's — and `openapi-local-files.json.br`, those with the operations
+/// exchanging paths of the server's own disk as well — the desktop's. The
+/// router mounts the latter only where its state grants local file access,
+/// and each build describes exactly what it serves.
 fn generate_openapi(manifest_dir: &Path, out_dir: &Path) {
     let router_path = manifest_dir.join("src/router.rs");
     println!("cargo:rerun-if-changed={}", router_path.display());
@@ -103,12 +109,29 @@ fn generate_openapi(manifest_dir: &Path, out_dir: &Path) {
         })
         .unwrap_or_else(|| panic!("build_router not found in {}", router_path.display()));
 
-    let operations = collect_operations(build_router);
-    if operations.is_empty() {
+    let (operations, local) = collect_operations(build_router);
+    if operations.is_empty() || local.is_empty() {
         panic!("no REST operations found in {}", router_path.display());
     }
 
     let types = TypeIndex::load(manifest_dir);
+    let remote: Vec<Operation> = operations
+        .iter()
+        .filter(|operation| !local.contains(operation))
+        .cloned()
+        .collect();
+    write_compressed(
+        &out_dir.join("openapi.json.br"),
+        &openapi_document(remote, &types),
+    );
+    write_compressed(
+        &out_dir.join("openapi-local-files.json.br"),
+        &openapi_document(operations, &types),
+    );
+}
+
+/// The OpenAPI document of `operations`, serialized.
+fn openapi_document(operations: Vec<Operation>, types: &TypeIndex) -> Vec<u8> {
     let mut schemas = Map::new();
     schemas.insert(
         "ErrorEnvelope".to_string(),
@@ -138,7 +161,7 @@ fn generate_openapi(manifest_dir: &Path, out_dir: &Path) {
         }
 
         let inputs = types.handler_inputs(&operation.handler);
-        let mut parameters = path_parameters(&operation.path, inputs.path.as_ref(), &types);
+        let mut parameters = path_parameters(&operation.path, inputs.path.as_ref(), types);
         for query in &inputs.query {
             parameters.extend(types.query_parameters(query, &mut schemas));
         }
@@ -197,11 +220,12 @@ fn generate_openapi(manifest_dir: &Path, out_dir: &Path) {
         "components": { "schemas": schemas }
     });
 
-    let output = serde_json::to_vec_pretty(&document).expect("serialize generated OpenAPI");
-    write_compressed(&out_dir.join("openapi.json.br"), &output);
+    serde_json::to_vec_pretty(&document).expect("serialize generated OpenAPI")
 }
 
-fn collect_operations(block: &Block) -> Vec<Operation> {
+/// The operations of `build_router`: every one it can mount, then those
+/// among them it mounts only with local file access.
+fn collect_operations(block: &Block) -> (Vec<Operation>, Vec<Operation>) {
     let mut routers = HashMap::<String, Vec<Operation>>::new();
 
     for statement in &block.stmts {
@@ -224,9 +248,13 @@ fn collect_operations(block: &Block) -> Vec<Operation> {
         routers.insert(binding.ident.to_string(), operations);
     }
 
-    routers
+    let local = routers
+        .remove("local_file_routes")
+        .expect("build_router must bind its local-file routes to local_file_routes");
+    let all = routers
         .remove("rest_router")
-        .expect("build_router must bind its REST routes to rest_router")
+        .expect("build_router must bind its REST routes to rest_router");
+    (all, local)
 }
 
 /// Whether the `#[cfg(feature = "…")]` attributes of a statement hold for
@@ -311,6 +339,13 @@ fn evaluate_router(expr: &Expr, routers: &HashMap<String, Vec<Operation>>) -> Ve
             .and_then(|name| routers.get(&name.to_string()))
             .cloned()
             .unwrap_or_default(),
+        // A router chosen at run time (`if local { a.merge(b) } else { a }`)
+        // is read as its first branch, the one mounting the most: which of
+        // its operations a build serves is told apart by their bindings.
+        Expr::If(choice) => match choice.then_branch.stmts.last() {
+            Some(Stmt::Expr(expr, None)) => evaluate_router(expr, routers),
+            _ => Vec::new(),
+        },
         _ => Vec::new(),
     }
 }

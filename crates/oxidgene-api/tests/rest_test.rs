@@ -3305,16 +3305,34 @@ async fn a_renditions_geneanet_import_stages_no_archive() {
     let _ = std::fs::remove_dir_all(media_root);
 }
 
+/// A server without local file access has no operation taking a path of
+/// its own disk: the route does not exist. A preview naming one, on a
+/// route every build serves, is refused before the path is read.
 #[tokio::test]
 async fn geneanet_local_paths_are_refused_by_default() {
+    let app = setup_app().await;
     let (status, body) = send(
-        &setup_app().await,
+        &app,
         Method::POST,
         "/api/v1/geneanet/archives",
         Some(serde_json::json!({ "paths": ["/does/not/exist"] })),
     )
     .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "not_found");
 
+    let (status, body) = send(
+        &app,
+        Method::POST,
+        "/api/v1/geneanet/preview",
+        Some(serde_json::json!({
+            "gw_base64": "",
+            "file_name": "family.gw",
+            "collection": "{}",
+            "archive_paths": ["/does/not/exist"],
+        })),
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "validation_error");
     assert_eq!(body["message"], "The request is invalid");
