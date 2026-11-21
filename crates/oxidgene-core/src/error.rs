@@ -33,6 +33,11 @@ pub enum OxidGeneError {
     #[error("Rate limited")]
     RateLimited { retry_after: u64 },
 
+    /// What the request sends is larger than the server takes: a file, an
+    /// archive or what it expands to, over a size limit.
+    #[error("Too large: {0}")]
+    TooLarge(String),
+
     /// Database error.
     #[error("Database error: {0}")]
     Database(String),

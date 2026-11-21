@@ -312,8 +312,8 @@ pub async fn upload_media(
     multipart: Multipart,
 ) -> Result<(StatusCode, Json<Media>), ApiError> {
     // Before the body is read: a waiting upload holds a connection, not the
-    // file. The slot is held until the bytes are stored.
-    let _intake = crate::service::intake::slot().await?;
+    // file. The slot, the viewer's one, is held until the bytes are stored.
+    let _intake = crate::service::intake::slot(&viewer).await?;
     let form = read_upload_form(multipart).await?;
     let Some((file_name, bytes)) = form.file else {
         return Err(ApiError(OxidGeneError::Validation(

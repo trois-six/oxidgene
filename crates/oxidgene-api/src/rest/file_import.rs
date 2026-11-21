@@ -4,7 +4,7 @@ use super::authorize::Viewer;
 use std::path::Path as FilePath;
 
 use axum::Json;
-use axum::body::Body;
+use axum::body::{Body, BodyDataStream, Bytes};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use futures_util::StreamExt;
@@ -47,12 +47,14 @@ pub async fn start(
     body: Body,
 ) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
     TreeRepo::get(&state.db, tree_id).await?;
-    // Before the body is read: a waiting upload holds a connection, not a
-    // spool file. The slot is held until the source is in job storage.
-    let _intake = crate::service::intake::slot().await?;
+    // The slot is taken once the file arrives — a request that sends
+    // nothing waits on its own connection, and a waiting upload holds no
+    // spool file — and held until the source is in job storage.
+    let (first, rest) = crate::service::intake::first_chunk(body).await?;
+    let _intake = crate::service::intake::slot(&viewer).await?;
 
     let upload = TemporaryUpload::new(&state.work_dir).map_err(OxidGeneError::Io)?;
-    stream_to_file(body, upload.reopen().map_err(OxidGeneError::Io)?).await?;
+    stream_to_file(first, rest, upload.reopen().map_err(OxidGeneError::Io)?).await?;
     let job_id = background_job::stage_import(
         &viewer,
         &state.db,
@@ -100,26 +102,30 @@ pub async fn cancel(
     ))
 }
 
-async fn stream_to_file(body: Body, file: std::fs::File) -> Result<(), OxidGeneError> {
+/// Write an upload — its `first` bytes and the `rest` of its body — to
+/// `file`.
+async fn stream_to_file(
+    first: Bytes,
+    mut rest: BodyDataStream,
+    file: std::fs::File,
+) -> Result<(), OxidGeneError> {
     let mut file = tokio::fs::File::from_std(file);
     let mut received = 0usize;
-    let mut stream = body.into_data_stream();
-    while let Some(chunk) = stream.next().await {
+    let mut next = Some(Ok(first));
+    while let Some(chunk) = next {
         let chunk = chunk.map_err(|error| {
             OxidGeneError::Validation(format!("upload could not be read: {error}"))
         })?;
         received = received
             .checked_add(chunk.len())
-            .ok_or_else(|| OxidGeneError::Validation("uploaded file is too large".into()))?;
-        if received > FILE_IMPORT_BODY_LIMIT {
-            return Err(OxidGeneError::Validation(format!(
-                "uploaded file exceeds the {FILE_IMPORT_BODY_LIMIT}-byte limit"
-            )));
-        }
+            .filter(|received| *received <= FILE_IMPORT_BODY_LIMIT)
+            .ok_or_else(|| {
+                OxidGeneError::TooLarge(format!(
+                    "uploaded file exceeds the {FILE_IMPORT_BODY_LIMIT}-byte limit"
+                ))
+            })?;
         file.write_all(&chunk).await?;
-    }
-    if received == 0 {
-        return Err(OxidGeneError::Validation("uploaded file is empty".into()));
+        next = rest.next().await;
     }
     file.flush().await?;
     Ok(())

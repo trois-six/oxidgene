@@ -2048,7 +2048,7 @@ impl TreeQuery {
         archive_base64: String,
     ) -> Result<GqlGeneanetSessionContents> {
         boxed(async move {
-            let permit = crate::service::intake::slot().await?;
+            let permit = crate::service::intake::slot(viewer_from_ctx(ctx)).await?;
             let work_dir = super::types::work_dir_from_ctx(ctx).clone();
             let session = crate::service::blocking::spawn(move || {
                 let _permit = permit;

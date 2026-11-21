@@ -13,7 +13,7 @@
 
 use super::authorize::Viewer;
 use axum::Json;
-use axum::body::{Body, Bytes};
+use axum::body::{Body, BodyDataStream, Bytes};
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -35,6 +35,13 @@ use crate::service::geneanet;
 
 /// Default `origin_file` when the client sends no `?filename=`.
 const DEFAULT_ORIGIN_FILE: &str = "import.gw";
+
+/// The largest saved session taken in, in bytes (10 GiB): a session holds
+/// the media of one Geneanet account, which Geneanet bounds at 10 GB
+/// (docs/geneanet-upload-api.md). Its media are stored uncompressed and
+/// counted against the archive's size as they are read, so this bounds what
+/// a session spools and what it expands to.
+const SESSION_ARCHIVE_LIMIT: u64 = 10 * 1024 * 1024 * 1024;
 
 /// POST /api/v1/geneweb/inspect
 ///
@@ -172,11 +179,13 @@ pub async fn encode_session_handler(
 /// the file itself.
 pub async fn decode_session_handler(
     State(state): State<AppState>,
+    viewer: Viewer,
     body: Body,
 ) -> Result<Json<DecodeSessionResponse>, ApiError> {
     state.local_file_access.require()?;
-    let permit = crate::service::intake::slot().await?;
-    let upload = spool(&state, body).await?;
+    let (first, rest) = crate::service::intake::first_chunk(body).await?;
+    let permit = crate::service::intake::slot(&viewer).await?;
+    let upload = spool(&state, first, rest).await?;
     let work_dir = state.work_dir.clone();
     let restored = crate::service::blocking::spawn(move || {
         let _permit = permit;
@@ -254,7 +263,7 @@ pub async fn import_handler(
 ) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
     state.local_file_access.require()?;
     let gw = decode_gw(&body.gw_base64)?;
-    let _intake = crate::service::intake::slot().await?;
+    let _intake = crate::service::intake::slot(&viewer).await?;
     let job_id = crate::service::background_job::stage_geneanet_import(
         &viewer,
         &state.db,
@@ -284,10 +293,14 @@ pub async fn import_handler(
 /// body is the file itself.
 pub async fn read_session_handler(
     State(state): State<AppState>,
+    viewer: Viewer,
     body: Body,
 ) -> Result<Json<ReadSessionResponse>, ApiError> {
-    let permit = crate::service::intake::slot().await?;
-    let upload = spool(&state, body).await?;
+    // The slot is taken once the file arrives, never by a request that
+    // sends nothing, and it is the viewer's one slot.
+    let (first, rest) = crate::service::intake::first_chunk(body).await?;
+    let permit = crate::service::intake::slot(&viewer).await?;
+    let upload = spool(&state, first, rest).await?;
     let session = crate::service::blocking::spawn(move || {
         let _permit = permit;
         crate::service::session_media::read(upload)
@@ -323,10 +336,9 @@ pub async fn session_import_handler(
     Path(tree_id): Path<Uuid>,
     multipart: Multipart,
 ) -> Result<(StatusCode, Json<FileImportStartedResponse>), ApiError> {
-    // Before the body is read: a waiting upload holds a connection, not a
-    // spool file. The slot is held until the media are in job storage.
-    let _intake = crate::service::intake::slot().await?;
-    let import = read_session_import_form(&state, multipart).await?;
+    // The slot is taken with the first part, once the upload has started,
+    // and held until the media are in job storage.
+    let (import, _intake) = read_session_import_form(&state, &viewer, multipart).await?;
     let job_id = crate::service::background_job::stage_geneanet_session_import(
         &viewer,
         &state.db,
@@ -347,49 +359,33 @@ pub async fn session_import_handler(
 /// carries it base64-encoded beside the rest.
 const GW_PART_LIMIT: usize = 32 * 1024 * 1024;
 
-/// The parts of a session import, its session spooled to a private file.
+/// The parts of a session import, its session spooled to a private file
+/// of at most [`SESSION_ARCHIVE_LIMIT`] bytes, with the intake slot taken
+/// when the first part arrived.
 async fn read_session_import_form(
     state: &AppState,
+    viewer: &Viewer,
     mut multipart: Multipart,
-) -> Result<crate::service::background_job::GeneanetSessionImport, ApiError> {
-    let malformed = |error: axum::extract::multipart::MultipartError| {
-        ApiError::from(OxidGeneError::Validation(format!(
-            "malformed upload: {error}"
-        )))
-    };
+) -> Result<
+    (
+        crate::service::background_job::GeneanetSessionImport,
+        crate::service::intake::Slot,
+    ),
+    ApiError,
+> {
     let mut gw = None;
     let mut session = None;
     let mut media_fidelity = geneanet::MediaFidelity::default();
-    while let Some(mut field) = multipart.next_field().await.map_err(malformed)? {
+    let mut intake = None;
+    while let Some(field) = multipart.next_field().await.map_err(malformed_part)? {
+        if intake.is_none() {
+            intake = Some(crate::service::intake::slot(viewer).await?);
+        }
         match field.name().unwrap_or_default() {
-            "gw" => {
-                let file_name = field
-                    .file_name()
-                    .map_or_else(|| DEFAULT_ORIGIN_FILE.to_string(), str::to_string);
-                let mut bytes = Vec::new();
-                while let Some(chunk) = field.chunk().await.map_err(malformed)? {
-                    if bytes.len() + chunk.len() > GW_PART_LIMIT {
-                        return Err(OxidGeneError::Validation(format!(
-                            "the .gw exceeds the {GW_PART_LIMIT}-byte limit"
-                        ))
-                        .into());
-                    }
-                    bytes.extend_from_slice(&chunk);
-                }
-                gw = Some((file_name, bytes));
-            }
-            "session" => {
-                let mut file = tokio::fs::File::from_std(
-                    state.work_dir.anonymous_file().map_err(OxidGeneError::Io)?,
-                );
-                while let Some(chunk) = field.chunk().await.map_err(malformed)? {
-                    file.write_all(&chunk).await.map_err(OxidGeneError::Io)?;
-                }
-                file.rewind().await.map_err(OxidGeneError::Io)?;
-                session = Some(file.into_std().await);
-            }
+            "gw" => gw = Some(read_gw_part(field).await?),
+            "session" => session = Some(spool_session_part(state, field).await?),
             "media_fidelity" => {
-                let text = field.text().await.map_err(malformed)?;
+                let text = field.text().await.map_err(malformed_part)?;
                 media_fidelity =
                     serde_json::from_value(serde_json::Value::String(text)).map_err(|_| {
                         OxidGeneError::Validation(
@@ -405,31 +401,102 @@ async fn read_session_import_form(
             }
         }
     }
-    let (Some((file_name, gw)), Some(session)) = (gw, session) else {
+    let (Some((file_name, gw)), Some(session), Some(intake)) = (gw, session, intake) else {
         return Err(OxidGeneError::Validation(
             "a session import needs a `gw` part and a `session` part".into(),
         )
         .into());
     };
-    Ok(crate::service::background_job::GeneanetSessionImport {
-        gw,
-        file_name,
-        session,
-        media_fidelity,
-    })
+    Ok((
+        crate::service::background_job::GeneanetSessionImport {
+            gw,
+            file_name,
+            session,
+            media_fidelity,
+        },
+        intake,
+    ))
 }
 
-/// `body`, streamed to a private file of the working directory, rewound.
-async fn spool(state: &AppState, body: Body) -> Result<std::fs::File, ApiError> {
+/// What an upload's part could not be read for.
+fn malformed_part(error: axum::extract::multipart::MultipartError) -> ApiError {
+    ApiError::from(OxidGeneError::Validation(format!(
+        "malformed upload: {error}"
+    )))
+}
+
+/// The `gw` part of a session import: its file name and its bytes, at most
+/// [`GW_PART_LIMIT`] of them.
+async fn read_gw_part(
+    mut field: axum::extract::multipart::Field<'_>,
+) -> Result<(String, Vec<u8>), ApiError> {
+    let file_name = field
+        .file_name()
+        .map_or_else(|| DEFAULT_ORIGIN_FILE.to_string(), str::to_string);
+    let mut bytes = Vec::new();
+    while let Some(chunk) = field.chunk().await.map_err(malformed_part)? {
+        if bytes.len() + chunk.len() > GW_PART_LIMIT {
+            return Err(OxidGeneError::TooLarge(format!(
+                "the .gw exceeds the {GW_PART_LIMIT}-byte limit"
+            ))
+            .into());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok((file_name, bytes))
+}
+
+/// The `session` part of a session import, spooled to a private file of
+/// the working directory, rewound: at most [`SESSION_ARCHIVE_LIMIT`] bytes
+/// of it.
+async fn spool_session_part(
+    state: &AppState,
+    mut field: axum::extract::multipart::Field<'_>,
+) -> Result<std::fs::File, ApiError> {
+    let mut file =
+        tokio::fs::File::from_std(state.work_dir.anonymous_file().map_err(OxidGeneError::Io)?);
+    let mut received = 0u64;
+    while let Some(chunk) = field.chunk().await.map_err(malformed_part)? {
+        received = within_session_limit(received, chunk.len())?;
+        file.write_all(&chunk).await.map_err(OxidGeneError::Io)?;
+    }
+    file.rewind().await.map_err(OxidGeneError::Io)?;
+    Ok(file.into_std().await)
+}
+
+/// `received` bytes of a saved session and `more`, when they stay within
+/// [`SESSION_ARCHIVE_LIMIT`].
+fn within_session_limit(received: u64, more: usize) -> Result<u64, OxidGeneError> {
+    received
+        .checked_add(more as u64)
+        .filter(|total| *total <= SESSION_ARCHIVE_LIMIT)
+        .ok_or_else(|| {
+            OxidGeneError::TooLarge(format!(
+                "the saved session exceeds the {SESSION_ARCHIVE_LIMIT}-byte limit"
+            ))
+        })
+}
+
+/// An uploaded session — its `first` bytes and the `rest` of its body —
+/// streamed to a private file of the working directory, rewound: at most
+/// [`SESSION_ARCHIVE_LIMIT`] bytes of it.
+async fn spool(
+    state: &AppState,
+    first: Bytes,
+    mut rest: BodyDataStream,
+) -> Result<std::fs::File, ApiError> {
     use futures_util::StreamExt as _;
 
     let mut upload =
         tokio::fs::File::from_std(state.work_dir.anonymous_file().map_err(OxidGeneError::Io)?);
-    let mut chunks = body.into_data_stream();
-    while let Some(chunk) = chunks.next().await {
+    let mut received = 0u64;
+    let mut next = Some(Ok(first));
+    while let Some(chunk) = next {
         let chunk = chunk
             .map_err(|_| OxidGeneError::Validation("session upload was interrupted".into()))?;
+        received = within_session_limit(received, chunk.len())?;
         upload.write_all(&chunk).await.map_err(OxidGeneError::Io)?;
+        next = rest.next().await;
     }
     upload.rewind().await.map_err(OxidGeneError::Io)?;
     Ok(upload.into_std().await)
@@ -471,4 +538,33 @@ fn decode_gw(encoded: &str) -> Result<Vec<u8>, ApiError> {
                 "the .gw payload is not valid base64: {e}"
             )))
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A saved session is spooled up to its limit and refused past it, as
+    /// too large rather than as invalid.
+    #[test]
+    fn a_session_is_spooled_within_its_limit() {
+        assert_eq!(within_session_limit(0, 4096).ok(), Some(4096));
+        assert_eq!(
+            within_session_limit(SESSION_ARCHIVE_LIMIT - 1, 1).ok(),
+            Some(SESSION_ARCHIVE_LIMIT)
+        );
+        for (received, more) in [(SESSION_ARCHIVE_LIMIT, 1), (u64::MAX, 1)] {
+            assert!(matches!(
+                within_session_limit(received, more),
+                Err(OxidGeneError::TooLarge(_))
+            ));
+        }
+    }
+
+    /// An upload past its limit answers `413 payload_too_large`.
+    #[test]
+    fn an_upload_past_its_limit_is_too_large() {
+        let refused = ApiError(OxidGeneError::TooLarge("over the limit".into())).into_response();
+        assert_eq!(refused.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
 }

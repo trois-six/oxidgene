@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-21T14:05:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:10:00Z }
 ---
 
 # Authorization and Sharing
@@ -132,10 +132,11 @@ regardless.
 
 Operations that need no tree data — the date converter, the reference
 bundles, the export destinations, the API description — need no permission,
-and are open to an anonymous request. The Geneanet wizard's first steps,
-which read what the user sends before a tree is chosen, and the tree list
-need a signed-in user. Creating a tree needs the instance's
-`can_create_trees`; its creator becomes its owner.
+and are open to an anonymous request. The tree list needs a signed-in
+user. Creating a tree needs the instance's `can_create_trees`; its creator
+becomes its owner. So do the Geneanet wizard's first steps, which parse,
+spool and inflate what the user sends before a tree is chosen: they are
+the work of starting a tree, and take the right to.
 
 Every route and GraphQL root field declares its requirement — open, signed
 in, tree creation, administrator, or a permission on the tree it names — in

@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-03T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T11:00:00Z }
 ---
 
 
@@ -214,8 +214,11 @@ limit, a route that does not exist — receives the same envelope:
 `400 validation_error`, `415 unsupported_media_type`, `413 payload_too_large`
 or `404 not_found`. The standalone server also answers `503 timeout` when a
 request outlives its time limit (five minutes, an hour for an upload); file
-uploads on both surfaces wait for one of two intake slots first
+uploads on both surfaces wait for one of four intake slots first, and a
+signed-in user's for their previous one
 ([Cross-cutting Rules §7.1](cross-cutting.md#71-backend-exposure-before-authentication)).
+A file, an archive or what it expands to past its size limit answers
+`413 payload_too_large` (GraphQL `PAYLOAD_TOO_LARGE`).
 
 Mutations refresh affected projections in the same database transaction as the
 normalized write. A successful response guarantees read-after-write
@@ -1689,12 +1692,17 @@ answering.
 | `POST` | `/geneanet/archives` | **Archives step.** JSON `{ "paths": [...] }`. Index each data archive's ZIP central directory **in place** — nothing is extracted and no bytes are uploaded. Returns per-archive `file_count`/`image_count`, and a per-archive `error` for one that could not be read, so the others still stand. Desktop only: it takes filesystem paths, which is sound because there the server is in-process |
 | `POST` | `/geneanet/session/encode` | Turn a collected session into the file the wizard saves. Returns **`application/zip`** — `session.json` plus the gathered media as files. Saved during step 3 it carries the collection and deposit sizes; saved after step 4 it carries the media too, and importing it then needs no Geneanet connection at all. `media` maps each URL to the path of its local file, streamed into the archive; a path that cannot be read fails the save with `400` rather than leaving the medium out. `archive_paths` (default empty) names step 2's data archives: each single-page deposit whose byte length names one of their entries, and whose original `media` does not hold, gets that entry written under its original's URL, so a build given no archive imports the original from the file |
 | `POST` | `/geneanet/session/decode` | Read a ZIP session or raw browser JSON collection, detected by content. Media references must resolve to archive entries; inline base64 media and missing entries are rejected, and so is a deposit size past 2^63 − 1. Refuses anything that is not a collection |
-| `POST` | `/geneanet/session/read` | Read a session as `decode` does — the same formats and refusals — keeping nothing: its media are checked and passed over. Answers `{ collection, deposit_sizes, account, photo_count, media_urls }`, `media_urls` the sorted addresses of the media the file carries. Served without local file access: the web build's step 3, which sends the same file again with its import. No body size limit, as for `decode` |
+| `POST` | `/geneanet/session/read` | Read a session as `decode` does — the same formats and refusals — keeping nothing: its media are checked and passed over. Answers `{ collection, deposit_sizes, account, photo_count, media_urls }`, `media_urls` the sorted addresses of the media the file carries. Served without local file access: the web build's step 3, which sends the same file again with its import. At most 10 GiB, as for `decode` (`413 payload_too_large`) |
 | `POST` | `/geneanet/session/release` | JSON `{ "paths": [...] }`. Delete the media a decoded session staged that the wizard no longer needs — closed, or reset without importing. A path the backend did not stage is ignored. Returns `204` |
 | `POST` | `/geneanet/preview` | **Preview.** Join the collected mapping onto the `.gw` and report what an import *would* do. No writes, no network. Sets `mismatch` when under 10 % of keyed references find a person, which the wizard blocks on. Needs local file access only when `archive_paths` names one |
 | `POST` | `/geneanet/plan` | **Preview**, and the saved-connection step's coverage. List the media the server cannot produce on its own, for the login window to fetch. Same body as the preview. Under `media_fidelity: "renditions"` that is one `normal` rendition per page of every attached deposit; under `"originals"` it is each single-page deposit's download that no archive length accounts for, plus a rendition per document page to recognise it by |
-| `POST` | `/trees/{tree_id}/geneanet/session-import` | **Import, web build.** `multipart/form-data`: a `gw` part, the GeneWeb file, whose file name is the import's origin (at most 32 MiB); a `session` part, a saved session as `/geneanet/session/read` takes it; and an optional `media_fidelity` part, `renditions` (the default) or `originals`. Any other part, or a missing one, is a `400`. The session's media are extracted and copied into job storage with the `.gw`, then the job is queued as `/geneanet/import` queues it, with no archive; what the session lacks is skipped. Returns `202 { "job_id": UUID }`. Requires the tree's import permission; no body size limit, as for `decode`. GraphQL: `importGeneanetSession(treeId, input: { gwBase64, fileName, sessionBase64, mediaFidelity })` |
+| `POST` | `/trees/{tree_id}/geneanet/session-import` | **Import, web build.** `multipart/form-data`: a `gw` part, the GeneWeb file, whose file name is the import's origin (at most 32 MiB); a `session` part, a saved session as `/geneanet/session/read` takes it; and an optional `media_fidelity` part, `renditions` (the default) or `originals`. Any other part, or a missing one, is a `400`. The session's media are extracted and copied into job storage with the `.gw`, then the job is queued as `/geneanet/import` queues it, with no archive; what the session lacks is skipped. Returns `202 { "job_id": UUID }`. Requires the tree's import permission; a session of at most 10 GiB, as for `decode`. GraphQL: `importGeneanetSession(treeId, input: { gwBase64, fileName, sessionBase64, mediaFidelity })` |
 | `POST` | `/trees/{tree_id}/geneanet/import` | **Import.** Copy every local input to durable job storage and queue the tree-and-media import. `fetched` maps source URLs to temporary filesystem paths; it never carries media bytes. Returns `202 { "job_id": UUID }` only after staging and job creation succeed. The UI then polls the common import-job status; its completed `geneanet_result` is the full Geneanet receipt: the import receipt's counts (`persons_count`, `families_count`, `events_count`, `sources_count`, `places_count`, `notes_count`, `images_count`, `documents_count`, `document_pages_count`, see `GET /import-jobs/{job_id}`), then the `links_count`, `portraits_count`, `isolated_count` and `vignettes_count` written, `isolated_people` (`[{ person_id, surname, given_names }]`, the persons created for identifications outside the tree, in creation order), and the `skipped` photos and `warnings`, one line each |
+
+These steps parse, spool and inflate what the user sends before any tree
+is chosen, so the tree-less ones (`/geneweb/inspect`, `/geneanet/*`) take
+the instance's tree creation right, the right of whoever may start a tree
+from them; the imports take the tree's import permission.
 
 The preview and import bodies carry the `.gw` **base64-encoded** (`gw_base64`)
 because they bundle it with other fields and JSON cannot hold raw bytes — the
@@ -1710,13 +1718,20 @@ the uploaded files, resolving them from the archives where a length or a
 content match lands and downloading the rest. Staged jobs require an explicit
 fidelity value.
 Media bytes are never included in these request bodies.
-Metadata-only wizard requests have a **32 MiB body limit**. Session decoding
-is excluded: saved sessions contain media, and have no fixed total-size cap.
+Metadata-only wizard requests have a **32 MiB body limit**. Session decoding,
+reading and importing are excluded: saved sessions contain media, and are
+taken up to **10 GiB** — a session holds the media of one Geneanet account,
+which Geneanet bounds at 10 GB — past which the upload answers
+`413 payload_too_large`. Its media are stored uncompressed and counted
+against the archive's size as they are read, so the same bound holds for
+what a session expands to.
 The desktop streams the file to REST; the backend spools the upload to a private
 temporary file and extracts media sequentially to private staging files, without
 buffering the album or converting its media to base64. A session load takes one
-of the two file-intake slots every upload shares, so at most two loads, uploads
-or stagings run at once. Failed extraction discards its staged files.
+of the four file-intake slots every upload shares — once its first bytes
+arrive, and one per signed-in user — so at most four loads, uploads or
+stagings run at once, one of them a given user's. Failed extraction discards
+its staged files.
 Temporary storage must accommodate the upload and extracted media.
 Staged media are the account's own photos, so they do not outlive their use:
 queuing the import deletes them once copied to job storage, the wizard

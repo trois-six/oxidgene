@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T19:05:00Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -651,10 +651,17 @@ reads alike ([Authentication](authentication.md),
   nothing for a minute is cut off; past its limit a request answers
   `503 timeout`, while a response already streaming is never cut. Every file
   intake — an import job's upload, a media upload on either surface, a
-  Geneanet session decode or import staging — takes one of two process-wide
-  slots before reading its body and keeps it until the bytes are stored;
-  further intakes wait. The desktop's embedded server has the slots but no
-  time limits;
+  Geneanet session read, decode or import staging — takes one of four
+  process-wide slots and keeps it until the bytes are stored; further
+  intakes wait. A signed-in user holds one slot at a time, their next
+  intake waiting for their previous one, so that no account keeps every
+  slot, and with them everybody else's uploads, to itself; visitors without
+  an account share one. A file streamed as the request's body takes its
+  slot once its first bytes arrive: a request that sends nothing waits on
+  its own connection. Every file spooled to disk is bounded: an import
+  source, and a saved Geneanet session at 10 GiB. The desktop's embedded
+  server has the slots, which its one user is alone to take, but no time
+  limits;
 - both servers answer only under a host name they are known by: loopback
   names, plus the CORS origin's host and `OXIDGENE_ALLOWED_HOSTS` on the
   standalone server. Any other `Host` answers `403 forbidden`. A page that

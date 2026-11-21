@@ -39,6 +39,11 @@ pub(crate) fn classify(error: &OxidGeneError) -> ErrorContract {
             message: "Too many requests; try again later",
             unexpected: false,
         },
+        OxidGeneError::TooLarge(_) => ErrorContract {
+            code: "payload_too_large",
+            message: "The request exceeds the size limit",
+            unexpected: false,
+        },
         OxidGeneError::Database(_) => ErrorContract {
             code: "database_error",
             message: "The request could not be completed",
@@ -95,6 +100,7 @@ pub(crate) fn error_kind(error: &OxidGeneError) -> &'static str {
         OxidGeneError::Unauthenticated => "unauthenticated",
         OxidGeneError::Forbidden => "forbidden",
         OxidGeneError::RateLimited { .. } => "rate_limited",
+        OxidGeneError::TooLarge(_) => "too_large",
         OxidGeneError::Gedcom(_) => "gedcom",
         OxidGeneError::Database(message) => database_kind(message),
         OxidGeneError::Io(error) => io_kind(error.kind()),

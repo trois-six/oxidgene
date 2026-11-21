@@ -3,7 +3,7 @@ type: "Integration Specification"
 title: "Geneanet Media Import — recovering the person↔photo links"
 description: "Recovering the person↔photo links a Geneanet export drops, through the media API, the GeneWeb join key, and size matching."
 tags: [oxidgene, specification, geneanet, media, import]
-generated: { by: human:maintainer, at: 2026-11-03T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T11:00:00Z }
 ---
 
 # Geneanet Media Import — recovering the person↔photo links
@@ -734,15 +734,17 @@ binary files, without base64 expansion.
 Media entries use the ZIP `Stored` method because JPEG, PNG, PDF, and similar
 formats are already compressed. The reader rejects compressed media entries
 and bounds their total decoded bytes by the archive's own byte length, which
-prevents decompression amplification without imposing an absolute session-size
-limit. The deflated JSON manifest is read through a separate bounded path.
+prevents decompression amplification: a session is taken up to 10 GiB, the
+bound Geneanet puts on an account's media, and expands to no more. The
+deflated JSON manifest is read through a separate bounded path.
 
 Loading a session in the desktop streams its bytes to a private backend
 file in the working directory's `staging/`. Media are extracted sequentially
-to staging files there, not held as an in-memory base64 album. There is no
-fixed total session-size limit; the working directory's disk must cover both
-the archive and extracted media. At most two
-session uploads/extractions run concurrently. The collection and entry metadata
+to staging files there, not held as an in-memory base64 album. A session
+of more than 10 GiB is refused (`413 payload_too_large`); the working
+directory's disk must cover both the archive and extracted media. At most
+four session uploads/extractions run concurrently, one per signed-in user.
+The collection and entry metadata
 remain in memory; media memory does not grow with album size. Invalid archives
 discard all files staged by that attempt.
 
