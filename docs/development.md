@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T10:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T11:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -29,8 +29,8 @@ generated: { by: human:maintainer, at: 2026-11-21T10:00:00Z }
 - `cargo-watch` for backend hot reload; optional unless using `just dev-web-watch`.
 - `cargo-xwin` for cross-compiling the desktop application to Windows X64.
 - `cargo-deny`, `cargo-machete` and `cargo-audit` for `just deps`;
-   `cargo-udeps`, `scc` and `actionlint` for the scheduled reports and the
-   workflow checks (§2.8).
+   `cargo-udeps`, `cargo-fuzz`, `scc` and `actionlint` for the scheduled
+   checks and reports and the workflow checks (§2.8).
 - [uv](https://docs.astral.sh/uv/) for the cyclomatic complexity check.
 - [Node.js](https://nodejs.org/) 24 for the browser JavaScript tests and the
    end-to-end suite, which installs Playwright and its Chromium on first run.
@@ -90,8 +90,11 @@ the repository root.
 | `just crop-bench` | Time a pedigree view's portraits on a generated tree of camera-sized photographs, cut (cold) and read back from their stored crops (warm), in release mode, and report the crops' sizes ([Architecture §4.2](architecture.md#42-stored-crops)). |
 | `just bench` | Run the opt-in benchmarks of the profile service, the person search, the person visibility, the access scopes and the kept redactions, in release mode. |
 | `just test-postgres` | Migrate the disposable PostgreSQL database named by `OXIDGENE_TEST_DATABASE_URL` up and down, then run the repository and API functional tests on it (§2.7), and follow jobs on it across processes: a cancellation through the database, progress through notifications, a job queued by another process waking an idle worker, and a notification written by another process waking a long poll. |
-| `just test-s3` | Round-trip media and crops through the Compose stack's RustFS service, then run the stored crops' lifecycle on it: stored and read back, deleted when a rectangle moves, swept (§3). |
+| `just test-s3` | Start the Compose stack's RustFS service with its bucket, round-trip media and crops through it, then run the stored crops' lifecycle on it: stored and read back, deleted when a rectangle moves, swept (§3). |
 | `just test-redis` | Keep, index, expire and end sessions in the Redis server `OXIDGENE_TEST_REDIS_URL` names, such as the Compose stack's ([Authentication §4.5](authentication.md#45-session-store)). |
+| `just test-desktop-api` | Run the tests of `oxidgene-api` with the features the desktop gives it, `mcp` and the telemetry context: `just test` builds the workspace, which unifies the server's features into the API, so only this recipe runs the API the desktop links (§2.7). |
+| `just fuzz [SECONDS]` | Fuzz the Geneanet session decoder on synthetic inputs for SECONDS, 60 by default, on the nightly toolchain (§5.7). |
+| `just scale-large` | Placeholder for the scale tests on generated trees of 100,000 and 1,000,000 persons, which are being written: it only says so. |
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
 | `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |
 | `just archives-live [archive…]` | Check every catalogued archive with an adapter, or those named (`fr-ad44`), against its real portal, archives sharing a portal address paused apart: the live end-to-end checks (§2.7, [Archive Portals §9.1](archives.md#91-live-checks)). |
@@ -152,9 +155,9 @@ Algorithmic complexity is tested at three levels.
   rebuild and the dictionaries on a tree and one eight times larger, in
   release mode, and fails when one grows more than three times as fast as a
   reference linear pass over the same projections — the reference absorbs
-  the cache effects a larger tree has on linear work too. The nightly
-  Scaling job runs it (§2.8), as timing on a shared runner is too noisy to
-  gate a merge; locally it is opt-in, as timing wants an optimised build and
+  the cache effects a larger tree has on linear work too. The weekly
+  Scaling and import memory job runs it (§2.8), as timing on a shared runner
+  is too noisy to gate a merge; locally it is opt-in, as timing wants an optimised build and
   a quiet machine.
 
 ### 2.2 Backend and Database
@@ -362,10 +365,14 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 | Unit | The `#[cfg(test)]` modules of every library and binary, then the documentation examples, which nextest does not run | `just test-unit` | Unit tests | Yes |
 | Functional | The integration test targets under `crates/*/tests` and `apps/*/tests`: REST and GraphQL scenarios against an in-memory SQLite database (on PostgreSQL under `just test-postgres`), repositories, migrations, GEDCOM, MCP, and the SQL statement counts of `query_scaling_test.rs` | `just test-functional` | Functional tests | Yes |
 | Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
-| Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Nightly: Scaling | No |
-| Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Nightly: Import memory | No |
+| Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Weekly: Scaling and import memory | No |
+| Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Weekly: Scaling and import memory | No |
 | Crop timing | The `#[ignore]`d benchmark of `portrait_crop_test.rs`: a pedigree view's portraits cut and then read back stored, in release mode | `just crop-bench` | None | No |
-| End-to-end | The Playwright suite of `e2e/`, driving every page and major dialog of the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E; Release: End-to-end tests of the images (§6) | No |
+| End-to-end | The Playwright suite of `e2e/`, driving every page and major dialog of the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E (chromium); Release: End-to-end tests of the images (§6) | No |
+| End-to-end, other engines | The same suite in the other projects of `e2e/playwright.config.ts`, WebKit first: the engine of the desktop's window on Linux and macOS, and of Safari | `E2E_BROWSERS=webkit just e2e --project=webkit` | Weekly: E2E (webkit) | No |
+| Service suites | The `#[ignore]`d and PostgreSQL-backed tests that need a service: the migrations and the functional tests on PostgreSQL, sessions on Redis, media and crops on RustFS | `just test-postgres`, `just test-redis`, `just test-s3` | Weekly: PostgreSQL suite, Redis suite, S3 suite | No |
+| Desktop feature set | The unit and functional tests of `oxidgene-api` built as the desktop builds it — `mcp` and the telemetry context, without GraphQL, authentication, PostgreSQL or S3 — a configuration the workspace build of `just test` never produces | `just test-desktop-api` | Weekly: API tests in the desktop's feature set | No |
+| Fuzzing | libFuzzer on the Geneanet session decoder (`crates/oxidgene-geneanet/fuzz`), synthetic inputs only (§5.7) | `just fuzz` | Weekly: Fuzz the session decoder | No |
 | End-to-end sign-in | The Playwright project of `e2e/playwright.auth.config.ts` against the development Compose stack and its Rauthy, which the recipe starts ([Authentication §12](authentication.md#12-tests)); every test skips itself while the server has no OpenID Connect sign-in | `just e2e-auth` | None | No |
 | Helm chart | `helm lint` with each values file of `charts/oxidgene/ci/` and the rendering tests of `scripts/chart-tests.py`: every `auth.idp.mode`, the values each requires and refuses, the Ingress paths, the Rauthy workload, and the setup it bootstraps against the development one | `just chart-test` | Validate Helm chart (Renovate); Release: Publish Helm chart | No |
 | Archive portals (live) | The live end-to-end checks of every catalogued archive against its real portal: the `#[ignore]`d `live` test of `oxidgene-archives` over the native transport, then the Playwright project of `e2e/playwright.archives.config.ts` in Chromium | `just archives-live [archive…]` | Archive portals (weekly) | No |
@@ -375,7 +382,7 @@ The selection is by Cargo target (`--lib --bins`, `--doc`, `--test '*'`)
 rather than by a nextest filter, so each category builds only its own test
 binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS, or
 only time something; each one's ignore reason names the `just` recipe that
-runs it (`just bench`, `just test-postgres`, `just test-s3`,
+runs it (`just bench`, `just test-postgres`, `just test-s3`, `just test-redis`,
 `just session-check`, `just geneanet-harness`, `just theme-preview`,
 `just real-import`, `just scaling`, `just import-memory`, `just crop-bench`,
 `just archives-live`), and a guard fails on a reason that names none.
@@ -419,9 +426,10 @@ The opt-in tests and the golden checks read these variables:
 | `OXIDGENE_LIVE_BRIDGE` | The Playwright live check: the `archives-live-bridge` binary (default `target/debug/archives-live-bridge`) |
 
 CI runs the unit, functional and browser JavaScript categories as jobs of
-their own on every change outside the documentation; the performance and
-end-to-end ones run every night (§2.8), and the archive portal checks every
-week in their own workflow. The `CI` job, the one status check
+their own on every change outside the documentation; the end-to-end suite
+runs every night in Chromium, and the performance, memory, service,
+desktop-feature, fuzzing and other-engine categories every week (§2.8); the
+archive portal checks run every week in their own workflow. The `CI` job, the one status check
 branch protection requires, gathers the jobs of tiers 1 and 2.
 
 **Archive portal fixtures.** The adapter tests of `oxidgene-archives` run
@@ -456,7 +464,7 @@ recipe fails on a drift only; an unreachable or challenged portal is
 reported. It contacts the portals, sequentially and with the identifying
 `User-Agent`, so it runs on demand and from the weekly
 `.github/workflows/archives.yml`, never from `just check`, a pull request
-or the nightly workflow. An adapter brings its live check with it: a
+or the nightly and weekly workflows. An adapter brings its live check with it: a
 `live::Probe` in `platform/<platform>/live.rs`, its entry in `live::probe`,
 and its viewer in `crates/oxidgene-archives/src/platform/viewers.json`
 ([Archive Portals §9.1](archives.md#91-live-checks), *Adding an adapter's
@@ -580,12 +588,15 @@ leaves the repository untouched. Re-run it after a visible change to a page
 it shows, and look at every image before committing it: the fixture is
 fictitious, and a screenshot must never show anyone's real data.
 
-The E2E workflow (`.github/workflows/e2e.yml`) runs from the nightly
-workflow, before a release, and on demand; on a tag, the release workflow
+The E2E workflow (`.github/workflows/e2e.yml`) runs one Playwright project:
+`chromium` from the nightly workflow, the others (`webkit`) from the weekly
+one, both before a release, and any on demand. A project the Playwright
+configuration does not define is reported and skipped. On a tag, the release workflow
 runs the suite once more against the images it built (§6). It installs the toolchain of
 `rust-toolchain.toml` with its WebAssembly target and the Dioxus CLI itself,
-runs `just e2e --project=chromium`, uploads the request report of every run,
-and the Playwright report and traces when a test fails.
+runs `just e2e --project=<project>` with `E2E_BROWSERS` naming the browsers
+to install, uploads the request report of every run, and the Playwright
+report and traces when a test fails.
 
 ### 2.8 Guards
 
@@ -593,18 +604,44 @@ Guards are checks that fail when the codebase drifts from a rule of
 AGENTS.md — the layering, the REST/GraphQL symmetry, the specification
 format, privacy — rather than when one feature breaks. Each one documents in
 its source what drift it prevents and how to fix a failure. They run in
-three tiers, so that a pull request waits only for the fast ones:
+four tiers, by cost, so that a pull request and a push to `main` wait only
+for what is fast:
 
-- **Tier 1** — every pull request, blocking, fast. Rust tests that read the
-  sources, most of them part of `just check`, plus quick tools.
-- **Tier 2** — every pull request touching code, blocking, in parallel CI
-  jobs: the functional guards that need a database and the SQL plans, the
-  dependency audit, the duplication budget.
-- **Tier 3** — every night (`.github/workflows/nightly.yml`) when `main`
-  moved since the previous run (its `changes` job compares the commits,
-  cancelled runs aside, and skips the others), on demand, and as gates of
-  a release, which always run; never on a pull request: the browser
-  suite, budgets, timing, reports and the next toolchains.
+- **Tier 1** — every pull request and push to `main`, blocking, fast. Rust
+  tests that read the sources, most of them part of `just check`, plus quick
+  tools.
+- **Tier 2** — every pull request and push touching code, blocking, in
+  parallel CI jobs: the functional guards that need a database and the SQL
+  plans, the dependency audit, the duplication budget.
+- **Tier 3** — every night (`.github/workflows/nightly.yml`), never on a
+  pull request: the browser suite in Chromium, with its request budgets,
+  trace continuity and picture cache. It is the one heavy check kept daily:
+  nearly every commit reaches `main` without a pull request, nothing else
+  drives the web application end to end, and a week of commits is too many
+  to search for the one that broke a page.
+- **Tier 4** — every week (`.github/workflows/weekly.yml`), never on a pull
+  request: the suites that need PostgreSQL, Redis or S3, the API in the
+  desktop's feature set, fuzzing, the browser suite in the other engines,
+  the release builds against their budgets, timing and memory, the large
+  trees, the reports and the next toolchains.
+
+A scheduled run of tier 3 or 4 runs only when `main` moved since the
+workflow's previous run (its `changes` job compares the commits, cancelled
+runs aside, and skips the others); a run on demand always runs, and so does
+a release, which every tier gates.
+
+The tiers follow what the jobs cost on GitHub's standard runners, measured
+on the runs of November 2026. With the build cache warm — a change to the
+workspace's own crates — tiers 1 and 2 take three and a half to eight
+minutes, five on average, the functional and unit tests being the longest
+jobs at three to five and a half minutes; a change to `Cargo.lock`, which
+rebuilds the dependencies in every job, takes twenty. The browser suite
+takes twenty-three minutes; the release builds of the budgets fifteen to
+twenty-two with a cache, the timing and memory runs eight to eleven each,
+`cargo-udeps` twelve and each next toolchain six to fourteen. The scheduled
+jobs of tier 4 keep no build cache: one read once a week would be evicted
+before its next use, after pushing the pull requests' caches out of the
+repository's ten gigabytes.
 
 A push recompiles only what it touched. Each CI job that compiles restores
 its build through `.github/actions/rust-build-cache`: the dependencies
@@ -617,8 +654,9 @@ build, which pull requests reuse. CI builds carry no debug information.
 
 `.github/workflows/release.yml` runs on a `v*` tag, and on a push to a
 `release/**` branch to rehearse one: it calls the CI workflow with every job
-forced on and the nightly workflow, and publishes nothing unless every job
-of both passed (the next-toolchain jobs report without failing).
+forced on, the nightly workflow and the weekly one, and publishes nothing
+unless every job of the three passed (the next-toolchain jobs report without
+failing).
 
 | Check | Tier | Command | CI job | What it guards |
 |---|---|---|---|---|
@@ -658,12 +696,19 @@ of both passed (the next-toolchain jobs report without failing).
 | Request budgets | 3 | `just e2e tests/request-budgets.spec.ts` | Nightly: E2E | Every page's API requests, waterfall depth, duplicates and bytes within `e2e/budgets/requests.json`; the pictures the browser fetches from their versioned addresses are counted by the picture cache check instead |
 | Trace continuity | 3 | `just e2e tests/trace-continuity.spec.ts` | Nightly: E2E | Every page display's API requests share one trace of their own |
 | Picture cache | 3 | `just e2e tests/asset-cache.spec.ts` | Nightly: E2E | A person page and a pedigree view visited again, after a reload, draw every picture from the browser's cache; `E2E_ASSET_REPORT=1` writes the requests, bytes and times of both visits to `e2e/test-results/asset-cache-report.json`, never a gate ([Architecture §4.3](architecture.md#43-versioned-assets)) |
-| Binary budgets | 3 | `just budgets` | Nightly: Binary budgets | The size of the desktop, server, worker and web bundle, and the crates each links, within `scripts/budgets.json` |
-| Scaling | 3 | `just scaling` | Nightly: Scaling | No tree-wide computation grows faster than linear |
-| Import memory | 3 | `just import-memory` | Nightly: Import memory | A Geneanet import of a generated tree peaks, and keeps once done, within the budgets of `import_memory_test.rs` |
-| udeps | 3 | `just udeps` | Nightly: Unused dependencies (udeps) | No dependency the compiler finds unused |
-| Reports | 3 | `just report-updates`, `just report-size` | Nightly: Reports | The pending and held-back updates, the size of the code (artifacts, never failing) |
-| Next toolchains | 3 | `just next-toolchain beta`, `just next-toolchain nightly`, `just future-incompat` | Nightly: Next toolchain | Lints and warnings of the next Rust releases, seen before they break the pinned one (reported, never failing) |
+| Binary budgets | 4 | `just budgets` | Weekly: Binary budgets | The size of the desktop, server, worker and web bundle, and the crates each links, within `scripts/budgets.json` |
+| Scaling | 4 | `just scaling` | Weekly: Scaling and import memory | No tree-wide computation grows faster than linear |
+| Import memory | 4 | `just import-memory` | Weekly: Scaling and import memory | A Geneanet import of a generated tree peaks, and keeps once done, within the budgets of `import_memory_test.rs` |
+| udeps | 4 | `just udeps` | Weekly: Unused dependencies (udeps) | No dependency the compiler finds unused |
+| Reports | 4 | `just report-updates`, `just report-size` | Weekly: Reports | The pending and held-back updates, the size of the code (artifacts, never failing) |
+| Next toolchains | 4 | `just next-toolchain beta`, `just next-toolchain nightly`, `just future-incompat` | Weekly: Next toolchain | Lints and warnings of the next Rust releases, seen before they break the pinned one (reported, never failing) |
+| PostgreSQL | 4 | `just test-postgres` | Weekly: PostgreSQL suite | The migrations run up and down and the repository and API functional tests pass on PostgreSQL, the database of the web deployments: every backend-specific branch and raw statement the SQLite suites of tiers 1 and 2 never execute; jobs and notifications cross processes |
+| Redis | 4 | `just test-redis` | Weekly: Redis suite | Sessions are kept, indexed, expired and ended on Redis as in memory |
+| S3 | 4 | `just test-s3` | Weekly: S3 suite | Media and stored crops live and die on an S3 store as on disk |
+| Desktop feature set | 4 | `just test-desktop-api` | Weekly: API tests in the desktop's feature set | The API's tests pass built as the desktop builds it, without the features the workspace build unifies into it |
+| Fuzzing | 4 | `just fuzz 900` | Weekly: Fuzz the session decoder | The Geneanet session decoder survives a quarter of an hour of libFuzzer; a crash leaves its input as an artifact (§5.7) |
+| Other engines | 4 | `E2E_BROWSERS=webkit just e2e --project=webkit` | Weekly: E2E (webkit) | The browser suite passes in WebKit; skipped with a warning while the Playwright configuration defines no such project |
+| Large trees | 4 | `just scale-large` | Weekly: Large trees | Placeholder: the runs on generated trees of 100,000 and 1,000,000 persons are being written, and the recipe only says so |
 
 **Updating a budget.** A budget moves only with an intended change, in the
 commit that makes it, whose message says why:
@@ -672,7 +717,8 @@ commit that makes it, whose message says why:
   rewrites `e2e/budgets/requests.json`. Requests, depth and duplicates
   compare exactly, bytes within a quarter; the time to content, measured
   under 50 ms of added latency, lands in `e2e/test-results/request-report.json`
-  and the nightly artifact, a trend to read, never a gate;
+  and the nightly artifact (`request-report-chromium`), a trend to read,
+  never a gate;
 - binary budgets: `just budgets --update`, which builds what ships first
   (5 % on sizes and three crates of margin);
 - duplicated crates: `python3 scripts/budgets.py dependencies --update`,
@@ -690,7 +736,7 @@ commit that makes it, whose message says why:
 **The pinned toolchain.** `rust-toolchain.toml` pins the Rust release every
 build uses, locally and in CI; the CI image installs it, and rebuilds when
 the file changes. Renovate proposes each new release. Take it once the
-nightly Next toolchain jobs are green on beta — they show the new lints and
+weekly Next toolchain jobs are green on beta — they show the new lints and
 warnings weeks before — fix what they report, then merge the bump.
 
 ### 2.9 Workflows and the justfile
@@ -734,6 +780,20 @@ the same release only where it finds none. A push to `main` that changes the
 image rebuilds it before the jobs that use it; a pull request runs in the
 image `main` built, where the action supplies what a newer `Dockerfile.ci`
 would add.
+
+The workflows, each a caller of recipes:
+
+| Workflow | Runs | Jobs | Duration |
+|---|---|---|---|
+| `ci.yml` | Every pull request and push to `main`; gates a release with every job forced on | Tiers 1 and 2: Format, Clippy (five variants), Unit tests, Functional tests with the SQL plans, Repository guards, Dependencies, Cyclomatic complexity, Code duplication, UI JavaScript tests; on Renovate's pull requests, the image builds and the chart. `CI` gathers them into the one required status check | 5 minutes with a warm cache, 20 after a lockfile change |
+| `nightly.yml` | Every night when `main` moved; on demand; gates a release | Tier 3: E2E (chromium), through `e2e.yml` | 23 minutes |
+| `weekly.yml` | Every week when `main` moved; on demand; gates a release | Tier 4: PostgreSQL, Redis and S3 suites, API tests in the desktop's feature set, Fuzz, E2E (webkit), Large trees, Scaling and import memory, Binary budgets, udeps, Reports, Next toolchains | About 40 minutes, the jobs in parallel and none cached |
+| `e2e.yml` | Called by the two above with a Playwright project; on demand | E2E | 23 minutes |
+| `release.yml` | A `v*` tag; a `release/**` branch to rehearse | The three tiers as gates, then the images, the suite against them, the chart, the desktop on three platforms and the release (§6) | As long as it takes |
+| `archives.yml` | Every week; on demand | The live checks of the archive portals (§2.7) | About an hour |
+| `pages.yml` | A push to `main` touching the site, the specifications or the crates | The documentation site (§7) | 3 to 8 minutes |
+| `build-ci-image.yml` | A push to `main` changing the CI image, through `ci.yml`; every month | The image the jobs run in | 2 minutes |
+| `pdfjs.yml` | Renovate's pdf.js branches | The vendored release (§2.6) | Under a minute |
 
 The `workflows` guard (§2.8) enforces the rule: it reads every `run` script
 of `.github/workflows/` and `.github/actions/`, fails on a command that
@@ -804,8 +864,8 @@ RustFS exposes its S3 API on `http://127.0.0.1:9000` and its console on
 `http://127.0.0.1:9001`. The one-shot `rustfs-init` service creates the
 `oxidgene-media` bucket idempotently. Run the ignored storage tests — the
 round trip of media and crops, then the stored crops' lifecycle (stored and
-read back, deleted when a rectangle moves, swept) — while the stack is healthy
-with:
+read back, deleted when a rectangle moves, swept) — with the recipe below,
+which starts the RustFS service and its bucket when the stack is not up:
 
 ```bash
 just test-s3
@@ -882,7 +942,7 @@ what the process still holds after it, counts and error codes — never a row,
 a name or an error message, which can quote the file.
 
 **Import memory check.** `just import-memory` measures the same Geneanet
-import on a tree it generates itself, so it runs anywhere and every night:
+import on a tree it generates itself, so it runs anywhere and every week:
 ten thousand fictitious people, 160 photographs (a group photo every eighth,
 an identification box on every other one) matched in the archive by size,
 and two scanned documents of 48 and 8 pages matched by the content of their
@@ -1094,17 +1154,17 @@ For an explicit local session-load check, set `OXIDGENE_GENEANET_SESSION` to
 an absolute archive path and run `just session-check`. The check streams the archive through REST, verifies staged files,
 and removes them without printing genealogy content. It is not part of normal CI.
 
-Run the session decoder fuzz target with synthetic libFuzzer inputs and an
-explicit time budget:
+`just fuzz SECONDS` runs the session decoder fuzz target with synthetic
+libFuzzer inputs for an explicit time budget:
 
 ```bash
-cargo +nightly fuzz run \
-   --fuzz-dir crates/oxidgene-geneanet/fuzz \
-   session_decode -- -max_total_time=30
+just fuzz 30
 ```
 
-Fuzzing is opt-in and never part of `just check`. A crash is not fixed until a
-minimal anonymized regression test covers it; generated corpora remain local.
+Fuzzing is opt-in and never part of `just check`. The weekly workflow runs
+it for a quarter of an hour (§2.8) and keeps the inputs of a crash as an
+artifact of the run. A crash is not fixed until a minimal anonymized
+regression test covers it; generated corpora remain local.
 
 ### 5.8 Triage findings before changing code
 
@@ -1189,7 +1249,7 @@ A successful run publishes:
    `gh attestation verify <file> --repo trois-six/oxidgene` checks. The
    images carry their own provenance and SBOM in the registry.
 
-Before anything is built or published, the release gates run tiers 1 to 3
+Before anything is built or published, the release gates run tiers 1 to 4
 of the guards (§2.8). Its own checks are recipes like the others (§2.9):
 `just release-version` on the tag, `just e2e-images` on the images,
 `just chart-test` on the chart, `just build-desktop-release` or

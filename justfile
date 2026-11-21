@@ -333,23 +333,47 @@ bench:
 # they share the database; the
 # OXIDGENE_TEST_DATABASE_URL variable names it (see docs/development.md).
 test-postgres:
-    cargo nextest run -p oxidgene-db --features postgres --test integration --run-ignored only -E 'test(/^migration_test::/)'
-    OXIDGENE_TEST_POSTGRES_URL="${OXIDGENE_TEST_DATABASE_URL:?set OXIDGENE_TEST_DATABASE_URL}" cargo nextest run -p oxidgene-db -p oxidgene-api --features oxidgene-api/postgres,oxidgene-api/graphql,oxidgene-api/auth --test integration
-    cargo nextest run -p oxidgene-api --features postgres,auth --lib --run-ignored only --test-threads 1 -E 'test(/on_postgres_/)'
+    cargo nextest run --locked -p oxidgene-db --features postgres --test integration --run-ignored only -E 'test(/^migration_test::/)'
+    OXIDGENE_TEST_POSTGRES_URL="${OXIDGENE_TEST_DATABASE_URL:?set OXIDGENE_TEST_DATABASE_URL}" cargo nextest run --locked -p oxidgene-db -p oxidgene-api --features oxidgene-api/postgres,oxidgene-api/graphql,oxidgene-api/auth --test integration --no-fail-fast
+    cargo nextest run --locked -p oxidgene-api --features postgres,auth --lib --run-ignored only --test-threads 1 -E 'test(/on_postgres_/)'
 
 # Round-trip media and crops through the RustFS service of docker/docker-compose.yml,
-# then run the stored crops' lifecycle on it; the service must be running
-# (`docker compose -f docker/docker-compose.yml up -d rustfs rustfs-init`).
+# then run the stored crops' lifecycle on it. The recipe starts the service
+# and creates its bucket, and leaves it running
+# (`docker compose -f docker/docker-compose.yml stop rustfs` stops it).
 test-s3:
-    cargo nextest run -p oxidgene-api --features s3 --lib --run-ignored only -E 'test(s3_round_trip_deduplication_and_tree_deletion)'
-    cargo nextest run -p oxidgene-api --features s3 --test integration --run-ignored only -E 'test(crops_live_and_die_on_the_s3_store_as_on_disk)'
+    docker compose -f docker/docker-compose.yml run --rm rustfs-init
+    cargo nextest run --locked -p oxidgene-api --features s3 --lib --run-ignored only -E 'test(s3_round_trip_deduplication_and_tree_deletion)'
+    cargo nextest run --locked -p oxidgene-api --features s3 --test integration --run-ignored only -E 'test(crops_live_and_die_on_the_s3_store_as_on_disk)'
 
 # Keep, index, expire and end sessions in the Redis server named by
 # OXIDGENE_TEST_REDIS_URL, such as the Compose stack's
 # (`docker compose -f docker/docker-compose.yml up -d redis`, then
 # `OXIDGENE_TEST_REDIS_URL=redis://127.0.0.1:6379`).
 test-redis:
-    cargo nextest run -p oxidgene-api --features auth --lib --run-ignored only -E 'test(/on_redis_/)'
+    cargo nextest run --locked -p oxidgene-api --features auth --lib --run-ignored only -E 'test(/on_redis_/)'
+
+# `just test` builds the whole workspace, which unifies the server's
+# `graphql`, `auth`, `postgres` and `s3` features into the API: the API the
+# desktop links — `mcp` and the telemetry context, nothing else — is linted
+# by `just clippy-api` and tested only here.
+# Run the API's tests in the desktop's feature set
+test-desktop-api:
+    cargo nextest run --locked -p oxidgene-api --features mcp,telemetry-context --no-fail-fast
+
+# libFuzzer on synthetic inputs, for SECONDS; needs the nightly toolchain and
+# cargo-fuzz (`just setup`). The weekly workflow runs it: a crash is fixed
+# with a minimal anonymized regression test (docs/development.md §5.7).
+# Fuzz the Geneanet session decoder for a time budget
+fuzz seconds="60":
+    cargo +nightly fuzz run --fuzz-dir crates/oxidgene-geneanet/fuzz session_decode -- -max_total_time={{ seconds }}
+
+# PLACEHOLDER, awaiting the opt-in tests on generated trees of 100,000 and
+# 1,000,000 persons: their command replaces this body, and the weekly
+# workflow's Large trees job runs it as it is.
+# Run the large-tree scale tests (not written yet)
+scale-large:
+    @echo "just scale-large: the 100,000- and 1,000,000-person scale tests are not wired yet; nothing ran"
 
 # Refuse a bulk target past 10,000 persons end to end on both surfaces. It
 # creates 10,001 persons, so it runs only on request.

@@ -1,16 +1,36 @@
 name: E2E
 
 # The Playwright suite of `e2e/` (`just e2e`): the web bundle and the server,
-# driven in Chromium on a throwaway SQLite database. It includes the tier 3
-# guards of the browser — the request budgets of every page and the trace
-# continuity of every display (docs/development.md §2.8).
+# driven in a browser on a throwaway SQLite database. In Chromium it
+# includes the browser's guards — the request budgets of every page, the
+# trace continuity of every display and the picture cache
+# (docs/development.md §2.8).
 #
-# nightly.yml calls it every night and on demand, release.yml before a
-# release; it also runs on its own on demand.
+# nightly.yml calls it every night for the `chromium` project, weekly.yml
+# every week for the others, release.yml through both before a release; it
+# also runs on its own on demand.
 
 on:
   workflow_call:
+    inputs:
+      project:
+        description: The Playwright project of e2e/playwright.config.ts to run
+        type: string
+        default: chromium
+      browsers:
+        description: The browsers Playwright installs for it
+        type: string
+        default: chromium
   workflow_dispatch:
+    inputs:
+      project:
+        description: The Playwright project of e2e/playwright.config.ts to run
+        type: string
+        default: chromium
+      browsers:
+        description: The browsers Playwright installs for it
+        type: string
+        default: chromium
 
 env:
   CARGO_TERM_COLOR: always
@@ -25,45 +45,68 @@ permissions:
 
 jobs:
   e2e:
-    name: E2E
+    name: E2E (${{ inputs.project }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      PROJECT: ${{ inputs.project }}
+      E2E_BROWSERS: ${{ inputs.browsers }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: ./.github/actions/setup-just
+      # A project the configuration does not define yet is reported and
+      # skipped, so that a caller can name it before it lands.
+      - name: Find the project
+        id: project
+        run: |
+          if grep -Eq "name: [\"']${PROJECT}[\"']" e2e/playwright.config.ts; then
+            echo "defined=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::e2e/playwright.config.ts defines no \`$PROJECT\` project: nothing ran"
+            echo "No \`$PROJECT\` project in e2e/playwright.config.ts: nothing ran." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - if: steps.project.outputs.defined == 'true'
+        uses: ./.github/actions/setup-just
 
       # The toolchain of rust-toolchain.toml, with its WebAssembly target.
       - name: Install Rust
+        if: steps.project.outputs.defined == 'true'
         run: rustup toolchain install
 
-      - uses: Swatinem/rust-cache@v2
+      # One build for every project: the bundle and the server are the same.
+      - if: steps.project.outputs.defined == 'true'
+        uses: Swatinem/rust-cache@v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: e2e
+          save-if: ${{ github.ref == 'refs/heads/main' && inputs.project == 'chromium' }}
 
       # A prebuilt binary through cargo-binstall; the version of mise.toml.
-      - uses: taiki-e/install-action@v2
+      - if: steps.project.outputs.defined == 'true'
+        uses: taiki-e/install-action@v2
         with:
           tool: dioxus-cli@0.7.10
 
-      - uses: actions/setup-node@v7
+      - if: steps.project.outputs.defined == 'true'
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: e2e/package-lock.json
 
-      # The web bundle and the server built, Playwright and its Chromium
-      # installed, then the suite in the Chromium project.
+      # The web bundle and the server built, Playwright and the project's
+      # browsers installed, then the suite in that project.
       - name: Run the end-to-end tests
-        run: just e2e --project=chromium
+        if: steps.project.outputs.defined == 'true'
+        run: just e2e "--project=$PROJECT"
 
       # The time each page took to show its content, under 50 ms of added
       # latency: a trend to follow, never a gate.
       - name: Upload the request report
-        if: always()
+        if: always() && steps.project.outputs.defined == 'true'
         uses: actions/upload-artifact@v7
         with:
-          name: request-report
+          name: request-report-${{ inputs.project }}
           path: e2e/test-results/request-report.json
           if-no-files-found: ignore
           retention-days: 90
@@ -72,7 +115,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ inputs.project }}
           path: |
             e2e/playwright-report/
             e2e/test-results/

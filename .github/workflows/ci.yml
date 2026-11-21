@@ -1,9 +1,10 @@
 name: CI
 
 # Tiers 1 and 2 of the guards (docs/development.md §2.8): every check here
-# blocks a merge through the `CI` job at the end. The heavy tier 3 — end to
-# end, budgets, timing, reports, next toolchains — runs in nightly.yml, every
-# night and on demand; release.yml runs both as gates.
+# blocks a merge through the `CI` job at the end, and all of them are fast
+# once the build cache is warm. The browser suite runs every night
+# (nightly.yml, tier 3) and what is heavy once a week (weekly.yml, tier 4);
+# release.yml runs every tier as a gate.
 #
 # Every checking step runs a recipe of the justfile (`just <recipe>`), the
 # command a developer runs: nothing here retypes a cargo, npm or uv command

@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T11:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -48,7 +48,9 @@ generated: { by: human:maintainer, at: 2026-11-03T12:00:00Z }
 - [x] Browse the whole media library from the Dictionary, by a tag cloud and
   server-side filters on name, file type, category, linked person, linked
   event years, and date added.
-- [ ] Exercise migrations and media workflows against PostgreSQL in CI.
+- [x] Exercise migrations and media workflows against PostgreSQL in CI: the
+  weekly PostgreSQL and S3 suites
+  ([Development §2.8](development.md#28-guards)).
 - [x] Decide how PDFs are drawn without a native rasterizer and its
   cross-platform binary cost: the server reads them with the `hayro-syntax`
   parser alone, for a real page count and a thumbnail of the scan page 1
@@ -448,14 +450,16 @@ Releases:
 - [ ] Validate the chart in a production-like Kubernetes cluster.
 - [x] Publish the chart as an OCI artifact with the versioned application
   images.
-- [x] Build every release artifact in CI behind the CI and nightly gates,
+- [x] Build every release artifact in CI behind the CI, nightly and weekly
+  gates,
   with SHA-256 checksums of the desktop downloads and provenance and SBOM
   attestations of the images.
 - [x] Attest the build provenance of the desktop downloads and the packaged
   chart ([Development §6](development.md#6-release-automation)).
 - [ ] Smoke-test the container and desktop deliverables before release.
 - [x] Run unit, functional, browser JavaScript, performance and end-to-end
-  tests as separate CI jobs, the Playwright suite also nightly
+  tests as separate CI jobs, the Playwright suite nightly and the
+  performance tests weekly
   ([Development §2.7](development.md#27-test-categories)).
 - [ ] Make the E2E job a required check of the CI gate once it has run
   reliably.

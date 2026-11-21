@@ -1,8 +1,8 @@
 name: Release
 
 # A release passes every guard first: tiers 1 and 2 (ci.yml, every job
-# whatever changed) and tier 3 (nightly.yml) are required gates here
-# (docs/development.md §2.8). A push to a `release/**` branch runs the gates
+# whatever changed), tier 3 (nightly.yml) and tier 4 (weekly.yml) are
+# required gates here (docs/development.md §2.8). A push to a `release/**` branch runs the gates
 # and builds and smoke-tests the desktop, to rehearse a release; a `v*` tag
 # runs them, builds the images and runs the end-to-end suite against them,
 # then publishes (docs/development.md §6).
@@ -42,15 +42,24 @@ jobs:
       actions: read
     uses: ./.github/workflows/nightly.yml
 
-  # Tier 3 reports its next-toolchain jobs without failing; everything else
-  # it runs must have passed.
+  weekly:
+    name: Tier 4
+    permissions:
+      contents: read
+      packages: read
+      # Its first job compares a scheduled run with the previous one.
+      actions: read
+    uses: ./.github/workflows/weekly.yml
+
+  # Tier 4 reports its next-toolchain jobs without failing; everything else
+  # the tiers run must have passed.
   gates:
     name: Release gates
-    needs: [ci, nightly]
+    needs: [ci, nightly, weekly]
     runs-on: ubuntu-latest
     steps:
       - name: Every gate passed
-        run: echo "tiers 1 to 3 passed"
+        run: echo "tiers 1 to 4 passed"
 
   metadata:
     name: Validate release version
