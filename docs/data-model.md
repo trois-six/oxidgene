@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-21T10:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T12:00:00Z }
 ---
 
 
@@ -901,6 +901,14 @@ An export job keeps the options it was queued with in
 the worker that packs the archive; an import job leaves them at their
 defaults. A GEDZIP has no destination to keep: it is always the complete,
 standard GEDCOM 7.0 export ([API Contract §4](api.md#gedzip)).
+
+`attempt` counts the times a worker started the job; a worker asked to
+stop hands its start back when it gives the job back to the queue.
+`interrupted_phase` is the phase the job was in when a worker last
+disappeared under it — found `running` past its lease — and `NULL`
+otherwise: a job is failed unrun when that happens twice in the same phase,
+or after three starts
+([Architecture §6.6](architecture.md#66-stopping-a-worker)).
 
 A job's `payload_json` is cleared when it ends; its `result_json` stays for
 the status poll. Workers delete the rows of jobs ended more than a day ago,

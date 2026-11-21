@@ -86,10 +86,11 @@ async fn main() {
         .with_intake_limits(limits)
         .with_access_log_retention(retention)
         .with_mailing(mail.is_some());
-    tokio::select! {
-        () = worker.run() => {}
-        () = shutdown_signal() => {}
-    }
+    // On SIGTERM it claims no more job; the one it runs ends within the
+    // grace period or goes back to the queue, uncounted.
+    worker
+        .run_until(shutdown_signal(), config.worker_shutdown_grace())
+        .await;
     info!("Background worker shut down gracefully");
     telemetry.shutdown();
 }

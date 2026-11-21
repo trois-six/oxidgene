@@ -372,8 +372,12 @@ fn main() {
                 // size is read where it lies.
                 .with_intake_limits(oxidgene_api::limits::IntakeLimits::local())
                 .with_local_file_access();
-            // This process is the only worker of its SQLite database.
-            spawn_background_worker(&state, true, "desktop").await;
+            // This process is the only worker of its SQLite database. An
+            // import still running when the window closes is interrupted at
+            // once and starts again at the next launch, rather than keep
+            // the application from closing.
+            let worker =
+                spawn_background_worker(&state, true, "desktop", std::time::Duration::ZERO).await;
             // Outside the token and host checks, so a refused request still
             // carries its route, and a panic anywhere below answers the
             // standard envelope. The client dials `127.0.0.1`, so loopback
@@ -426,6 +430,7 @@ fn main() {
                 .unwrap_or_else(|_| {
                     error!(error = "server_runtime", "Server error");
                 });
+            worker.stop().await;
         });
     });
 

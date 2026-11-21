@@ -597,9 +597,11 @@ and flow — are listed in the [specification index](index.md).
     large blocks. Images are decoded at most eight at a time whatever the
     machine (`oxidgene_core::resources::decode_worker_limit`), each held only
     while it is processed.
-- At most one import or export job is active for a tree. An expired lease makes
-    interrupted work claimable again; terminal jobs release the tree and retain
-    their result for a bounded period.
+- At most one import or export job is active for a tree. A worker asked to
+    stop gives its job back to the queue; an expired lease makes the work of
+    a worker that disappeared claimable again
+    ([Stopping a worker](#66-stopping-a-worker)); terminal jobs release the
+    tree and retain their result for a bounded period.
 - What a job leaves behind is bounded. Its payload (a Geneanet import's
     collection, fetched URLs and archive names) is cleared when it ends,
     whether completed or failed. An export artifact can be downloaded for an
@@ -619,9 +621,11 @@ and flow — are listed in the [specification index](index.md).
     it is in the web worker, built to unwind on a panic (the `server` Cargo
     profile, [Cross-cutting Rules §5.4](cross-cutting.md#54-operational-behavior)).
     The desktop's release aborts on panic, and any process can be killed, so
-    a job is also failed unrun (`job_attempts_exhausted`) once it has been
-    claimed more than three times: a job that brings the process down is
-    retried at the next starts, not forever. Other failures report
+    a job is also failed unrun (`job_attempts_exhausted`) once its worker has
+    disappeared under it twice in the same phase, or once it has been
+    started more than three times: a job that brings the process down is
+    retried once, not forever ([Stopping a worker](#66-stopping-a-worker)).
+    Other failures report
     `job_failed`.
 - An import is all or nothing. Its rows — persons phase and media phase —
     their projections, its history entry and the job's completion are
@@ -840,6 +844,50 @@ processes through `pg_notify` on `oxidgene_mail` and `oxidgene_updates`,
 each listened to by one connection per process; the idle sender reads when
 its earliest pending mail falls due and a minute after it went to sleep at
 the latest, and a waiting long poll reads nothing until it is woken.
+
+### 6.6 Stopping a worker
+
+A worker stops in one of two ways, and the job it was running is treated
+accordingly.
+
+**Asked to stop.** On SIGTERM or SIGINT — a rollout, a node drained, the
+desktop window closed — a worker claims no more job
+(`BackgroundJobWorker::run_until`). A job it is running has a grace period
+to end by itself: `OXIDGENE_WORKER_SHUTDOWN_GRACE_SECS`, 20 seconds by
+default, 30 in the Helm chart (`worker.shutdownGraceSeconds`), none on the
+desktop, where closing the window must not wait for an import. Past it the
+job is interrupted: it stops at its next unit of work exactly as a
+cancelled job does ([§6.3](#63-job-cancellation)) — its transaction rolled
+back, the media it stored taken back — and is given back to the queue
+instead of ended: `queued` again, its lease cleared, its inputs kept, and
+the attempt it used handed back. Another worker — the next start, on the
+desktop — runs it from the start. An interrupted job has ten seconds to do
+so; whatever stops the process must leave it the grace period and those
+ten seconds. The chart sets `terminationGracePeriodSeconds` to the grace
+period plus fifteen; Docker's default of ten seconds does not, and kills
+the worker during its grace (set `stop_grace_period`).
+
+**Disappeared.** A worker killed, crashed or cut off leaves its job
+`running` under a lease nobody renews; the job is claimable once the lease
+has run out, and a SQLite process, the only worker of its database, ends
+the leases of the jobs it finds running when it starts. Taking such a job
+over is what counts against it:
+
+- each start is an attempt, and a job started more than three times is
+  failed unrun;
+- the phase the job was in when its worker disappeared is kept on the job
+  (`interrupted_phase`). A job whose worker disappears in the phase where
+  one disappeared before is failed unrun at once: it died twice the same
+  way — a file that crashes its reader, an import the machine has not the
+  memory for — and a third run would end the same. A worker lost in
+  another phase is the host's doing as far as anyone can tell, and the job
+  is run again. Under SQLite a running import writes no progress to the
+  database ([§6.3](#63-job-cancellation)), so its phase there is the one it
+  was claimed in, and the second disappearance fails it.
+
+Both end `job_attempts_exhausted`. A deployment therefore costs a long
+import its progress, never its attempts: three rollouts during one import
+used to end it failed.
 
 ---
 

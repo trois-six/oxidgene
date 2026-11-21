@@ -3376,11 +3376,12 @@ async fn an_interrupted_geneanet_import_runs_again_whole() {
             .expect("claim job")
             .expect("queued job");
     assert_eq!(claimed.id, job_id);
-    // Its process stops here: whatever it wrote was never committed.
+    // Its process stops here: whatever it wrote was never committed. The
+    // next start finds the job without a worker.
     assert_eq!(
-        BackgroundJobRepo::requeue_running(&state.db)
+        BackgroundJobRepo::abandon_running(&state.db)
             .await
-            .expect("requeue interrupted job"),
+            .expect("abandon the interrupted job"),
         1
     );
 

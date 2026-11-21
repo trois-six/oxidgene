@@ -70,14 +70,26 @@ const ORPHAN_GRACE: Duration = Duration::from_secs(24 * 60 * 60);
 /// minutes at most after nobody can download it any more.
 const MAINTENANCE_PERIOD: Duration = Duration::from_secs(6 * 60);
 
-/// How many times a job is claimed before it is failed unrun.
+/// How many times a job is started before it is failed unrun.
 ///
-/// A job is claimed again after its worker stopped mid-run: a restart, an
-/// expired lease. Most such stops are the host's doing, but one that the job
-/// itself causes — a file that crashes the process, which a release build,
-/// compiled to abort on panic, cannot catch — would otherwise be retried at
-/// every start, forever, taking every job queued behind it down with it.
+/// A job is started again after its worker disappeared mid-run: a crash, a
+/// kill, a machine gone. A worker that is asked to stop releases its job
+/// instead, which counts for nothing ([`BackgroundJobWorker::run_until`]),
+/// so a deployment or a node drained does not use the attempts up. Most
+/// disappearances are the host's doing, but one that the job itself causes —
+/// a file that crashes the process, which a release build, compiled to abort
+/// on panic, cannot catch, or an import the machine has not the memory for —
+/// would otherwise be retried at every start, forever, taking every job
+/// queued behind it down with it. So a job whose worker disappears twice in
+/// the same phase is not run a third time either
+/// ([`oxidgene_db::repo::ClaimedJob::lost_twice_in_phase`]).
 pub const MAX_ATTEMPTS: i32 = 3;
+
+/// How long a worker asked to stop waits for the job it interrupted to
+/// undo its work and go back to the queue, past its grace period: the job
+/// stops at its next unit of work, a batch of rows or a medium, and rolls
+/// its transaction back.
+const RELEASE_TIMEOUT: Duration = Duration::from_secs(10);
 
 // ── The jobs of this process ───────────────────────────────────────────
 //
@@ -96,6 +108,9 @@ pub const MAX_ATTEMPTS: i32 = 3;
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CancelToken {
     cancelled: Arc<AtomicBool>,
+    /// Its worker stops: the job stops as at a cancellation, to be run
+    /// again by another worker.
+    interrupted: Arc<AtomicBool>,
     /// In tests, a stop arriving at a known unit of work.
     #[cfg(test)]
     planned: Option<Arc<PlannedStop>>,
@@ -123,6 +138,16 @@ impl CancelToken {
         self.cancelled.load(Ordering::SeqCst)
     }
 
+    /// Stop the job because its worker stops.
+    fn interrupt(&self) {
+        self.interrupted.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether the job stops because its worker does.
+    fn is_interrupted(&self) -> bool {
+        self.interrupted.load(Ordering::SeqCst)
+    }
+
     /// Note a check made in progress phase `phase`, stopping the job when it
     /// is the one a test planned (see [`plan_stop`]).
     #[cfg(test)]
@@ -144,11 +169,13 @@ impl CancelToken {
         Ok(())
     }
 
-    /// `Err` once the job was asked to stop: what stops its work at the next
-    /// unit, rolling its transaction back.
+    /// `Err` once the job was asked to stop, or its worker stops: what
+    /// stops its work at the next unit, rolling its transaction back.
     pub(crate) fn check(&self) -> Result<(), OxidGeneError> {
         if self.is_cancelled() {
             Err(OxidGeneError::Conflict("the job was cancelled".into()))
+        } else if self.is_interrupted() {
+            Err(OxidGeneError::Conflict("the worker is stopping".into()))
         } else {
             Ok(())
         }
@@ -354,6 +381,22 @@ fn cancel_running_job(job_id: Uuid) {
     }
 }
 
+/// Stop the jobs running in this process because its worker stops: each
+/// stops at its next unit of work and goes back to the queue.
+fn interrupt_running_jobs() {
+    let interrupted: Vec<Uuid> = registry()
+        .running
+        .iter()
+        .map(|(job_id, job)| {
+            job.cancel.interrupt();
+            *job_id
+        })
+        .collect();
+    for job_id in interrupted {
+        job_watch::announce(job_id);
+    }
+}
+
 pub(crate) struct LiveJobGuard {
     job_id: Uuid,
     cancel: CancelToken,
@@ -433,6 +476,8 @@ pub struct BackgroundJobWorker {
     work_dir: WorkDir,
     /// How much an import may read and store ([`IntakeLimits`]).
     limits: IntakeLimits,
+    /// Set once the worker is asked to stop: it claims no job any more.
+    stopping: Arc<AtomicBool>,
     /// How long the maintenance keeps access events.
     access_log_retention: Duration,
     /// Whether the notifications this worker writes may be mailed: the
@@ -472,6 +517,7 @@ impl BackgroundJobWorker {
             lease_duration,
             work_dir: WorkDir::temporary(),
             limits: IntakeLimits::default(),
+            stopping: Arc::default(),
             access_log_retention: DEFAULT_ACCESS_LOG_RETENTION,
             #[cfg(feature = "auth")]
             mailing: crate::service::notification::Mailing(false),
@@ -519,7 +565,7 @@ impl BackgroundJobWorker {
     /// Claim and execute at most one job. Returns whether work was claimed.
     pub async fn run_once(&self) -> Result<bool, OxidGeneError> {
         self.write_marked_cancellations().await;
-        let Some(job) = BackgroundJobRepo::claim_next(
+        let Some(claimed) = BackgroundJobRepo::claim_next(
             &self.db,
             &self.worker_id,
             chrono::Duration::from_std(self.lease_duration)
@@ -529,12 +575,16 @@ impl BackgroundJobWorker {
         else {
             return Ok(false);
         };
+        let oxidgene_db::repo::ClaimedJob {
+            job,
+            lost_twice_in_phase,
+        } = claimed;
         let live_job = LiveJobGuard::new(&job);
         let cancel = live_job.cancel_token();
         if job.cancel_requested {
             cancel.cancel();
         }
-        if job.attempt > MAX_ATTEMPTS {
+        if lost_twice_in_phase || job.attempt > MAX_ATTEMPTS {
             self.fail_exhausted(&job).await?;
             return Ok(true);
         }
@@ -563,6 +613,14 @@ impl BackgroundJobWorker {
                     "background job cancelled"
                 );
                 return self.end(&job, Ending::Cancelled).await;
+            }
+            if cancel.is_interrupted() {
+                tracing::info!(
+                    job.kind = %job.kind,
+                    job.format = %job.format,
+                    "background job stopped with its worker; back to the queue"
+                );
+                return self.end(&job, Ending::Released).await;
             }
             let code = match error {
                 OxidGeneError::Gedcom(_) | OxidGeneError::Validation(_) => "invalid_job_input",
@@ -628,14 +686,16 @@ impl BackgroundJobWorker {
     #[cfg(not(feature = "auth"))]
     async fn notify_finished(&self, _job: &BackgroundJob) {}
 
-    /// Fail `job`, claimed more than [`MAX_ATTEMPTS`] times, without running
-    /// it again.
+    /// Fail `job` without running it again: it was started more than
+    /// [`MAX_ATTEMPTS`] times, or its worker disappeared twice in the same
+    /// phase.
     async fn fail_exhausted(&self, job: &BackgroundJob) -> Result<(), OxidGeneError> {
         tracing::error!(
             error.category = "job_attempts_exhausted",
             job.kind = %job.kind,
             job.format = %job.format,
             job.attempt = job.attempt,
+            job.interrupted_phase = job.interrupted_phase.as_deref().unwrap_or_default(),
             "background job stopped too many times; failed without running it again"
         );
         self.end(job, Ending::Failed("job_attempts_exhausted"))
@@ -645,7 +705,8 @@ impl BackgroundJobWorker {
     /// End `job`, stopped before it completed, as `ending` says, while this
     /// worker still holds it: first take back the media it stored — its
     /// rows are rolled back already, and the tree is still the job's — then
-    /// record how it ended, then remove what it keeps under `jobs/`. A pass
+    /// record how it ended, then remove what it keeps under `jobs/`, unless
+    /// it goes back to the queue, which needs its inputs again. A pass
     /// interrupted halfway leaves the job running, to be claimed again, or
     /// objects the maintenance sweep finds.
     async fn end(&self, job: &BackgroundJob, ending: Ending) -> Result<(), OxidGeneError> {
@@ -658,10 +719,13 @@ impl BackgroundJobWorker {
             Ending::Failed(code) => {
                 BackgroundJobRepo::fail(&self.db, job.id, &self.worker_id, code).await?
             }
+            Ending::Released => {
+                BackgroundJobRepo::release(&self.db, job.id, &self.worker_id).await?
+            }
         };
         if ended {
             remove_live_job(job.id);
-            if discarded {
+            if discarded && !matches!(ending, Ending::Released) {
                 self.delete_job_objects(job.id).await;
             }
         }
@@ -735,22 +799,50 @@ impl BackgroundJobWorker {
         Ok(true)
     }
 
-    /// Run until the process is shut down.
+    /// Run until the process ends.
     ///
     /// The loop runs on a task of its own, restarted after a pause if it
     /// panics: one job's failure must not end every job after it. Idle, it
     /// sleeps until there is work (see [`job_queue`]); under PostgreSQL a
     /// task of its own listens for the jobs other processes queue. Dropping
-    /// this future stops both.
+    /// this future stops both, leaving a running job to its lease.
     pub async fn run(self) {
+        self.run_until(std::future::pending(), Duration::ZERO).await;
+    }
+
+    /// Run until `stop` resolves, then stop cleanly.
+    ///
+    /// From then on no job is claimed. A job that is running has `grace`
+    /// to end by itself; past it, it is interrupted: it stops at its next
+    /// unit of work as a cancelled job does — its rows rolled back, the
+    /// media it stored taken back — and goes back to the queue, its inputs
+    /// kept, for another worker to run from the start
+    /// ([`BackgroundJobRepo::release`]). That start does not count against
+    /// it: only a worker that disappears uses an attempt up
+    /// ([`MAX_ATTEMPTS`]). A job that has not stopped `RELEASE_TIMEOUT`
+    /// later is left to its lease, as when the process is killed.
+    pub async fn run_until(self, stop: impl Future<Output = ()>, grace: Duration) {
         #[cfg(feature = "postgres")]
         let _listener = AbortOnDrop(tokio::spawn(job_queue::listen(self.db.clone())));
-        supervise(move || self.clone().run_loop(), RETRY_PAUSE).await;
+        let stopping = Arc::clone(&self.stopping);
+        let work = supervise(move || self.clone().run_loop(), RETRY_PAUSE);
+        tokio::pin!(work);
+        tokio::select! {
+            () = &mut work => return,
+            () = stop => {}
+        }
+        stopping.store(true, Ordering::SeqCst);
+        // An idle worker sleeps until there is work: this ends its sleep.
+        job_queue::wake();
+        wind_down(work, grace).await;
     }
 
     async fn run_loop(self) {
         let mut next_maintenance = tokio::time::Instant::now();
         loop {
+            if self.stopping.load(Ordering::SeqCst) {
+                return;
+            }
             if tokio::time::Instant::now() >= next_maintenance {
                 self.maintain(chrono::Utc::now()).await;
                 next_maintenance = tokio::time::Instant::now() + MAINTENANCE_PERIOD;
@@ -1575,6 +1667,22 @@ where
     }
 }
 
+/// Wait for `work`, the loop of a worker that claims no more job, to end:
+/// `grace` for the job it runs to end by itself, then [`RELEASE_TIMEOUT`]
+/// for that job, interrupted, to go back to the queue.
+async fn wind_down(mut work: std::pin::Pin<&mut impl Future<Output = ()>>, grace: Duration) {
+    if tokio::time::timeout(grace, &mut work).await.is_ok() {
+        return;
+    }
+    interrupt_running_jobs();
+    if tokio::time::timeout(RELEASE_TIMEOUT, work).await.is_err() {
+        tracing::warn!(
+            error = "worker_shutdown",
+            "the running job did not stop in time; it is left to its lease"
+        );
+    }
+}
+
 /// A task that ends when its handle is dropped.
 struct AbortOnDrop(tokio::task::JoinHandle<()>);
 
@@ -1591,6 +1699,8 @@ enum Ending {
     Cancelled,
     /// It failed, with this stable error code.
     Failed(&'static str),
+    /// It stopped with its worker, and goes back to the queue.
+    Released,
 }
 
 /// `outcome`, with `transaction` to go on with, or its error once
@@ -2903,15 +3013,15 @@ mod tests {
         let db = migrated_db().await;
         let (_root, media, job_id) = queued_import(&db, "gedcom").await;
         // Each start claims it and dies mid-run, as a process aborting on a
-        // crafted file would; the next start puts it back in the queue.
+        // crafted file would; the next start finds it without a worker.
         for _ in 0..MAX_ATTEMPTS {
             BackgroundJobRepo::claim_next(&db, "crashed", chrono::Duration::hours(1))
                 .await
                 .expect("claims")
                 .expect("a queued job");
-            BackgroundJobRepo::requeue_running(&db)
+            BackgroundJobRepo::abandon_running(&db)
                 .await
-                .expect("requeues");
+                .expect("abandons");
         }
         let worker = BackgroundJobWorker::new(
             db.clone(),
@@ -2926,6 +3036,149 @@ mod tests {
         assert_eq!(failed.status, "failed");
         assert_eq!(failed.error_code.as_deref(), Some("job_attempts_exhausted"));
         assert_eq!(failed.phase, "failed");
+    }
+
+    /// A job whose worker disappears twice in the same phase is not run a
+    /// third time: whatever stops it there would stop it again.
+    #[tokio::test]
+    async fn a_job_that_lost_its_worker_twice_in_one_phase_is_not_run_again() {
+        let db = migrated_db().await;
+        let (_root, media, job_id) = queued_import(&db, "gedcom").await;
+        for _ in 0..2 {
+            BackgroundJobRepo::claim_next(&db, "crashed", chrono::Duration::hours(1))
+                .await
+                .expect("claims")
+                .expect("the job");
+            BackgroundJobRepo::abandon_running(&db)
+                .await
+                .expect("abandons");
+        }
+        assert!(
+            worker_over(&db, &media)
+                .run_once()
+                .await
+                .expect("claims the job")
+        );
+
+        let failed = job(&db, job_id).await;
+        assert_eq!(failed.status, "failed");
+        assert_eq!(failed.error_code.as_deref(), Some("job_attempts_exhausted"));
+        assert_eq!(failed.attempt, 3);
+    }
+
+    /// A job whose worker disappeared in two different phases is run
+    /// again: nothing says it is the job's doing.
+    #[tokio::test]
+    async fn a_job_that_lost_its_workers_in_different_phases_is_run_again() {
+        let db = migrated_db().await;
+        let (_root, media, job_id) = queued_import(&db, "gedcom").await;
+        let lease = chrono::Duration::hours(1);
+        for phase in ["parsing", "media"] {
+            BackgroundJobRepo::claim_next(&db, "crashed", lease)
+                .await
+                .expect("claims")
+                .expect("the job");
+            BackgroundJobRepo::progress(&db, job_id, "crashed", phase, 0, 0, lease)
+                .await
+                .expect("reports its phase");
+            BackgroundJobRepo::abandon_running(&db)
+                .await
+                .expect("abandons");
+        }
+        assert!(
+            worker_over(&db, &media)
+                .run_once()
+                .await
+                .expect("claims the job")
+        );
+
+        let done = job(&db, job_id).await;
+        assert_eq!(done.status, "completed");
+        assert_eq!(done.interrupted_phase.as_deref(), Some("media"));
+        assert_eq!(done.attempt, 3);
+    }
+
+    /// A worker asked to stop while it imports interrupts the import
+    /// between two batches: the tree is as it was, the job is back in the
+    /// queue with its inputs, the start is not counted, and another worker
+    /// runs it whole.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_worker_asked_to_stop_gives_its_import_back_uncounted() {
+        let viewer = &ViewerContext::local();
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let media = fs_store(&root);
+        let text = families_gedcom(400);
+        let (tree_id, job_id) = queued_gedcom(viewer, &db, &*media, &text).await;
+        let before = tree_rows(&db, tree_id).await;
+
+        // The signal comes once the import runs.
+        let running = async move {
+            while live_state(tree_id, job_id, BackgroundJobKind::Import).is_none() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            worker_over(&db, &media).run_until(running, Duration::ZERO),
+        )
+        .await
+        .expect("the worker stops");
+
+        let released = job(&db, job_id).await;
+        assert_eq!(released.status, "queued");
+        assert_eq!(released.attempt, 0, "a clean stop is not an attempt");
+        assert_eq!(released.lease_owner, None);
+        assert_eq!(released.interrupted_phase, None);
+        assert_eq!(tree_rows(&db, tree_id).await, before, "rolled back");
+        assert!(
+            live_state(tree_id, job_id, BackgroundJobKind::Import).is_none(),
+            "no longer running here"
+        );
+
+        // Its inputs are still there: another worker runs it from the start.
+        assert!(
+            worker_over(&db, &media)
+                .run_once()
+                .await
+                .expect("claims the job")
+        );
+        let done = job(&db, job_id).await;
+        assert_eq!(done.status, "completed");
+        assert_eq!(done.attempt, 1);
+        assert_eq!(tree_rows(&db, tree_id).await[0], 1_200, "every person");
+    }
+
+    /// A worker asked to stop while idle stops at once, and one whose job
+    /// ends within the grace period lets it end.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_worker_asked_to_stop_lets_a_job_end_within_the_grace_period() {
+        let viewer = &ViewerContext::local();
+        let db = migrated_db().await;
+        let root = tempfile::tempdir().expect("creates media root");
+        let media = fs_store(&root);
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            worker_over(&db, &media).run_until(async {}, Duration::from_secs(60)),
+        )
+        .await
+        .expect("an idle worker stops at once");
+
+        let (tree_id, job_id) = queued_gedcom(viewer, &db, &*media, &families_gedcom(200)).await;
+        let running = async move {
+            while live_state(tree_id, job_id, BackgroundJobKind::Import).is_none() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            worker_over(&db, &media).run_until(running, Duration::from_secs(60)),
+        )
+        .await
+        .expect("the worker stops once its job ended");
+        let done = job(&db, job_id).await;
+        assert_eq!(done.status, "completed");
+        assert_eq!(done.attempt, 1);
     }
 
     #[tokio::test]
@@ -2994,6 +3247,7 @@ mod tests {
             done: 0,
             total: 0,
             attempt: 1,
+            interrupted_phase: None,
             lease_owner: Some("test".to_string()),
             lease_until: None,
             cancel_requested: false,

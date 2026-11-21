@@ -25,6 +25,7 @@ spec:
     spec:
       serviceAccountName: {{ include "oxidgene.serviceAccountName" . }}
       automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ add (int .Values.worker.shutdownGraceSeconds) 15 }}
       securityContext:
         {{- toYaml .Values.worker.podSecurityContext | nindent 8 }}
       {{- with .Values.imagePullSecrets }}
@@ -42,6 +43,8 @@ spec:
               value: {{ .Values.worker.logLevel | quote }}
             - name: OXIDGENE_LOG_FORMAT
               value: {{ .Values.worker.logFormat | quote }}
+            - name: OXIDGENE_WORKER_SHUTDOWN_GRACE_SECS
+              value: {{ .Values.worker.shutdownGraceSeconds | quote }}
             {{- with .Values.worker.otlpEndpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ . | quote }}

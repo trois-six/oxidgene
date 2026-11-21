@@ -94,6 +94,14 @@ worker:
     repository: ghcr.io/trois-six/oxidgene-worker
     tag: ""
     pullPolicy: IfNotPresent
+  # Seconds a worker asked to stop (SIGTERM: a rollout, a node drained) lets
+  # its running job end before it interrupts it and gives it back to the
+  # queue (OXIDGENE_WORKER_SHUTDOWN_GRACE_SECS). The pod is given 15 seconds
+  # more before it is killed: the time an interrupted job needs to roll
+  # back, with a margin. A job given back is run again from the start by
+  # another worker and does not count as a failed attempt; a pod killed
+  # before it could give its job back does.
+  shutdownGraceSeconds: 30
   logLevel: info
   # Console log format, `text` or `json`. With OTLP export enabled, a collector
   # that also scrapes these lines receives every event twice.

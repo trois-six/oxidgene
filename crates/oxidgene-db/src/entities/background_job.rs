@@ -22,6 +22,8 @@ pub struct Model {
     pub done: i64,
     pub total: i64,
     pub attempt: i32,
+    /// The phase the job was in when a worker last disappeared under it.
+    pub interrupted_phase: Option<String>,
     pub lease_owner: Option<String>,
     pub lease_until: Option<DateTimeUtc>,
     pub cancel_requested: bool,

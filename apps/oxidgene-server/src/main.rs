@@ -102,14 +102,24 @@ async fn main() {
         .with_cache(cfg.cache())
         .with_auth(Arc::clone(&auth))
         .with_access_log_retention(access_log_retention);
-    if embedded_worker {
+    let worker = if embedded_worker {
         // SQLite has no separate worker: this process was the only one
         // running the jobs a previous run left marked as running.
-        spawn_background_worker(&state, uses_sqlite, "embedded-server").await;
-        // The embedded worker sends the mail too.
-        if let Some(mail) = &mail {
-            mail.spawn_sender(state.db.clone());
-        }
+        Some(
+            spawn_background_worker(
+                &state,
+                uses_sqlite,
+                "embedded-server",
+                cfg.worker_shutdown_grace(),
+            )
+            .await,
+        )
+    } else {
+        None
+    };
+    // The embedded worker sends the mail too.
+    if embedded_worker && let Some(mail) = &mail {
+        mail.spawn_sender(state.db.clone());
     }
     // Under PostgreSQL the workers may run in other processes: their writes
     // reach this one's waiting job status reads as notifications, and the
@@ -157,6 +167,11 @@ async fn main() {
         "Server error",
     );
 
+    // The requests are answered: the embedded worker stops in its turn,
+    // its running job ended or back in the queue.
+    if let Some(worker) = worker {
+        worker.stop().await;
+    }
     info!("Server shut down gracefully");
     telemetry.shutdown();
 }

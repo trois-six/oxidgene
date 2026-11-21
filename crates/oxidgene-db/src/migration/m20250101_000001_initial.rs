@@ -690,6 +690,7 @@ enum BackgroundJob {
     Done,
     Total,
     Attempt,
+    InterruptedPhase,
     LeaseOwner,
     LeaseUntil,
     CancelRequested,
@@ -2014,6 +2015,7 @@ async fn create_jobs_and_search(manager: &SchemaManager<'_>) -> Result<(), DbErr
                 .col(big_integer(BackgroundJob::Done).default(0))
                 .col(big_integer(BackgroundJob::Total).default(0))
                 .col(integer(BackgroundJob::Attempt).default(0))
+                .col(string_len_null(BackgroundJob::InterruptedPhase, 32))
                 .col(string_null(BackgroundJob::LeaseOwner))
                 .col(timestamp_with_time_zone_null(BackgroundJob::LeaseUntil))
                 .col(boolean(BackgroundJob::CancelRequested).default(false))

@@ -60,8 +60,8 @@ pub use access_scope::{AccessScope, AccessScopeRepo, NamedRecords};
 pub use ancestry::{AncestryRepo, FamilyLink, MAX_GENERATIONS};
 pub use app_user::{AppUser, AppUserChanges, AppUserRepo, InstanceRole, NewAppUser, UserStatus};
 pub use background_job::{
-    BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, JOB_CHANNEL,
-    NewBackgroundJob, QUEUE_CHANNEL, job_actor,
+    BackgroundJob, BackgroundJobKind, BackgroundJobRepo, BackgroundJobStatus, ClaimedJob,
+    JOB_CHANNEL, NewBackgroundJob, QUEUE_CHANNEL, job_actor,
 };
 pub use citation::{CitationFilter, CitationRepo};
 pub use connection::{

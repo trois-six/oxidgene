@@ -109,6 +109,24 @@ pub struct ActiveImport {
     pub cancel_requested: bool,
 }
 
+/// A job a worker just claimed.
+#[derive(Debug, Clone)]
+pub struct ClaimedJob {
+    pub job: BackgroundJob,
+    /// Its worker disappeared under it — it was found running past its
+    /// lease — in the phase where a worker had disappeared before: it died
+    /// twice the same way, and is not to be run a third time.
+    pub lost_twice_in_phase: bool,
+}
+
+impl std::ops::Deref for ClaimedJob {
+    type Target = BackgroundJob;
+
+    fn deref(&self) -> &BackgroundJob {
+        &self.job
+    }
+}
+
 pub struct BackgroundJobRepo;
 
 impl BackgroundJobRepo {
@@ -137,16 +155,25 @@ impl BackgroundJobRepo {
         input: NewBackgroundJob,
     ) -> Result<BackgroundJob, OxidGeneError> {
         let job = Self::insert(db, input).await?;
-        if db.get_database_backend() == sea_orm::DatabaseBackend::Postgres {
-            db.execute_raw(sea_orm::Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                "SELECT pg_notify($1, '')",
-                [QUEUE_CHANNEL.into()],
-            ))
-            .await
-            .map_err(db_err)?;
-        }
+        Self::announce_queued(db).await?;
         Ok(job)
+    }
+
+    /// Announce on [`QUEUE_CHANNEL`] that a job waits for a worker, under
+    /// PostgreSQL; within a transaction, the notification leaves when it
+    /// commits. Nothing elsewhere.
+    async fn announce_queued(db: &impl ConnectionTrait) -> Result<(), OxidGeneError> {
+        if db.get_database_backend() != sea_orm::DatabaseBackend::Postgres {
+            return Ok(());
+        }
+        db.execute_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT pg_notify($1, '')",
+            [QUEUE_CHANNEL.into()],
+        ))
+        .await
+        .map(drop)
+        .map_err(db_err)
     }
 
     async fn insert(
@@ -175,6 +202,7 @@ impl BackgroundJobRepo {
             done: Set(0),
             total: Set(0),
             attempt: Set(0),
+            interrupted_phase: Set(None),
             lease_owner: Set(None),
             lease_until: Set(None),
             cancel_requested: Set(false),
@@ -262,22 +290,62 @@ impl BackgroundJobRepo {
             .map_err(db_err)
     }
 
-    /// Requeue interrupted jobs when starting the single-worker SQLite runtime.
-    pub async fn requeue_running(db: &impl ConnectionTrait) -> Result<u64, OxidGeneError> {
+    /// End the lease of every running job, when starting the only worker
+    /// of a database: nothing else runs them, so the worker a previous run
+    /// left them with is gone. They stay running, past their lease, and
+    /// the next claim takes each over as it does any job whose worker
+    /// disappeared ([`Self::claim_next`]).
+    pub async fn abandon_running(db: &impl ConnectionTrait) -> Result<u64, OxidGeneError> {
         let now = Utc::now();
         Entity::update_many()
             .col_expr(
-                Column::Status,
-                Expr::value(BackgroundJobStatus::Queued.as_str()),
+                Column::LeaseUntil,
+                Expr::value(Some(now - Duration::seconds(1))),
             )
-            .col_expr(Column::LeaseOwner, Expr::value(Option::<String>::None))
-            .col_expr(Column::LeaseUntil, Expr::value(Option::<DateTimeUtc>::None))
             .col_expr(Column::UpdatedAt, Expr::value(now))
             .filter(Column::Status.eq(BackgroundJobStatus::Running.as_str()))
             .exec(db)
             .await
             .map(|result| result.rows_affected)
             .map_err(db_err)
+    }
+
+    /// Give running job `id` back to the queue: `worker_id` stops, and
+    /// stopped the job cleanly first. The job waits for another worker as
+    /// if it had never been claimed — this claim does not count as an
+    /// attempt — and its inputs are kept. Announced like a queued job, so
+    /// an idle worker takes it at once. Whether `worker_id` held it.
+    pub async fn release(
+        db: &impl ConnectionTrait,
+        id: Uuid,
+        worker_id: &str,
+    ) -> Result<bool, OxidGeneError> {
+        let now = Utc::now();
+        let result = Entity::update_many()
+            .col_expr(
+                Column::Status,
+                Expr::value(BackgroundJobStatus::Queued.as_str()),
+            )
+            .col_expr(Column::Phase, Expr::value("queued"))
+            .col_expr(Column::Done, Expr::value(0))
+            .col_expr(Column::Total, Expr::value(0))
+            .col_expr(Column::Attempt, Expr::col(Column::Attempt).sub(1))
+            .col_expr(Column::LeaseOwner, Expr::value(Option::<String>::None))
+            .col_expr(Column::LeaseUntil, Expr::value(Option::<DateTimeUtc>::None))
+            .col_expr(Column::StartedAt, Expr::value(Option::<DateTimeUtc>::None))
+            .col_expr(Column::UpdatedAt, Expr::value(now))
+            .filter(Column::Id.eq(id))
+            .filter(Column::Status.eq(BackgroundJobStatus::Running.as_str()))
+            .filter(Column::LeaseOwner.eq(worker_id))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        if result.rows_affected != 1 {
+            return Ok(false);
+        }
+        Self::announce(db, id).await?;
+        Self::announce_queued(db).await?;
+        Ok(true)
     }
 
     /// When the earliest lease of the running jobs expires, making its job
@@ -299,11 +367,17 @@ impl BackgroundJobRepo {
     }
 
     /// Claim the oldest queued job or a running job whose worker lease expired.
+    ///
+    /// A job found running past its lease lost its worker: a crash, a
+    /// kill, a machine gone — a worker that stops cleanly releases its job
+    /// instead ([`Self::release`]). The phase it was in is noted on the
+    /// job, and the claim says when that is the phase a worker was lost in
+    /// before.
     pub async fn claim_next(
         db: &impl ConnectionTrait,
         worker_id: &str,
         lease_duration: Duration,
-    ) -> Result<Option<BackgroundJob>, OxidGeneError> {
+    ) -> Result<Option<ClaimedJob>, OxidGeneError> {
         let now = Utc::now();
         let claimable = claimable_condition(now);
         let Some(candidate) = Entity::find()
@@ -316,7 +390,17 @@ impl BackgroundJobRepo {
             return Ok(None);
         };
 
-        let updated = Entity::update_many()
+        let lost = candidate.status == BackgroundJobStatus::Running.as_str();
+        let lost_twice_in_phase =
+            lost && candidate.interrupted_phase.as_deref() == Some(candidate.phase.as_str());
+        let mut claim = Entity::update_many();
+        if lost {
+            claim = claim.col_expr(
+                Column::InterruptedPhase,
+                Expr::value(Some(candidate.phase.clone())),
+            );
+        }
+        let updated = claim
             .col_expr(
                 Column::Status,
                 Expr::value(BackgroundJobStatus::Running.as_str()),
@@ -334,9 +418,11 @@ impl BackgroundJobRepo {
         if updated.rows_affected == 0 {
             return Ok(None);
         }
-        Self::get_in_tree(db, candidate.tree_id, candidate.id)
-            .await
-            .map(Some)
+        let job = Self::get_in_tree(db, candidate.tree_id, candidate.id).await?;
+        Ok(Some(ClaimedJob {
+            job,
+            lost_twice_in_phase,
+        }))
     }
 
     /// Record running job `id`'s progress and renew `worker_id`'s lease on

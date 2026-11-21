@@ -215,6 +215,11 @@ pub struct ServerConfig {
     /// How many seconds the tree cache keeps a tree no request uses.
     #[serde(default = "default_cache_idle_secs")]
     pub cache_idle_secs: u64,
+
+    /// How many seconds a worker asked to stop lets its running job end
+    /// before it interrupts it and gives it back to the queue.
+    #[serde(default = "default_worker_shutdown_grace_secs")]
+    pub worker_shutdown_grace_secs: u64,
 }
 
 impl std::fmt::Debug for ServerConfig {
@@ -246,6 +251,10 @@ impl std::fmt::Debug for ServerConfig {
             .field("import_archive_entries", &self.import_archive_entries)
             .field("cache_mib", &self.cache_mib)
             .field("cache_idle_secs", &self.cache_idle_secs)
+            .field(
+                "worker_shutdown_grace_secs",
+                &self.worker_shutdown_grace_secs,
+            )
             .finish()
     }
 }
@@ -300,6 +309,13 @@ fn default_cache_mib() -> usize {
 
 fn default_cache_idle_secs() -> u64 {
     oxidgene_api::tree_cache::DEFAULT_IDLE.as_secs()
+}
+
+/// Ten seconds less than the 30 seconds Kubernetes leaves a pod between
+/// SIGTERM and SIGKILL by default, which is what the job needs at most to
+/// roll back and go back to the queue once interrupted.
+fn default_worker_shutdown_grace_secs() -> u64 {
+    20
 }
 
 fn default_port() -> u16 {
@@ -416,6 +432,12 @@ impl ServerConfig {
             self.cache_mib.saturating_mul(1024 * 1024),
             Duration::from_secs(self.cache_idle_secs),
         )
+    }
+
+    /// How long a worker asked to stop lets its running job end:
+    /// `OXIDGENE_WORKER_SHUTDOWN_GRACE_SECS`.
+    pub fn worker_shutdown_grace(&self) -> Duration {
+        Duration::from_secs(self.worker_shutdown_grace_secs)
     }
 
     /// The working directory `OXIDGENE_WORK_DIR` names, or the default.

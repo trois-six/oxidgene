@@ -143,15 +143,40 @@ pub async fn open_database(database_url: &str) -> Connections {
     )
 }
 
-/// Run the background job worker inside this process.
+/// The background job worker running inside this process: what stops it
+/// cleanly when the process does.
+#[must_use = "a worker that is not stopped leaves its running job to its lease"]
+pub struct EmbeddedWorker {
+    stop: tokio::sync::oneshot::Sender<()>,
+    stopped: JoinHandle<()>,
+}
+
+impl EmbeddedWorker {
+    /// Stop the worker and wait for it: it claims no more job, and the one
+    /// it runs ends within the grace period it was started with or goes
+    /// back to the queue (see [`BackgroundJobWorker::run_until`]).
+    pub async fn stop(self) {
+        // An error means the worker is gone already.
+        let _ = self.stop.send(());
+        let _ = self.stopped.await;
+    }
+}
+
+/// Run the background job worker inside this process, until the handle
+/// returned stops it, giving a running job `shutdown_grace` to end then.
 ///
-/// With `requeue_running`, the jobs a previous run left marked as running go
-/// back to the queue first: when this process is the only worker, nothing
-/// else is still running them.
-pub async fn spawn_background_worker(state: &AppState, requeue_running: bool, worker_id: &str) {
-    if requeue_running {
+/// With `only_worker`, the jobs a previous run left marked as running are
+/// taken over first: when this process is the only worker, nothing else is
+/// still running them, and their worker disappeared.
+pub async fn spawn_background_worker(
+    state: &AppState,
+    only_worker: bool,
+    worker_id: &str,
+    shutdown_grace: std::time::Duration,
+) -> EmbeddedWorker {
+    if only_worker {
         or_exit(
-            BackgroundJobRepo::requeue_running(&state.db).await,
+            BackgroundJobRepo::abandon_running(&state.db).await,
             "background_job_recovery",
             "Failed to recover background jobs",
         );
@@ -167,7 +192,17 @@ pub async fn spawn_background_worker(state: &AppState, requeue_running: bool, wo
     .with_access_log_retention(state.access_log_retention);
     #[cfg(feature = "auth")]
     let worker = worker.with_mailing(state.auth.mailing().0);
-    tokio::spawn(worker.run());
+    let (stop, asked) = tokio::sync::oneshot::channel();
+    let stopped = tokio::spawn(worker.run_until(
+        async move {
+            // A handle dropped without `stop` leaves the worker running.
+            if asked.await.is_err() {
+                std::future::pending::<()>().await;
+            }
+        },
+        shutdown_grace,
+    ));
+    EmbeddedWorker { stop, stopped }
 }
 
 /// The relay and the `oidc` deployment a process mails for, when
