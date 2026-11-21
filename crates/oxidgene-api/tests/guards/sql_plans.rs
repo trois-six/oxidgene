@@ -22,6 +22,15 @@
 //! the functional suite (`just sql-plans`, the CI SQL plans job): it reads
 //! the plans of a few thousand statements.
 //!
+//!
+//! The person search is checked further: the run sends the searches the
+//! search page, its suggestions and the pickers send (`SEARCHES`), and a
+//! statement matching the search's words must read them as a range of their
+//! key (`SEARCH person_search_token USING PRIMARY KEY (tree_id=? AND
+//! token>? AND token<?)`) — what makes a word prefix an index read. The
+//! same searches' plans are checked on PostgreSQL by the repository tests
+//! `just test-postgres` runs (`person_search_test`).
+//!
 //! Fixing a failure: add the index the statement needs (in the initial
 //! migration while the product is unreleased), or filter by an indexed
 //! column; declare a read that must see every row in `WHOLE_TREE_READS`
@@ -54,6 +63,8 @@ const LARGE_TABLES: &[&str] = &[
     "media_link",
     "record_tag",
     "person_denorm",
+    "person_search",
+    "person_search_token",
 ];
 
 /// Statements allowed to scan a large table, by a fragment of their SQL,
@@ -62,12 +73,58 @@ const WHOLE_TREE_READS: &[(&str, &str)] = &[];
 
 /// Pages of a large table allowed to sort what they read, by a fragment of
 /// their SQL, with why.
-const SORTED_PAGES: &[(&str, &str)] = &[(
-    // `HistoryRepo`: the persons last edited.
-    r#"GROUP BY "audit_entry"."subject_id" ORDER BY MAX("audit_entry"."id") DESC"#,
-    "the persons last edited, ranked by their latest entry: an order computed \
-     from the history of each, which no index holds; one row per edited person",
-)];
+const SORTED_PAGES: &[(&str, &str)] = &[
+    (
+        // `HistoryRepo`: the persons last edited.
+        r#"GROUP BY "audit_entry"."subject_id" ORDER BY MAX("audit_entry"."id") DESC"#,
+        "the persons last edited, ranked by their latest entry: an order computed \
+         from the history of each, which no index holds; one row per edited person",
+    ),
+    (
+        // `PersonSearchRepo`: a search with words to match.
+        r#"FROM "person_search_token""#,
+        "the persons a search's words find, read through the words' key, then \
+         put in the order asked: a set the words choose, ranked by how well \
+         each matches, which no index of the rows holds",
+    ),
+    (
+        // `PersonSearchRepo`: a search on birth years.
+        r#""person_search"."birth_year" >= "#,
+        "the persons born within years, one range of the birth-year index, \
+         put in the order asked: the years choose them, and no index holds \
+         both the years and the name",
+    ),
+    (
+        // `PersonSearchRepo::homonyms`.
+        r#""person_search"."given_key" = "#,
+        "the persons bearing one name, found by the name index, ordered by \
+         birth: a handful",
+    ),
+];
+
+/// The searches the run sends besides each route's own example: what the
+/// search page, its suggestions, the pickers and the assistant send.
+const SEARCHES: &[&str] = &[
+    "surname=Exa",
+    "surname=Example&given_names=Ann",
+    "surname=Exa&birth_from=1800&birth_to=1850&sort=birth_asc",
+    "q=Ann%20Exa",
+    "father_surname=Exa&sort=name_desc",
+    "birth_from=1800&birth_to=1850&sort=name_asc",
+    "q=&sort=name_asc",
+];
+
+/// Whether `sql` matches the person search's words: a word prefix, as a
+/// range of `token`. Deleting a person's or a tree's words reads them by
+/// their own indexes.
+fn reads_words(sql: &str) -> bool {
+    sql.contains(r#"FROM "person_search_token""#) && sql.contains(r#""token" >= "#)
+}
+
+/// Whether a plan row reads the search's words as a range of their key.
+fn word_range(detail: &str) -> bool {
+    detail.starts_with("SEARCH person_search_token USING PRIMARY KEY (tree_id=? AND token>")
+}
 
 /// The table a plan row reads, if it reads one: `SCAN person …`, `SEARCH
 /// person USING …`.
@@ -95,6 +152,8 @@ fn is_page(sql: &str) -> bool {
 struct Findings {
     scans: Vec<String>,
     sorted_pages: Vec<String>,
+    /// Statements reading the search's words other than by a key range.
+    word_reads: Vec<String>,
 }
 
 impl Findings {
@@ -120,6 +179,10 @@ impl Findings {
             && !declared(SORTED_PAGES)
         {
             self.sorted_pages
+                .push(format!("{}\n    {sql}", details.join(" / ")));
+        }
+        if reads_words(sql) && !details.iter().any(|detail| word_range(detail)) {
+            self.word_reads
                 .push(format!("{}\n    {sql}", details.join(" / ")));
         }
     }
@@ -155,6 +218,15 @@ fn a_plan_row_names_its_table_and_its_sort() {
     assert!(!is_page(
         "SELECT id FROM person WHERE tree_id = ? ORDER BY id"
     ));
+    assert!(word_range(
+        "SEARCH person_search_token USING PRIMARY KEY (tree_id=? AND token>? AND token<?)"
+    ));
+    assert!(!word_range(
+        "SEARCH person_search_token USING PRIMARY KEY (tree_id=?)"
+    ));
+    assert!(!word_range(
+        "SEARCH person_search_token USING INDEX idx_person_search_token_person (person_id=?)"
+    ));
 }
 
 #[tokio::test]
@@ -172,6 +244,10 @@ async fn no_statement_scans_a_large_table() {
         {
             send(&app, Method::GET, &uri, None).await;
         }
+    }
+    for search in SEARCHES {
+        let uri = format!("/api/v1/trees/{}/persons/search?{search}", tree.tree_id);
+        ok(&app, Method::GET, &uri, None).await;
     }
 
     let statements: BTreeSet<String> = capture
@@ -223,5 +299,10 @@ async fn no_statement_scans_a_large_table() {
         findings.sorted_pages.is_empty(),
         "pages of a large table sorting what they read:\n{}",
         findings.sorted_pages.join("\n")
+    );
+    assert!(
+        findings.word_reads.is_empty(),
+        "statements reading the search's words other than by a range of their key:\n{}",
+        findings.word_reads.join("\n")
     );
 }

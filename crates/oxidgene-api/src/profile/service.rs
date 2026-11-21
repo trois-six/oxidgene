@@ -1,8 +1,8 @@
 //! Person-projection orchestration.
 //!
 //! [`ProfileService`] owns the read side of the domain: it materializes the
-//! denormalized person projections into `person_denorm`, keeps
-//! `person_search_fts` in step, and assembles pedigrees on demand by joining
+//! denormalized person projections into `person_denorm`, keeps the
+//! person search's rows and words in step, and assembles pedigrees on demand by joining
 //! the family links against those projections.
 //!
 //! Every mutation rewrites the bounded set of projections it invalidates, so
@@ -907,8 +907,8 @@ impl ProfileService {
 
     // ── Search ───────────────────────────────────────────────────────────
 
-    /// Search persons in a tree via the DB-native `person_search_fts` table
-    /// (SQLite FTS5 / plain PostgreSQL table).
+    /// Search persons in a tree through the `person_search` rows and their
+    /// words (docs/data-model.md §4.3).
     #[instrument(skip_all)]
     pub async fn search(
         &self,
@@ -1020,14 +1020,13 @@ impl ProfileService {
 
     // ── Invalidation ─────────────────────────────────────────────────────
 
-    /// Drop a deleted person's search row and refresh everyone who
-    /// referenced them: `affected`, the set
+    /// Refresh everyone who referenced a deleted person: `affected`, the set
     /// [`affected_persons`](super::invalidation::affected_persons)
     /// read before the deletion took the family links it is made of.
     ///
-    /// Their `person_denorm`, `sosa_ancestor` and `person_visibility` rows
-    /// went with the person (`ON DELETE CASCADE`); the search table has no
-    /// foreign key to cascade through.
+    /// Their `person_denorm`, `sosa_ancestor`, `person_visibility` and
+    /// search rows, with the search row's words, went with the person
+    /// (`ON DELETE CASCADE`).
     #[instrument(skip_all)]
     pub async fn invalidate_for_person_delete(
         &self,
@@ -1036,8 +1035,6 @@ impl ProfileService {
         person_id: Uuid,
         affected: &[Uuid],
     ) -> Result<(), OxidGeneError> {
-        PersonSearchRepo::delete_person(conn, person_id).await?;
-
         let remaining: Vec<Uuid> = affected
             .iter()
             .copied()
@@ -1049,7 +1046,7 @@ impl ProfileService {
 
         debug!(
             count = remaining.len(),
-            "Dropped projection and refreshed related persons"
+            "Refreshed the persons related to a deleted one"
         );
         Ok(())
     }

@@ -29,6 +29,21 @@ pub fn fold_words(text: &str) -> String {
     fold_text(text, |_| Separator::Break)
 }
 
+/// Whether every word of `query` begins a word of `text`, both folded by
+/// [`fold_words`], in any order: how the person search matches what is
+/// typed against a name (docs/api.md, person search). A query without a
+/// word holds.
+///
+/// "sophie" begins a word of "Anne-Sophie", "cruz" one of "de la Cruz";
+/// "phie" begins none.
+pub fn begins_words(text: &str, query: &str) -> bool {
+    let text = fold_words(text);
+    fold_words(query)
+        .split(' ')
+        .filter(|word| !word.is_empty())
+        .all(|word| text.split(' ').any(|written| written.starts_with(word)))
+}
+
 /// [`fold_words`], with `other` deciding what becomes of each character that
 /// is neither a letter nor a digit. Whitespace is always a break.
 ///
@@ -149,6 +164,18 @@ mod tests {
         assert_eq!(fold_words("Laboureur/euse"), "laboureur euse");
         assert_eq!(fold_words("Cœur-d’Ŵy"), "coeur d wy");
         assert_eq!(fold_words("Søren Đorđe"), "soren dorde");
+    }
+
+    #[test]
+    fn each_word_typed_must_begin_a_word_written() {
+        assert!(begins_words("Anne-Sophie", "sophie"));
+        assert!(begins_words("de la Cruz", "Cruz"));
+        assert!(begins_words("de la Cruz", "cr DE"));
+        assert!(begins_words("Lebâtard", "LEBAT"));
+        assert!(begins_words("Lebâtard", "  "));
+        assert!(!begins_words("Anne-Sophie", "phie"));
+        assert!(!begins_words("de la Cruz", "cruz martin"));
+        assert!(!begins_words("", "a"));
     }
 
     #[test]

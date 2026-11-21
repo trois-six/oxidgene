@@ -5,7 +5,7 @@
 //! module; reads serve the person detail page, the person list and every
 //! pedigree node.
 //!
-//! This table (together with `person_search_fts`) is what replaced the
+//! This table (together with `person_search`) is what replaced the
 //! `oxidgene-cache` crate: the projection is durable, survives restarts, and
 //! is identical on desktop (SQLite) and web (PostgreSQL).
 

@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:29:03Z }
 ---
 
 
@@ -15,8 +15,8 @@ generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 Source of truth in code: `crates/oxidgene-core/src/types/` (domain structs), `crates/oxidgene-core/src/enums.rs` (enums), `crates/oxidgene-db/src/entities/` (SeaORM entities), `crates/oxidgene-db/src/migration/m20250101_000001_initial.rs` (the complete current schema).
 
 While the product is unreleased, the migrator registers only this initial
-migration, including all current tables, indexes, backend-specific search
-storage, and background-job trace context; a schema change edits it.
+migration, including all current tables, indexes, the person search's
+tables, and background-job trace context; a schema change edits it.
 Databases created with an earlier schema must be recreated and their genealogy
 reimported; running the consolidated migration is not an in-place upgrade. A
 SQLite file says which schema it was created with — `schema_meta` holds,
@@ -103,7 +103,7 @@ before the record's row goes. Per record deleted:
 
 | Deleted | Goes with it | Stays, no longer naming it |
 |---|---|---|
-| Person | Their names; their own events, each with what goes with an event; the witness rows naming them on others' events; their spouse and child links, a spouse link with the spouses' ages kept by that membership; the notes and citations about them; their media links and tags; their distinct-person confirmations; their projections — `person_denorm`, `sosa_ancestor`, `person_visibility`, `excluded_person`, `access_scope_person` — by cascade, and their search row and kept GEDCOM, written by the deletion | The identification boxes showing them, or standing as evidence for one of their events: the region stays on its page and loses that attribution, written by the deletion (the foreign keys refuse a deletion that did not). The tree's SOSA root and "self", a member's "Who am I?" (`SET NULL`). Their families: a family left with no spouse and no child stays, with its own events, notes and citations, as the family of nobody a restore may link the person back to. A sharing exclusion or an access scope rooted at them keeps its root by ID and covers nobody until a restore brings the person back ([Privacy §6.5](privacy.md#65-kept-in-sync), [Authorization §6.5](authorization.md#65-access-scopes)) |
+| Person | Their names; their own events, each with what goes with an event; the witness rows naming them on others' events; their spouse and child links, a spouse link with the spouses' ages kept by that membership; the notes and citations about them; their media links and tags; their distinct-person confirmations; their projections — `person_denorm`, `sosa_ancestor`, `person_visibility`, `excluded_person`, `access_scope_person`, `person_search` with its words — by cascade, and their kept GEDCOM, written by the deletion | The identification boxes showing them, or standing as evidence for one of their events: the region stays on its page and loses that attribution, written by the deletion (the foreign keys refuse a deletion that did not). The tree's SOSA root and "self", a member's "Who am I?" (`SET NULL`). Their families: a family left with no spouse and no child stays, with its own events, notes and citations, as the family of nobody a restore may link the person back to. A sharing exclusion or an access scope rooted at them keeps its root by ID and covers nobody until a restore brings the person back ([Privacy §6.5](privacy.md#65-kept-in-sync), [Authorization §6.5](authorization.md#65-access-scopes)) |
 | Family | Its spouse and child links, with the spouses' ages; its own events, each with what goes with an event; the notes and citations about it; its media links and tags; its kept GEDCOM, written by the deletion | Its members. An individual event naming it as its related family (`SET NULL`). The identification boxes standing as evidence for one of its events, as for a person's |
 | Event | Its witnesses, spouses' ages, notes, citations, media links and tags | The identification boxes standing as evidence for it, as for a person's |
 | Source | The citations of it, its notes, media links, repository links and tags; its kept GEDCOM, written by the deletion | — |
@@ -162,7 +162,7 @@ it.
 
 Homonyms are the persons whose primary surname and primary given names fold
 ([Cross-cutting Rules §3.6](cross-cutting.md)) to the same values — the normalized columns of
-`person_search_fts` (§4.3) — less the pairs recorded here. A person missing
+`person_search` (§4.3) — less the pairs recorded here. A person missing
 either half of that name has none.
 
 ### Person merge
@@ -809,14 +809,16 @@ schema does not prevent a cycle in the family links.
 Used by: ancestor/descendant [API endpoints](api.md) · pedigree assembly (§4).
 The SOSA root's ancestry is not walked per request: it is stored (§4.8).
 
-### person_search_fts (Search Table)
+### person_search and person_search_token (Search Tables)
 
-DB-native person search index; not a domain entity (no UUID PK, maintained by
-`PersonSearchRepo`). SQLite uses an FTS5 virtual table and PostgreSQL uses a
-plain indexed table. Columns include normalized `surname`, `given_names`,
-`maiden_name`, `birth_year`, and `death_year`, plus unindexed display fields
-and the close relatives a result is rendered with. See §4.3 for maintenance and
-query behavior.
+The person search's read model; not domain entities, maintained by
+`PersonSearchRepo` from each person's projection. `person_search` holds one
+typed row per person, keyed by `person_id` (FK → Person, cascade), with the
+folded keys of the name order and the fields a result is rendered with;
+`person_search_token` holds one row per folded word of a person and the
+fields that hold it, keyed `(tree_id, token, person_id)` (FK → the person's
+row, cascade). The same tables, indexes and statements serve SQLite and
+PostgreSQL. See §4.3 for their columns, maintenance and queries.
 
 ---
 
@@ -1205,50 +1207,125 @@ Expansion returns only nodes and edges beyond the depth already held by the
 client. The opposite loaded depth is part of the request so crossing edges are
 complete.
 
-### 4.3 Search projection: `person_search_fts`
+### 4.3 Search projection: `person_search` and `person_search_token`
 
-Search is rebuilt or upserted by `PersonSearchRepo` whenever names, identity
-events, or related display fields change. It stores tokens folded as in
-[Cross-cutting Rules §3.6](cross-cutting.md) for matching — queries are
-folded the same way — and original-cased fields for display; the UI never reconstructs a
-name by splitting `display_name`.
+Search rows are rebuilt or upserted by `PersonSearchRepo` whenever names,
+identity events, or related display fields change. Every name they match is
+folded once, in Rust, as in [Cross-cutting Rules §3.6](cross-cutting.md) —
+queries are folded the same way — so the database compares bytes and never
+folds; original-cased fields are kept for display, and the UI never
+reconstructs a name by splitting `display_name`. Search ordering, filters,
+and API pagination are documented in [API](api.md).
 
-SQLite uses FTS5 for token matching. PostgreSQL uses the same logical columns
-behind ordinary indexes. Empty queries provide browse mode. Search ordering,
-filters, and API pagination are documented in [API](api.md).
+**`person_search`, one typed row per person.**
 
-FTS5 indexes only the words it matches, so on SQLite an equality on the row's
-`person_id` or `tree_id` would read every row of every tree. A side table,
-`person_search_key` (`fts_rowid` primary key, unique `person_id`, indexed
-`tree_id`), maps each person to its FTS5 row; `PersonSearchRepo` writes both
-in step, and finding, counting or deleting a person's or a tree's rows goes
-through it. PostgreSQL's table has a primary key on `person_id` and an index
-on `tree_id` and needs no side table.
+| Column | Type | Notes |
+|---|---|---|
+| `person_id` | UUID v7 | PK; FK → Person (cascade) |
+| `tree_id` | UUID v7 | |
+| `surname_key` | Text, byte order | The primary surname, particle included, folded: the name order's first key and half of a homonym's name |
+| `given_key` | Text, byte order | The primary given names, folded: the name order's second key |
+| `maiden_key` | Text? | The maiden name, folded |
+| `sex` | `Sex` | |
+| `birth_year`, `death_year` | Integer? | The years a pedigree card shows (below), as numbers |
+| `birth_qualifier`, `death_qualifier` | `DateQualifier` | The precision of each year |
+| `date_sort` | Date? | What the birth order sorts by |
+| `display_name`, `surname_display`, `given_names_display` | Text | As written |
+| `birth_place` | Text? | |
+| `spouse_names` | Text | Every spouse's display name, joined by U+001F, a control character no name contains |
+| `father_name`, `mother_name` | Text? | |
+| `children_count` | Integer | Across every family the person is a spouse in |
 
-A row also carries the person's close relatives, so a result can name who
-someone married or descends from without a second request: the spouse display
-names, the father's and mother's display names, and the total number of
-children. Each of those has a normalized counterpart that backs the
-`spouse_*`, `father_*`, and `mother_*` filters, which are therefore
-accent-folded exactly like the subject's own name. Several spouses are joined
-into one column by U+001F, a control character no name contains and no filter
-can carry, so a substring match cannot span two of them. All relative columns
-are unindexed for full-text purposes: searching a name must return that person,
-not everyone related to someone of that name.
+Indexes: `(tree_id, surname_key, given_key, person_id)` — a page of a browse
+or of a name order is one range of it, a tree's rows are counted from it
+alone, and a homonym is one equality on it — and `(tree_id, birth_year,
+person_id)`, for a search on birth years alone.
+
+**`person_search_token`, the words.** One row per distinct folded word of a
+person: the words of their primary surname, given names and maiden name,
+of their birth and death years as shown (four digits at least, `0850`), and
+of their spouses', father's and mother's surnames and given names.
+
+| Column | Type | Notes |
+|---|---|---|
+| `tree_id` | UUID v7 | Key, first column |
+| `token` | Text, byte order | One folded word; key, second column |
+| `person_id` | UUID v7 | Key, third column; FK → `person_search` (cascade) |
+| `fields` | Integer | The fields holding the word, one bit each: surname 1, given names 2, maiden name 4, birth year 8, death year 16, a spouse's surname 32 and given names 64, the father's 128 and 256, the mother's 512 and 1024 |
+
+The key `(tree_id, token, person_id)` is the table on SQLite (`WITHOUT
+ROWID`); on PostgreSQL its index carries `fields` (`INCLUDE`), so a range
+is read from the index alone. An index on `person_id` finds a person's
+words when their row is replaced or deleted, and serves the foreign key's
+cascade.
+
+**Byte order.** The keys and the words are compared byte by byte on both
+backends — SQLite's default `BINARY` collation, PostgreSQL's `COLLATE "C"`
+on those columns — which is code point order, as UTF-8 is. A word prefix is
+then one range of the key: `token >= 'abc' AND token < 'abd'`, the upper
+bound being the prefix with its last character moved to the next code
+point. A linguistic collation would ignore spaces and interleave cases, and
+make neither the range nor the name order the same on both backends.
+
+**How a search reads.** Each word to match — a word of the free text, in
+the person's own fields (mask 31), or a word of a name filter, in that
+filter's field — is one range of the words' key, filtered on `fields`; the
+ranges are intersected (`INTERSECT`), and the matching rows are read by
+primary key (`person_id IN (…)`). Those ranges are already the tree's, so
+the rows are not filtered by tree again: the only index the planner is
+offered for them is their primary key. A search without a word — browse,
+birth years alone, an event, media or tag filter — reads the tree's rows
+through their own indexes. The other filters (sex, years, events, media,
+tags, the viewer's hidden persons) are conditions on those rows. A page is
+in the order asked for with `person_id` last, so that every page of one
+search is in one order. A search with words reads and sorts all its
+matches for the page, so the page counts them as it reads them (`COUNT(*)
+OVER ()`), and a separate count runs only for a page past the last match.
+A search without words counts from the tree's index alone first, then,
+unless the page lies past the last match, reads it: a browse in name order
+reads a page of the name index and sorts nothing. The SQL plans guard checks the statements on
+SQLite and the repository tests check them on PostgreSQL ([Development
+§2.8](development.md#28-guards)).
+
+The close relatives' names are words of the person's own row, so a result
+can name who someone married or descends from without a second request,
+and the `spouse_*`, `father_*`, and `mother_*` filters are folded exactly
+like the subject's own name. The free text never matches a relative's
+word: searching a name must return that person, not everyone related to
+someone of that name. Each spouse's name is its own words, so a filter
+cannot match across two spouses.
 
 Birth and death years are dated the way a pedigree card dates them — falling
 back to the baptism and the burial when the primary event carries no date — and
 each year is stored beside its own `DateQualifier`. The qualifier stays a
-separate column rather than being folded into the year string, because only the
+separate column rather than being folded into the year, because only the
 UI knows how to word it in the reader's language.
 
-The table has no `schema_version` of its own. It is repopulated by way of
-`PROJECTION_SCHEMA_VERSION`: a bump makes `person_denorm` read as stale, which
-makes `ensure_materialized` rebuild the tree, which replaces every search row.
-Changing the set of columns therefore needs both a schema change and a
-version bump. SQLite FTS5 virtual tables reject `ALTER TABLE … ADD COLUMN`, so
-an incremental migration, once the product is released, drops and recreates
-the table on both backends; no data is lost, as every row is derived.
+The tables have no `schema_version` of their own. They are repopulated by
+way of `PROJECTION_SCHEMA_VERSION`: a bump makes `person_denorm` read as
+stale, which makes `ensure_materialized` rebuild the tree, which replaces
+every search row and word. Changing the set of columns therefore needs both
+a schema change and a version bump.
+
+**Measured.** On the generated tree of 100,000 persons of `just
+scale-large` (release build with LTO, SQLite, on a loaded machine; the
+median of seven requests through the API), against the FTS5 table and
+`LIKE` filters this replaced: a surname typed (`surname=Ash`, 3,880
+matches) 34 ms against 119 ms; a given name with it (14 matches) 12 ms
+against 181 ms; a surname with birth years (926 matches) 30 ms against
+146 ms; free text (`q=Arthur Ash`, 175 matches) 24 ms against 15 ms; the
+browse of the whole tree in name order 22 ms against 749 ms, its page read
+from the name index instead of sorting the tree. Those searches with words
+were measured counting their matches in a statement of their own, since
+folded into the page. On PostgreSQL, timed in the database
+(`EXPLAIN ANALYZE`) on a loaded machine, a surname typed takes 25 to 40 ms
+against 21 to 24 ms, the planner joining the word range to the tree's rows
+by hash, and a given name with it 6 ms against 22 ms. The price is room: on SQLite 115 MiB for the
+rows, their indexes and the words (the words' key 42 MiB, their person
+index 40 MiB) against 52 MiB; on PostgreSQL the words' heap and key take
+more, and a whole-tree rebuild leaves them bloated until autovacuum runs
+(384 MiB measured right after one, against 74 MiB); and about 20 s more
+processor time to write a tree's rows on import.
 
 ### 4.4 Refresh and consistency
 
@@ -1345,9 +1422,9 @@ its media files with the crops stored of its vignettes, and its jobs' files. On 
 stays readable in the database file. Its deletions run with
 `PRAGMA secure_delete` on, set for their transaction's connection and restored
 after, so SQLite overwrites the deleted bytes with zeros as it frees them: the
-cost is that of the tree, not of the file. The purge then merges the full-text
-index (FTS5 keeps a deleted row's words until its segments merge), in the same
-mode, gives the freed pages back to the file system with
+cost is that of the tree, not of the file; the search rows and their words go
+with the tree's persons, by cascade, like every other row. The purge then gives
+the freed pages back to the file system with
 `PRAGMA incremental_vacuum` and empties the write-ahead log, whose older frames
 still hold the pages as they were, with a `TRUNCATE` checkpoint. The
 incremental vacuum needs `auto_vacuum = INCREMENTAL`, which only takes effect
@@ -1359,9 +1436,9 @@ pages at every start instead.
 On PostgreSQL deleted rows' space is reused by autovacuum over time; nothing
 rewrites it at once.
 
-- A deleted person's `person_denorm`, `sosa_ancestor` and `person_visibility`
-    rows go with them (cascade), and their search row in the deletion's
-    transaction; their relatives' are rewritten there too.
+- A deleted person's `person_denorm`, `sosa_ancestor`, `person_visibility`
+    and search rows, with the search row's words, go with them (cascade);
+    their relatives' are rewritten in the deletion's transaction.
 - Dropping projections does not remove domain data; rows rebuild lazily.
 - A failed or rolled-back mutation leaves neither normalized changes nor new
     projection payloads.
@@ -1410,8 +1487,9 @@ depend on the database or API implementation crates.
     The persons last edited, ranked by their latest history entry, are an
     order computed per person that no index holds. The SQL plans guard
     checks the large tables ([Development §2.8](development.md#28-guards)).
-- Search should use backend-native indexes and avoid offset scans for ordinary
-    list APIs.
+- Search reads its words as ranges of their key and its rows by primary key
+    or through their tree's indexes, the same statements on both backends
+    (§4.3); ordinary list APIs avoid offset scans.
 - A whole-tree rebuild holds a slice of the tree in memory, never the tree
     (§4.4).
 - Refresh latency is part of mutation latency and must remain bounded to the
@@ -1824,7 +1902,7 @@ build only.
 | `note` | Done: `confidential` (default `false`), see [Note](#note) |
 | `audit_entry` | `author_kind` (`user`, `api_client`, `local`), `author_user_id?`, `author_api_client_id?`, `author_client_id?`; the `access` category ([Authorization §9.1](authorization.md#91-authors-in-the-change-history)) |
 | `background_job` | `actor_issuer?`, `actor_subject?`, `actor_user_id?`, `actor_client_id?`, `actor_api_client_id?`, `actor_scopes?`, `actor_session?` (the session id's hash) — never a token ([Authentication §5.5](authentication.md#55-background-jobs)) |
-| `person_search_fts` | Nothing: visibility is joined from `person_visibility` ([Privacy §7](privacy.md#7-enforcement-points)) |
+| `person_search`, `person_search_token` | Nothing: visibility is joined from `person_visibility` ([Privacy §7](privacy.md#7-enforcement-points)) |
 
 ### 6.11 Notifications, mail and messaging
 

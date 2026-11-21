@@ -8,7 +8,8 @@
 //! persons the way the application does (an upload, the worker's job, a
 //! SQLite file with its read pool, or the PostgreSQL database
 //! `OXIDGENE_TEST_POSTGRES_URL` names), then times a full rebuild, the
-//! tree-wide pages cold, warm, after one edit and after ten, a search, two
+//! tree-wide pages cold, warm, after one edit and after ten, a search and
+//! the person searches of [`SEARCHES`] with the search tables' sizes, two
 //! kinships, the widest pedigrees, a place renamed under 60 and 2,000
 //! births, and an export. It prints every figure and fails over the budgets
 //! of [`BUDGETS`] for the sizes that have some, in a release build.
@@ -28,6 +29,7 @@ use oxidgene_api::service::background_job::BackgroundJobWorker;
 use oxidgene_api::tree_cache::{CacheSettings, DEFAULT_IDLE};
 use oxidgene_api::{AppState, build_router};
 use oxidgene_db::repo::Connections;
+use oxidgene_db::sea_orm::{ConnectionTrait as _, DatabaseConnection, DbBackend, Statement};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -75,6 +77,11 @@ const BUDGETS: &[Budget] = &[Budget {
         ("duplicates", 3.0, 0),
         ("ancestry", 1.0, 0),
         ("search", 1.0, 0),
+        ("search (surname prefix)", 1.0, 0),
+        ("search (given name and surname)", 1.0, 0),
+        ("search (surname prefix and birth years)", 1.0, 0),
+        ("search (free text)", 1.0, 0),
+        ("search (browse)", 1.0, 0),
         ("kinship (cousins)", 7.0, 0),
         ("kinship (through unions)", 6.0, 0),
         ("pedigree (10 generations down)", 2.0, 0),
@@ -84,6 +91,28 @@ const BUDGETS: &[Budget] = &[Budget {
         ("export", 80.0, 1_950),
     ],
 }];
+
+/// The person searches the search page, its suggestions and the pickers
+/// send, by the name each is reported under: a surname typed, a given name
+/// and a surname, a surname with birth years, free text, and the browse
+/// of the whole tree by name.
+const SEARCHES: &[(&str, &str)] = &[
+    ("search (surname prefix)", "/persons/search?surname=Ash"),
+    (
+        "search (given name and surname)",
+        "/persons/search?surname=Ashdown&given_names=Arthur",
+    ),
+    (
+        "search (surname prefix and birth years)",
+        "/persons/search?surname=Ash&birth_from=1800&birth_to=1850",
+    ),
+    ("search (free text)", "/persons/search?q=Arthur%20Ash"),
+    ("search (browse)", "/persons/search?q=&sort=name_asc"),
+];
+
+/// Runs of each of [`SEARCHES`] measured, after one that warms the caches;
+/// the median is the step's figure.
+const SEARCH_RUNS: usize = 7;
 
 /// Deletes the run's directory, whatever the outcome.
 struct WorkDir(PathBuf);
@@ -140,6 +169,40 @@ impl Run {
             )
         })
         .await
+    }
+
+    /// Time each of [`SEARCHES`]: [`SEARCH_RUNS`] runs after a warm one,
+    /// the median reported as its step.
+    async fn searches(&mut self) {
+        for (name, path) in SEARCHES {
+            let uri = self.uri(path);
+            let found = ok(&self.app, Method::GET, &uri, None).await;
+            let mut costs = Vec::with_capacity(SEARCH_RUNS);
+            for _ in 0..SEARCH_RUNS {
+                let app = self.app.clone();
+                let uri = uri.clone();
+                let ((), cost) = measured(async move {
+                    ok(&app, Method::GET, &uri, None).await;
+                })
+                .await;
+                costs.push(cost);
+            }
+            costs.sort_by(|a, b| a.seconds.total_cmp(&b.seconds));
+            let runs: Vec<String> = costs
+                .iter()
+                .map(|cost| format!("{:.1}", cost.seconds * 1000.0))
+                .collect();
+            let median = costs.swap_remove(SEARCH_RUNS / 2);
+            eprintln!(
+                "[large-tree] {name}: median {:.1} ms over {SEARCH_RUNS} runs ({} ms), \
+                 {} matches, {} statements",
+                median.seconds * 1000.0,
+                runs.join(", "),
+                found["total_count"],
+                median.statements
+            );
+            self.costs.push((name, median));
+        }
     }
 
     /// The person whose given name is `given`.
@@ -203,13 +266,14 @@ fn write_population(path: &Path, persons: usize) -> population::Population {
 /// The router and the worker over a fresh database: a SQLite file under
 /// `work` with its read pool and the desktop's one-tree cache, or a
 /// schema of the PostgreSQL database of the run with the server's.
-async fn application(work: &Path) -> (Router, BackgroundJobWorker) {
+async fn application(work: &Path) -> (Router, BackgroundJobWorker, DatabaseConnection) {
     let postgres = std::env::var("OXIDGENE_TEST_POSTGRES_URL").is_ok();
     let connections: Connections = if postgres {
         setup_db().await.into()
     } else {
         setup_file_db(work).await
     };
+    let db = connections.writer.clone();
     let state = offline(AppState::new(connections, work.join("media")));
     if !postgres {
         state
@@ -223,7 +287,35 @@ async fn application(work: &Path) -> (Router, BackgroundJobWorker) {
         Arc::clone(&state.media),
         "large-tree",
     );
-    (build_router(state), worker)
+    (build_router(state), worker, db)
+}
+
+/// The bytes each table and index of the person search holds on disk,
+/// by name: SQLite's pages (`dbstat`), PostgreSQL's relations.
+async fn search_storage(db: &DatabaseConnection) -> Vec<(String, i64)> {
+    let sql = match db.get_database_backend() {
+        DbBackend::Sqlite => {
+            "SELECT name, SUM(pgsize) AS bytes FROM dbstat \
+             WHERE name LIKE '%person_search%' GROUP BY name ORDER BY name"
+        }
+        _ => {
+            "SELECT c.relname AS name, pg_relation_size(c.oid) AS bytes FROM pg_class c \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = current_schema() AND c.relname LIKE '%person_search%' \
+             ORDER BY c.relname"
+        }
+    };
+    db.query_all_raw(Statement::from_string(db.get_database_backend(), sql))
+        .await
+        .expect("reads the search's storage")
+        .iter()
+        .map(|row| {
+            (
+                row.try_get::<String>("", "name").unwrap(),
+                row.try_get::<i64>("", "bytes").unwrap(),
+            )
+        })
+        .collect()
 }
 
 /// Upload the GEDCOM at `path` as an import job of `tree`, streamed
@@ -309,7 +401,7 @@ async fn a_large_tree_stays_within_its_budgets() {
     );
     assert_eq!(written.persons, persons);
 
-    let (app, worker) = application(&work.0).await;
+    let (app, worker, db) = application(&work.0).await;
     let tree = ok(
         &app,
         Method::POST,
@@ -407,6 +499,15 @@ async fn a_large_tree_stays_within_its_budgets() {
 
     run.get("search", "/persons/search?q=Arthur%20Ashdown")
         .await;
+    run.searches().await;
+    let storage = search_storage(&db).await;
+    for (name, bytes) in &storage {
+        eprintln!("[large-tree] search storage: {name} {} KiB", bytes >> 10);
+    }
+    eprintln!(
+        "[large-tree] search storage: {} KiB in all",
+        storage.iter().map(|(_, bytes)| bytes).sum::<i64>() >> 10
+    );
     run.get(
         "kinship (cousins)",
         &format!("/persons/{proband}/kinship/{cousin}"),

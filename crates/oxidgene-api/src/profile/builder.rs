@@ -2,7 +2,7 @@
 //!
 //! Takes the normalized rows a caller has already fetched (see
 //! `ProfileService::fetch_persons_data`) and folds them into the shapes
-//! stored in `person_denorm` and `person_search_fts`.
+//! stored in `person_denorm` and `person_search`.
 
 use chrono::Utc;
 use oxidgene_core::enums::*;
@@ -253,8 +253,17 @@ fn build_profile_event(
 /// Tries `date_sort` first (formatted as "YYYY"), then falls back to
 /// extracting a 4-digit year from `date_value`.
 pub fn extract_year(event: &ProfileEvent) -> Option<String> {
+    event_year(event).map(format_year)
+}
+
+/// The year of an event, as a number: what [`extract_year`] shows.
+fn event_year(event: &ProfileEvent) -> Option<i32> {
     oxidgene_core::types::year_from_date(event.date_sort, event.date_value.as_deref())
-        .map(|y| format!("{y:04}"))
+}
+
+/// A year as a result shows it: four digits at least.
+fn format_year(year: i32) -> String {
+    format!("{year:04}")
 }
 
 /// The precision to show beside a year pulled out by [`extract_year`].
@@ -602,93 +611,80 @@ pub fn build_search_entry(person: &PersonProfile) -> SearchEntry {
     }
 }
 
-/// Build a `person_search_fts` row from a `PersonProfile` (Sprint E.6).
-///
-/// This is the write model for the DB-native search table which replaced the
-/// in-memory search index.
+/// Build the person search's row and words of a `PersonProfile`
+/// (docs/data-model.md §4.3): the names folded once, here, the years as
+/// numbers, and the close relatives' names, which are written as words.
 pub fn build_db_search_entry(person: &PersonProfile) -> oxidgene_db::repo::PersonSearchEntry {
     let entry = build_search_entry(person);
     let child_link = person.family_as_child.as_ref();
-
-    // One column per relative role, with several spouses joined by a control
-    // character no name can contain — so a `LIKE '%…%'` filter cannot match
-    // across the boundary between two spouses.
-    let join_spouses = |field: fn(&ProfileFamilyLink) -> Option<&String>| -> String {
+    let spouses = |field: fn(&ProfileFamilyLink) -> Option<&String>| -> Vec<String> {
         person
             .families_as_spouse
             .iter()
             .filter_map(field)
-            .map(|v| fold_words(v))
-            .collect::<Vec<_>>()
-            .join(&RELATIVE_SEP.to_string())
+            .map(|name| fold_words(name))
+            .collect()
     };
+    let parent = |field: fn(&ProfileChildLink) -> Option<&String>| -> Option<String> {
+        child_link.and_then(field).map(|name| fold_words(name))
+    };
+    let year = |event: Option<&ProfileEvent>| event.and_then(event_year);
 
     oxidgene_db::repo::PersonSearchEntry {
-        person_id: entry.person_id,
-        tree_id: person.tree_id,
-        surname: entry.surname_normalized,
-        given_names: entry.given_names_normalized,
-        maiden_name: entry.maiden_name_normalized,
-        birth_year: entry.birth_year,
-        death_year: entry.death_year,
-        birth_qualifier: entry.birth_qualifier.to_string(),
-        death_qualifier: entry.death_qualifier.to_string(),
-        sex: entry.sex.to_string(),
-        display_name: entry.display_name,
-        surname_display: entry.surname,
-        given_names_display: entry.given_names,
-        birth_place: entry.birth_place,
-        date_sort: entry.date_sort.map(|d| d.format("%Y-%m-%d").to_string()),
-        spouse_names: entry.spouse_names.join(&RELATIVE_SEP.to_string()),
-        spouse_surnames: join_spouses(|f| f.spouse_surname.as_ref()),
-        spouse_given_names: join_spouses(|f| f.spouse_given_names.as_ref()),
-        father_name: entry.father_name,
-        father_surname: child_link
-            .and_then(|c| c.father_surname.as_deref())
-            .map(fold_words),
-        father_given_names: child_link
-            .and_then(|c| c.father_given_names.as_deref())
-            .map(fold_words),
-        mother_name: entry.mother_name,
-        mother_surname: child_link
-            .and_then(|c| c.mother_surname.as_deref())
-            .map(fold_words),
-        mother_given_names: child_link
-            .and_then(|c| c.mother_given_names.as_deref())
-            .map(fold_words),
-        children_count: entry.children_count,
+        row: oxidgene_db::repo::PersonSearchRow {
+            person_id: entry.person_id,
+            tree_id: person.tree_id,
+            surname_key: entry.surname_normalized,
+            given_key: entry.given_names_normalized,
+            maiden_key: entry.maiden_name_normalized,
+            sex: entry.sex.into(),
+            birth_year: year(person.birth_or_baptism()),
+            birth_qualifier: entry.birth_qualifier.into(),
+            death_year: year(person.death_or_burial()),
+            death_qualifier: entry.death_qualifier.into(),
+            date_sort: entry.date_sort,
+            display_name: entry.display_name,
+            surname_display: entry.surname,
+            given_names_display: entry.given_names,
+            birth_place: entry.birth_place,
+            spouse_names: entry.spouse_names.join(&RELATIVE_SEP.to_string()),
+            father_name: entry.father_name,
+            mother_name: entry.mother_name,
+            children_count: i32::try_from(entry.children_count).unwrap_or(i32::MAX),
+        },
+        relatives: oxidgene_db::repo::RelativeNames {
+            spouse_surnames: spouses(|f| f.spouse_surname.as_ref()),
+            spouse_given_names: spouses(|f| f.spouse_given_names.as_ref()),
+            father_surname: parent(|c| c.father_surname.as_ref()),
+            father_given_names: parent(|c| c.father_given_names.as_ref()),
+            mother_surname: parent(|c| c.mother_surname.as_ref()),
+            mother_given_names: parent(|c| c.mother_given_names.as_ref()),
+        },
     }
 }
 
-/// Convert a `person_search_fts` row back into the `SearchEntry` API shape.
-pub fn search_entry_from_db(row: oxidgene_db::repo::PersonSearchEntry) -> SearchEntry {
-    let sex = match row.sex.as_str() {
-        "male" => Sex::Male,
-        "female" => Sex::Female,
-        _ => Sex::Unknown,
-    };
+/// Convert a `person_search` row back into the `SearchEntry` API shape.
+pub fn search_entry_from_db(row: oxidgene_db::repo::PersonSearchRow) -> SearchEntry {
     SearchEntry {
         placeholder: None,
         person_id: row.person_id,
-        sex,
-        surname_normalized: row.surname,
-        given_names_normalized: row.given_names,
-        maiden_name_normalized: row.maiden_name,
+        sex: row.sex.into(),
+        surname_normalized: row.surname_key,
+        given_names_normalized: row.given_key,
+        maiden_name_normalized: row.maiden_key,
         surname: row.surname_display,
         given_names: row.given_names_display,
         display_name: row.display_name,
-        birth_year: row.birth_year,
-        birth_qualifier: parse_qualifier(&row.birth_qualifier),
+        birth_year: row.birth_year.map(format_year),
+        birth_qualifier: row.birth_qualifier.into(),
         birth_place: row.birth_place,
-        death_year: row.death_year,
-        death_qualifier: parse_qualifier(&row.death_qualifier),
+        death_year: row.death_year.map(format_year),
+        death_qualifier: row.death_qualifier.into(),
         spouse_names: split_relatives(&row.spouse_names),
         father_name: row.father_name,
         mother_name: row.mother_name,
-        children_count: row.children_count,
-        date_sort: row
-            .date_sort
-            .and_then(|d| chrono::NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok()),
+        children_count: u32::try_from(row.children_count).unwrap_or(0),
+        date_sort: row.date_sort,
         portrait: None,
         // The search index holds no tags; the service fills them in from the
         // tag tables for the rows it returns.
@@ -704,25 +700,6 @@ fn split_relatives(joined: &str) -> Vec<String> {
         return Vec::new();
     }
     joined.split(RELATIVE_SEP).map(str::to_owned).collect()
-}
-
-/// Read back a qualifier written by [`DateQualifier::to_string`].
-///
-/// An unreadable value falls back to `Exact`, which is what a row written
-/// before the column existed would have meant.
-fn parse_qualifier(raw: &str) -> DateQualifier {
-    match raw {
-        "about" => DateQualifier::About,
-        "calculated" => DateQualifier::Calculated,
-        "estimated" => DateQualifier::Estimated,
-        "perhaps" => DateQualifier::Perhaps,
-        "before" => DateQualifier::Before,
-        "after" => DateQualifier::After,
-        "or" => DateQualifier::Or,
-        "between" => DateQualifier::Between,
-        "from_age" => DateQualifier::FromAge,
-        _ => DateQualifier::Exact,
-    }
 }
 
 /// Build a `PedigreeNode` from a `PersonProfile`.
@@ -815,7 +792,7 @@ mod tests {
             surname: "Smith".to_string(),
             given_names: "Jane".to_string(),
             display_name: "Jane Smith".to_string(),
-            birth_year: Some("1850".to_string()),
+            birth_year: Some("0850".to_string()),
             birth_qualifier: DateQualifier::About,
             birth_place: Some("Berlin".to_string()),
             death_year: None,
@@ -824,38 +801,31 @@ mod tests {
             father_name: Some("Father One".to_string()),
             mother_name: Some("Mother One".to_string()),
             children_count: 3,
-            date_sort: chrono::NaiveDate::from_ymd_opt(1850, 6, 1),
+            date_sort: chrono::NaiveDate::from_ymd_opt(850, 6, 1),
             portrait: None,
             tags: Vec::new(),
         };
-        let tree_id = Uuid::now_v7();
 
-        let db_row = oxidgene_db::repo::PersonSearchEntry {
+        let db_row = oxidgene_db::repo::PersonSearchRow {
             person_id: entry.person_id,
-            tree_id,
-            surname: entry.surname_normalized.clone(),
-            given_names: entry.given_names_normalized.clone(),
-            maiden_name: entry.maiden_name_normalized.clone(),
-            birth_year: entry.birth_year.clone(),
-            death_year: entry.death_year.clone(),
-            birth_qualifier: entry.birth_qualifier.to_string(),
-            death_qualifier: entry.death_qualifier.to_string(),
-            sex: entry.sex.to_string(),
+            tree_id: Uuid::now_v7(),
+            surname_key: entry.surname_normalized.clone(),
+            given_key: entry.given_names_normalized.clone(),
+            maiden_key: entry.maiden_name_normalized.clone(),
+            sex: entry.sex.into(),
+            birth_year: Some(850),
+            birth_qualifier: entry.birth_qualifier.into(),
+            death_year: None,
+            death_qualifier: entry.death_qualifier.into(),
+            date_sort: entry.date_sort,
             display_name: entry.display_name.clone(),
             surname_display: entry.surname.clone(),
             given_names_display: entry.given_names.clone(),
             birth_place: entry.birth_place.clone(),
-            date_sort: entry.date_sort.map(|d| d.format("%Y-%m-%d").to_string()),
             spouse_names: entry.spouse_names.join(&RELATIVE_SEP.to_string()),
-            spouse_surnames: "a\u{1f}b".to_string(),
-            spouse_given_names: "spouse\u{1f}spouse".to_string(),
             father_name: entry.father_name.clone(),
-            father_surname: Some("one".to_string()),
-            father_given_names: Some("father".to_string()),
             mother_name: entry.mother_name.clone(),
-            mother_surname: Some("one".to_string()),
-            mother_given_names: Some("mother".to_string()),
-            children_count: entry.children_count,
+            children_count: 3,
         };
 
         let back = search_entry_from_db(db_row);
@@ -878,6 +848,12 @@ mod tests {
     }
 
     #[test]
+    fn a_stored_year_reads_back_with_four_digits_at_least() {
+        assert_eq!(format_year(850), "0850");
+        assert_eq!(format_year(1849), "1849");
+    }
+
+    #[test]
     fn empty_relatives_column_reads_as_no_relatives() {
         // The joined column is a plain string, so "" has to mean an empty list
         // rather than one nameless spouse — otherwise every single person in
@@ -888,15 +864,6 @@ mod tests {
             split_relatives("First\u{1f}Second"),
             vec!["First".to_string(), "Second".to_string()]
         );
-    }
-
-    #[test]
-    fn unknown_qualifier_reads_as_exact() {
-        // Rows written before the column existed come back empty; treating
-        // that as `Exact` is what "nothing was claimed here" means.
-        assert_eq!(parse_qualifier(""), DateQualifier::Exact);
-        assert_eq!(parse_qualifier("about"), DateQualifier::About);
-        assert_eq!(parse_qualifier("from_age"), DateQualifier::FromAge);
     }
 
     #[test]
@@ -935,6 +902,6 @@ mod tests {
         // The search index holds none; a row read back from it has none until
         // the service attaches them.
         let row = build_db_search_entry(&person);
-        assert!(search_entry_from_db(row).tags.is_empty());
+        assert!(search_entry_from_db(row.row).tags.is_empty());
     }
 }

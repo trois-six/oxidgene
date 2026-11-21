@@ -2,7 +2,7 @@
 //! lets it go (docs/architecture.md, Tree cache).
 //!
 //! The durable read models are database tables (`person_denorm`,
-//! `person_search_fts`, `sosa_ancestor`). This cache only spares a request
+//! `person_search` and its words, `sosa_ancestor`). This cache only spares a request
 //! work whose result the previous one already computed, and holds nothing
 //! the database does not: dropping any of it at any time changes no answer,
 //! only how long the next one takes. It keeps, per tree:

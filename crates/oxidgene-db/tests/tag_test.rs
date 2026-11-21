@@ -6,11 +6,12 @@ use chrono::Utc;
 use oxidgene_core::search::fold_words;
 use oxidgene_core::types::RecordKind;
 use oxidgene_core::{Calendar, DateQualifier, EventType, OxidGeneError, Sex};
-use oxidgene_db::entities::{record_tag, tag};
+use oxidgene_db::entities::{record_tag, sea_enums, tag};
 use oxidgene_db::repo::{
     CitationRepo, EventDetails, EventRepo, LeaveOut, MediaFilter, MediaLibraryRepo, MediaRepo,
     PaginationParams, PersonMergeRepo, PersonRepo, PersonSearchEntry, PersonSearchFilters,
-    PersonSearchRepo, PersonSearchSort, PlaceRepo, RecordTagRepo, SourceRepo, TagRepo, TreeRepo,
+    PersonSearchRepo, PersonSearchRow, PersonSearchSort, PlaceRepo, RecordTagRepo, RelativeNames,
+    SourceRepo, TagRepo, TreeRepo,
 };
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, DatabaseConnection, EntityTrait, PaginatorTrait,
@@ -600,10 +601,7 @@ async fn person_search_filters_by_every_tag_given() {
     let mut entries: Vec<PersonSearchEntry> = Vec::new();
     for n in 0..3 {
         let id = person(&db, tree).await;
-        entries.push(PersonSearchEntry {
-            person_id: id,
-            ..entry(tree, &format!("Person {n}"))
-        });
+        entries.push(entry(id, tree, &format!("Person {n}")));
     }
     PersonSearchRepo::replace_tree(&db, tree, &entries)
         .await
@@ -615,7 +613,7 @@ async fn person_search_filters_by_every_tag_given() {
                 tree,
                 tag.id,
                 RecordKind::Person,
-                entries[index].person_id,
+                entries[index].row.person_id,
             )
             .await
             .unwrap();
@@ -655,7 +653,7 @@ async fn person_search_filters_by_every_tag_given() {
     .await
     .unwrap();
     assert_eq!(page.total_count, 1);
-    assert_eq!(page.entries[0].person_id, entries[0].person_id);
+    assert_eq!(page.entries[0].person_id, entries[0].row.person_id);
 }
 
 #[tokio::test]
@@ -703,33 +701,30 @@ async fn purging_a_tree_removes_its_tags_and_links() {
     assert_eq!(tag::Entity::find().count(&db).await.unwrap(), 0);
 }
 
-fn entry(tree_id: Uuid, name: &str) -> PersonSearchEntry {
+fn entry(person_id: Uuid, tree_id: Uuid, name: &str) -> PersonSearchEntry {
     PersonSearchEntry {
-        person_id: Uuid::nil(),
-        tree_id,
-        surname: fold_words(name),
-        given_names: fold_words("Fictional"),
-        maiden_name: None,
-        birth_year: None,
-        death_year: None,
-        sex: "unknown".into(),
-        display_name: name.to_owned(),
-        surname_display: name.to_owned(),
-        given_names_display: "Fictional".into(),
-        birth_place: None,
-        date_sort: None,
-        birth_qualifier: "exact".into(),
-        death_qualifier: "exact".into(),
-        spouse_names: String::new(),
-        spouse_surnames: String::new(),
-        spouse_given_names: String::new(),
-        father_name: None,
-        father_surname: None,
-        father_given_names: None,
-        mother_name: None,
-        mother_surname: None,
-        mother_given_names: None,
-        children_count: 0,
+        row: PersonSearchRow {
+            person_id,
+            tree_id,
+            surname_key: fold_words(name),
+            given_key: fold_words("Fictional"),
+            maiden_key: None,
+            sex: sea_enums::Sex::Unknown,
+            birth_year: None,
+            birth_qualifier: sea_enums::DateQualifier::Exact,
+            death_year: None,
+            death_qualifier: sea_enums::DateQualifier::Exact,
+            date_sort: None,
+            display_name: name.to_owned(),
+            surname_display: name.to_owned(),
+            given_names_display: "Fictional".into(),
+            birth_place: None,
+            spouse_names: String::new(),
+            father_name: None,
+            mother_name: None,
+            children_count: 0,
+        },
+        relatives: RelativeNames::default(),
     }
 }
 

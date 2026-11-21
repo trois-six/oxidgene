@@ -1008,15 +1008,15 @@ async fn test_person_name_crud() {
     assert_eq!(body.as_array().unwrap().len(), 0);
 }
 
-/// Sprint E.6: free-text person search through the normal search path,
-/// backed by the `person_search_fts` FTS5 table, end-to-end over HTTP.
+/// Free-text person search through the normal search path, backed by the
+/// `person_search` rows and their words, end-to-end over HTTP.
 #[tokio::test]
 async fn test_person_search_free_text() {
     let app = setup_app().await;
     let tree_id = create_tree_via_api(&app).await;
 
     // Two persons with primary names created through the REST API
-    // (mutation handlers must keep person_search_fts in sync).
+    // (mutation handlers must keep the search rows in sync).
     let p1 = create_person_via_api(&app, &tree_id).await;
     send(
         &app,

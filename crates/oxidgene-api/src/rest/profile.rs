@@ -5,8 +5,8 @@
 //! - Projection teardown
 //! - Pedigree assembly and expansion
 //!
-//! Search moved to the normal search path (`GET /persons/search?q=...`)
-//! in Sprint E.6 — it is backed by the `person_search_fts` DB table.
+//! Search is on the normal search path (`GET /persons/search?q=...`),
+//! backed by the `person_search` rows and their words.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};

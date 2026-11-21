@@ -50,15 +50,15 @@ The panel has three groups, **Person**, **Event** and **Relations**:
 
 | Filter | What it keeps |
 |---|---|
-| **Surname**, **Given names** | Persons whose names contain the text, ignoring case and accents. These are the same fields as the top bar's: typing in one updates the other. |
+| **Surname**, **Given names** | Persons whose names have a word beginning with each word you type, in any order, ignoring case and accents: `cruz` finds *de la Cruz* and `dup` finds *Dupont*, but `pont` does not. These are the same fields as the top bar's: typing in one updates the other. |
 | **Gender** | **All**, **Male**, **Female** or **Unknown** |
 | **Occupation** | Persons with an occupation matching the text |
 | **Born between**, **Died between** | Persons born or dead within the two years, both included |
 | **Place** | Persons with any event, their own or a couple's, at a matching place |
 | **Event type** | Persons with an event of that type: Birth, Death, Baptism, Burial, Marriage, Residence, Occupation or Census |
 | **Event between** | Persons with an event within the two years, both included |
-| **Spouse** | Persons with a spouse of that family name and given names |
-| **Father**, **Mother** | Persons whose father or mother has that family name and given names |
+| **Spouse** | Persons with a spouse of that family name and given names, matched word by word as above |
+| **Father**, **Mother** | Persons whose father or mother has that family name and given names, matched word by word as above |
 | **With media** | Persons with at least one attached media |
 | **Tags** | Persons carrying every tag chosen, suggested from the tree's tags; see [Tags](@/guide/tags.md) |
 
@@ -70,7 +70,7 @@ If nothing matches, the page says so and offers **Clear filters**.
 
 The sort selector above the results offers:
 
-- **Relevance**: family names beginning with what you typed first, then matching given names, then matches found further in;
+- **Relevance**: family names beginning with what you typed first, then given names beginning with it, then matches on a later word of the name;
 - **Name A → Z** (the default) and **Name Z → A**, by family name then given names;
 - **Birth date ↑** (oldest first) and **Birth date ↓** (most recent first).
 

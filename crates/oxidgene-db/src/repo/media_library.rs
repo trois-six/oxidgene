@@ -11,8 +11,8 @@
 //! AND. The structural ones (tag, file kind, category, date added) are SQL
 //! conditions on the id query. The text ones are matched accent-folded, which
 //! SQL cannot do portably, so they are resolved to id sets here — the media
-//! names from the tree's own rows, the linked names through the
-//! pre-normalized `person_search_fts` columns — and intersected in Rust. The
+//! names from the tree's own rows, the linked names through the folded keys
+//! of the `person_search` rows — and intersected in Rust. The
 //! event-date filter is an id set too, gathered by two grouped queries. Only
 //! ids travel until the requested page is known; the page's rows are then
 //! loaded in one query.
@@ -25,15 +25,12 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::fold_words;
 use oxidgene_core::types::{Connection, Edge, Media, PageInfo, TagRef};
 use sea_orm::entity::prelude::*;
-use sea_orm::sea_query::{Func, Query, SimpleExpr};
-use sea_orm::{
-    Condition, ConnectionTrait, DbBackend, EntityTrait, JoinType, QueryFilter, QuerySelect,
-    Statement,
-};
+use sea_orm::sea_query::{BinOper, ExprTrait as _, Func, LikeExpr, Query, SimpleExpr};
+use sea_orm::{Condition, ConnectionTrait, EntityTrait, JoinType, QueryFilter, QuerySelect};
 use uuid::Uuid;
 
 use crate::entities::media::{self, Column, Entity};
-use crate::entities::{event, family_spouse, media_link, record_tag, tag, vignette};
+use crate::entities::{event, family_spouse, media_link, person_search, record_tag, tag, vignette};
 use crate::repo::MediaRepo;
 use crate::repo::Unseen;
 use crate::repo::batch::in_chunks;
@@ -617,46 +614,43 @@ async fn event_ids(
 }
 
 /// The persons of the tree whose primary name — given names and surname in
-/// either order — or maiden name contains `text`, accent-folded.
+/// either order — or maiden name contains `text`, accent-folded: read from
+/// the folded keys of the person search's rows (docs/data-model.md §4.3).
 async fn named_persons(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
     text: &str,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
     let pattern = format!("%{}%", escape_like(&fold_words(text.trim())));
-    let backend = db.get_database_backend();
-    let placeholders: Vec<String> = (1..=4)
-        .map(|index| match backend {
-            DbBackend::Postgres => format!("${index}"),
-            _ => "?".to_string(),
-        })
-        .collect();
-    let sql = format!(
-        "SELECT person_id FROM person_search_fts WHERE tree_id = {} AND (\
-         (given_names || ' ' || surname) LIKE {} ESCAPE '\\' \
-         OR (surname || ' ' || given_names) LIKE {} ESCAPE '\\' \
-         OR COALESCE(maiden_name, '') LIKE {} ESCAPE '\\')",
-        placeholders[0], placeholders[1], placeholders[2], placeholders[3],
-    );
-    let rows = db
-        .query_all_raw(Statement::from_sql_and_values(
-            backend,
-            sql,
-            [
-                tree_id.to_string().into(),
-                pattern.clone().into(),
-                pattern.clone().into(),
-                pattern.into(),
-            ],
-        ))
+    let contains = |text: Expr| text.like(LikeExpr::new(pattern.clone()).escape('\\'));
+    let joined = |first: person_search::Column, second: person_search::Column| {
+        Expr::col(first)
+            .binary(BinOper::Custom("||"), Expr::val(" "))
+            .binary(BinOper::Custom("||"), Expr::col(second))
+    };
+    person_search::Entity::find()
+        .select_only()
+        .column(person_search::Column::PersonId)
+        .filter(person_search::Column::TreeId.eq(tree_id))
+        .filter(
+            Condition::any()
+                .add(contains(joined(
+                    person_search::Column::GivenKey,
+                    person_search::Column::SurnameKey,
+                )))
+                .add(contains(joined(
+                    person_search::Column::SurnameKey,
+                    person_search::Column::GivenKey,
+                )))
+                .add(contains(
+                    Func::coalesce([Expr::col(person_search::Column::MaidenKey), Expr::val("")])
+                        .into(),
+                )),
+        )
+        .into_tuple()
+        .all(db)
         .await
-        .map_err(db_err)?;
-    rows.into_iter()
-        .map(|row| {
-            let id: String = row.try_get("", "person_id").map_err(db_err)?;
-            Uuid::parse_str(&id).map_err(crate::repo::conversion_err)
-        })
-        .collect()
+        .map_err(db_err)
 }
 
 /// The ids of the media carrying the tag `tag_id`.

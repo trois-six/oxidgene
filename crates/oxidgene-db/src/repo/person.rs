@@ -1,7 +1,7 @@
 //! Repository for `Person` entities (CRUD).
 //!
 //! Free-text person search lives in [`crate::repo::PersonSearchRepo`]
-//! (the `person_search_fts` table) since Sprint E.6.
+//! (the `person_search` rows and their words).
 
 use chrono::Utc;
 use oxidgene_core::enums::{Privacy, Sex};

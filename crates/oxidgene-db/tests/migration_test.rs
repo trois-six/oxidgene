@@ -2,7 +2,7 @@
 
 use oxidgene_db::Migrator;
 use oxidgene_db::repo::{connect, rollback_migrations, run_migrations};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use sea_orm_migration::{MigratorTrait, SchemaManager};
 
 const TABLES: &[&str] = &[
@@ -27,7 +27,8 @@ const TABLES: &[&str] = &[
     "tag",
     "record_tag",
     "background_job",
-    "person_search_fts",
+    "person_search",
+    "person_search_token",
     "person_denorm",
     "person_distinct",
     "audit_entry",
@@ -61,7 +62,10 @@ async fn test_migrate_up_and_down_postgres() {
     let url = std::env::var("OXIDGENE_TEST_DATABASE_URL")
         .expect("set OXIDGENE_TEST_DATABASE_URL to an empty disposable PostgreSQL database");
     let db = connect(&url).await.expect("connect to PostgreSQL");
-    assert_eq!(db.get_database_backend(), DatabaseBackend::Postgres);
+    assert_eq!(
+        db.get_database_backend(),
+        sea_orm::DatabaseBackend::Postgres
+    );
     assert_migration_lifecycle(&db).await;
 }
 
@@ -95,7 +99,7 @@ async fn assert_migration_lifecycle(db: &DatabaseConnection) {
 /// None of the schema's tables exists; `state` names the failure.
 async fn assert_no_table(db: &DatabaseConnection, state: &str) {
     let manager = SchemaManager::new(db);
-    for table in TABLES.iter().chain(&["person_search_key", "schema_meta"]) {
+    for table in TABLES.iter().chain(&["schema_meta"]) {
         assert!(!manager.has_table(*table).await.unwrap(), "{table} {state}");
     }
 }
@@ -214,9 +218,10 @@ async fn assert_tables_and_columns(db: &DatabaseConnection) {
             "id, tree_id, audit_entry_id, record_type, record_id, version, deleted, snapshot, labels",
         ),
         (
-            "person_search_fts",
-            "person_id, tree_id, surname, given_names, maiden_name, birth_year, death_year, birth_qualifier, death_qualifier, sex, display_name, surname_display, given_names_display, birth_place, date_sort, spouse_names, spouse_surnames, spouse_given_names, father_name, father_surname, father_given_names, mother_name, mother_surname, mother_given_names, children_count",
+            "person_search",
+            "person_id, tree_id, surname_key, given_key, maiden_key, sex, birth_year, birth_qualifier, death_year, death_qualifier, date_sort, display_name, surname_display, given_names_display, birth_place, spouse_names, father_name, mother_name, children_count",
         ),
+        ("person_search_token", "tree_id, token, person_id, fields"),
     ] {
         db.query_all_raw(Statement::from_string(
             backend,
@@ -274,6 +279,11 @@ async fn assert_indexes(db: &DatabaseConnection) {
         ("note", "uq_note_tree_id"),
         ("access_scope", "uq_access_scope_tree_id"),
         ("person_name", "idx_person_name_tree_surname"),
+        // The person search's name order, its birth years and a person's
+        // words (docs/data-model.md §4.3).
+        ("person_search", "idx_person_search_tree_name"),
+        ("person_search", "idx_person_search_tree_birth_year"),
+        ("person_search_token", "idx_person_search_token_person"),
     ] {
         assert!(
             manager.has_index(table, index).await.unwrap(),
@@ -365,45 +375,69 @@ async fn assert_optional_defaults(db: &DatabaseConnection) {
     execute(db, "DELETE FROM tree").await.unwrap();
 }
 
-/// The search table finds a row by its surname: through FTS5 on SQLite, by
-/// an indexed prefix elsewhere.
+/// The search tables find a row by a word prefix, the same statement on
+/// both backends, and compare their words byte by byte: an upper-case
+/// letter sorts before every lower-case one, which a linguistic collation
+/// would interleave.
 async fn assert_person_search(db: &DatabaseConnection) {
-    let backend = db.get_database_backend();
-    let manager = SchemaManager::new(db);
+    let tree = "'00000000-0000-7000-8000-000000000003'";
+    let person = "'00000000-0000-7000-8000-000000000002'";
     execute(
         db,
-        "INSERT INTO person_search_fts (person_id, tree_id, surname, given_names) \
-         VALUES ('00000000-0000-7000-8000-000000000002', \
-         '00000000-0000-7000-8000-000000000003', 'fixture', 'example')",
+        &format!("INSERT INTO tree (id, name, created_at, updated_at) VALUES ({tree}, 'Fixture', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"),
     )
     .await
     .unwrap();
-    let predicate = if backend == DatabaseBackend::Sqlite {
-        // Its person and tree lookups go through the key table.
-        assert!(manager.has_table("person_search_key").await.unwrap());
-        assert!(
-            manager
-                .has_index("person_search_key", "idx_person_search_key_tree_id")
-                .await
-                .unwrap()
-        );
-        "person_search_fts MATCH 'surname:fixture'"
-    } else {
-        assert!(
-            manager
-                .has_index("person_search_fts", "idx_person_search_fts_tree_id")
-                .await
-                .unwrap()
-        );
-        "surname LIKE 'fixture%'"
-    };
-    let matches = db
-        .query_all_raw(Statement::from_string(
-            backend,
-            format!("SELECT person_id FROM person_search_fts WHERE {predicate}"),
-        ))
+    execute(
+        db,
+        &format!(
+            "INSERT INTO person (id, tree_id, sex, created_at, updated_at) \
+             VALUES ({person}, {tree}, 'unknown', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ),
+    )
+    .await
+    .unwrap();
+    execute(
+        db,
+        &format!(
+            "INSERT INTO person_search (person_id, tree_id, surname_key, given_key, sex, \
+             birth_qualifier, death_qualifier, display_name, surname_display, \
+             given_names_display, spouse_names, children_count) \
+             VALUES ({person}, {tree}, 'fixture', 'example', 'unknown', 'exact', 'exact', \
+             'Example Fixture', 'Fixture', 'Example', '', 0)"
+        ),
+    )
+    .await
+    .unwrap();
+    for token in ["fixture", "Zed", "example"] {
+        execute(
+            db,
+            &format!(
+                "INSERT INTO person_search_token (tree_id, token, person_id, fields) \
+                 VALUES ({tree}, '{token}', {person}, 1)"
+            ),
+        )
         .await
         .unwrap();
-    assert_eq!(matches.len(), 1);
-    execute(db, "DELETE FROM person_search_fts").await.unwrap();
+    }
+    let tokens = |condition: &str| {
+        let sql = format!("SELECT token FROM person_search_token WHERE {condition} ORDER BY token");
+        async move {
+            db.query_all_raw(Statement::from_string(db.get_database_backend(), sql))
+                .await
+                .unwrap()
+                .iter()
+                .map(|row| row.try_get::<String>("", "token").unwrap())
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(
+        tokens("token >= 'fix' AND token < 'fiy'").await,
+        ["fixture"]
+    );
+    assert_eq!(tokens("1 = 1").await, ["Zed", "example", "fixture"]);
+    // The words go with their person.
+    execute(db, "DELETE FROM person").await.unwrap();
+    assert!(tokens("1 = 1").await.is_empty());
+    execute(db, "DELETE FROM tree").await.unwrap();
 }

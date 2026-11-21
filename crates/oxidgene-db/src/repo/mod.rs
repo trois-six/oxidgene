@@ -105,8 +105,8 @@ pub use person_distinct::PersonDistinctRepo;
 pub use person_merge::PersonMergeRepo;
 pub use person_name::{PersonNamePieces, PersonNamePiecesPatch, PersonNameRepo};
 pub use person_search::{
-    PersonSearchEntry, PersonSearchFilters, PersonSearchPage, PersonSearchRepo, PersonSearchSort,
-    RELATIVE_SEP,
+    PersonSearchEntry, PersonSearchFilters, PersonSearchPage, PersonSearchRepo, PersonSearchRow,
+    PersonSearchSort, RELATIVE_SEP, RelativeNames, SearchField, SearchStatements,
 };
 pub use person_visibility::{Membership, MembershipsOf, PersonVisibilityRepo};
 pub use place::{PlaceFilter, PlaceRepo};

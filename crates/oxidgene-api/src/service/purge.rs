@@ -9,16 +9,14 @@
 //! again by the startup sweep. Purging is idempotent, so re-running one that
 //! partially completed is harmless.
 //!
-//! Ordering matters in one place only: `person_search_fts` (an FTS5 virtual
-//! table on SQLite) and its SQLite key table `person_search_key` have no
-//! foreign keys, so the cascade cannot reach them and they have to be cleared
-//! explicitly.
+//! Every row a tree owns goes with it by cascade, its search rows and their
+//! words included.
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use oxidgene_core::OxidGeneError;
-use oxidgene_db::repo::{BackgroundJobRepo, ErasingTransaction, PersonSearchRepo, TreeRepo};
+use oxidgene_db::repo::{BackgroundJobRepo, ErasingTransaction, TreeRepo};
 use sea_orm::DatabaseConnection;
 use tokio::sync::mpsc;
 use tracing::{Instrument as _, error, info, warn};
@@ -208,7 +206,7 @@ async fn purge_steps(
     // (docs/architecture.md §4.1).
     profiles.cache().forget_tree(tree_id);
 
-    // Projections first: the search table has no FK to cascade through.
+    // Projections first, zeroed in an erasing transaction of their own.
     drop_projections(db, profiles, tree_id)
         .await
         .map_err(step_failure(
@@ -240,7 +238,7 @@ async fn purge_steps(
         "tree_purge",
         "purge failed; retrying at next start",
     ))?;
-    erase_purged_content(db).await;
+    oxidgene_db::repo::erase_deleted_content(db).await;
     info!(
         elapsed_ms = started.elapsed().as_millis(),
         "purged soft-deleted tree"
@@ -279,26 +277,6 @@ async fn delete_job_objects(
         media.delete_job(job_id).await?;
     }
     Ok(())
-}
-
-/// Leave nothing of the purged rows readable in the database file: the words
-/// the full-text index still holds — merged away, the segments that held
-/// them zeroed as they are freed — then the free pages and the log.
-async fn erase_purged_content(db: &DatabaseConnection) {
-    if merge_search_index(db).await.is_err() {
-        warn!(
-            error = "search_index_merge",
-            "could not drop the purged tree's words from the search index"
-        );
-    }
-    oxidgene_db::repo::erase_deleted_content(db).await;
-}
-
-/// Merge the full-text index in an erasing transaction.
-async fn merge_search_index(db: &DatabaseConnection) -> Result<(), OxidGeneError> {
-    let erasing = ErasingTransaction::begin(db).await?;
-    let outcome = PersonSearchRepo::merge_index(erasing.connection()).await;
-    erasing.finish(outcome).await
 }
 
 #[cfg(test)]

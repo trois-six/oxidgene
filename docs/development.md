@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:45:40Z }
 ---
 
 # Development Environment and Workflows
@@ -174,7 +174,10 @@ Algorithmic complexity is tested at three levels.
   `OXIDGENE_TEST_POSTGRES_URL` — then measures, each with its time, its
   processor time, its peak resident memory and its statements: a
   whole-tree rebuild, the statistics cold, warm, after one edit and after
-  ten, the anomalies, the duplicates, the ancestry completeness, a search,
+  ten, the anomalies, the duplicates, the ancestry completeness, a search
+  and the person searches of the search page (a surname typed, a given
+  name with it, birth years, free text, the browse; each the median of
+  seven runs, with the search tables' sizes),
   a kinship by blood and one through unions, the widest pedigrees, a place
   renamed under 60 and under 2,000 births, and an export. The population
   is one connected family over seventeen generations whose children marry
@@ -727,7 +730,7 @@ failing).
 | History without duplicates | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | An import stores no version, no stored version copies the live record, deletion markers carry no snapshot |
 | Statement counts | 2 | `just test` (`query_scaling_test`) | Functional tests | No REST or GraphQL request issues statements per record; a batch of 64 ids costs what one of 4 does; no request runs more than four statements at once ([Architecture §4](architecture.md#4-backend-architecture)) |
 | Privacy of logs | 2 | `just test` (`guards` of `oxidgene-api`) | Functional tests | No span or event field carries a name, place, note or SQL value |
-| SQL plans | 2 | `just sql-plans` | Functional tests | No statement scans a large table without an index; no page of one (a `LIMIT`) sorts what it read in a temporary B-tree, but the pages declared with their reason, whose order is computed |
+| SQL plans | 2 | `just sql-plans` | Functional tests | No statement scans a large table without an index; no page of one (a `LIMIT`) sorts what it read in a temporary B-tree, but the pages declared with their reason, whose order is computed; the person searches the search page sends read the search's words as a range of their key (`person_search_token`'s primary key) |
 | Dependencies | 2 | `just deps` | Dependencies | No dependency declared and unused (`cargo machete`); no advisory, licence, wildcard or source `deny.toml` refuses; no known vulnerability; duplicated crates within `scripts/budgets.json` |
 | Duplication | 2 | `just duplication` | Code duplication | The duplicated share of the Rust code stays within its budget |
 | Request budgets | 3 | `just e2e tests/request-budgets.spec.ts` | Nightly: E2E | Every page's API requests, waterfall depth, duplicates and bytes within `e2e/budgets/requests.json`; the pictures the browser fetches from their versioned addresses are counted by the picture cache check instead |
@@ -739,10 +742,10 @@ failing).
 | udeps | 4 | `just udeps` | Weekly: Unused dependencies (udeps) | No dependency the compiler finds unused |
 | Reports | 4 | `just report-updates`, `just report-size` | Weekly: Reports | The pending and held-back updates, the size of the code (artifacts, never failing) |
 | Next toolchains | 4 | `just next-toolchain beta`, `just next-toolchain nightly`, `just future-incompat` | Weekly: Next toolchain | Lints and warnings of the next Rust releases, seen before they break the pinned one (reported, never failing) |
-| PostgreSQL | 4 | `just test-postgres` | Weekly: PostgreSQL suite | The migrations run up and down, on an empty database and over a row in every table, and the repository and API functional tests pass on PostgreSQL, the database of the web deployments: every backend-specific branch and raw statement the SQLite suites of tiers 1 and 2 never execute; jobs and notifications cross processes |
+| PostgreSQL | 4 | `just test-postgres` | Weekly: PostgreSQL suite | The migrations run up and down, on an empty database and over a row in every table, and the repository and API functional tests pass on PostgreSQL, the database of the web deployments: every backend-specific branch and raw statement the SQLite suites of tiers 1 and 2 never execute; the person searches' statements read the search tables through an index, `EXPLAIN` showing no sequential scan of them with sequential scans priced out (`person_search_test`); jobs and notifications cross processes |
 | Redis | 4 | `just test-redis` | Weekly: Redis suite | Sessions are kept, indexed, expired and ended on Redis as in memory |
 | S3 | 4 | `just test-s3` | Weekly: S3 suite | Media and stored crops live and die on an S3 store as on disk |
-| Desktop feature set | 4 | `just test-desktop-api` | Weekly: API tests in the desktop's feature set | The API's tests pass built as the desktop builds it, without the features the workspace build unifies into it. Reported without failing the run for now: the tests that call GraphQL are not compiled out without the `graphql` feature and fail there ([Roadmap §12c](roadmap.md#12c-planned-structural-follow-ups)) |
+| Desktop feature set | 4 | `just test-desktop-api` | Weekly: API tests in the desktop's feature set | The API's tests pass built as the desktop builds it, without the features the workspace build unifies into it. Reported without failing the run for now: the tests that call GraphQL are not compiled out without the `graphql` feature and fail there ([Roadmap §12c](roadmap.md#12c-active-structural-follow-ups)) |
 | Fuzzing | 4 | `just fuzz 900` | Weekly: Fuzz the session decoder | The Geneanet session decoder survives a quarter of an hour of libFuzzer; a crash leaves its input as an artifact (§5.7) |
 | Other engines | 4 | `E2E_BROWSERS=webkit just e2e --project=webkit` | Weekly: E2E (webkit) | The browser suite passes in WebKit; skipped with a warning while the Playwright configuration defines no such project |
 | Large trees | 4 | `just scale-large` | Weekly: Large trees | A generated tree of 100,000 persons is imported, rebuilt, read, edited and exported within the time and memory budgets of `large_tree_test.rs` |
@@ -1508,7 +1511,7 @@ that ships it must first:
    upgrades each to N+1, checks that every row survived with its
    constraints, and runs the functional checks of the derived rows on it.
    It joins `just test` for SQLite and `just test-postgres` for PostgreSQL.
-4. **Introduce one derived epoch.** The search rows (`person_search_fts`),
+4. **Introduce one derived epoch.** The search rows (`person_search`, `person_search_token`),
    the visibility rows (`person_visibility`) and the SOSA rows
    (`sosa_ancestor`) are derived from the records, as the projections are,
    which `PROJECTION_SCHEMA_VERSION` already rebuilds when their shape

@@ -150,8 +150,8 @@ before adding a crate or a dependency between crates.
   declared as UI traits and injected by the desktop binary.
 - `oxidgene-geneanet` performs no HTTP. Geneanet requests run inside the
   desktop login window because direct clients are rejected by Cloudflare.
-- Durable read models live in `person_denorm`, `person_search_fts` and
-  `sosa_ancestor`; pedigrees are assembled per request from family links and
+- Durable read models live in `person_denorm`, `person_search` (with its
+  words, `person_search_token`) and `sosa_ancestor`; pedigrees are assembled per request from family links and
   denormalized profiles. The only cache of tree data is the in-process tree cache
   (`oxidgene-api::tree_cache`, `architecture.md` §4.1), which holds per tree
   the place dictionary's reading of each place label the tree uses — a value

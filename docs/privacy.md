@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Enforcement of privacy for the viewers of a shared tree, in the web build: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:29:03Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -367,7 +367,7 @@ root back under its ID.
 |---|---|
 | Person, family, event, media reads | §3, §5, §6 in the service; a hidden record in `hidden` mode, an excluded or out-of-scope one is `404` |
 | `person_denorm` profiles and pedigrees | Read viewer-independently, redacted per §5 before serialization; batches redact every node |
-| Search (`person_search_fts`) | For a Visitor, the query joins `person_visibility`, `excluded_person` and the scope and drops hidden persons entirely, in every display mode, so a hidden name never matches. Relative columns (spouses, parents) of a returned row are rebuilt from visible relatives; the `spouse_*`, `father_*` and `mother_*` filters match visible relatives only. `total_count` counts returned rows |
+| Search (`person_search`, `person_search_token`) | For a Visitor, the query joins `person_visibility`, `excluded_person` and the scope and drops hidden persons entirely, in every display mode, so a hidden name never matches. Relative columns (spouses, parents) of a returned row are rebuilt from visible relatives; the `spouse_*`, `father_*` and `mother_*` filters match visible relatives only. `total_count` counts returned rows |
 | Recently modified persons, homepage cards | Visible persons only |
 | Statistics | Computed over the persons the viewer sees, every distribution, list and total alike (open decision 2) |
 | Kinship | Endpoints must be visible; paths through excluded or out-of-scope persons are not returned; hidden persons on a path are stubs |

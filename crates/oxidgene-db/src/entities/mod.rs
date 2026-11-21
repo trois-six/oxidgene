@@ -23,6 +23,8 @@ pub mod person;
 pub mod person_denorm;
 pub mod person_distinct;
 pub mod person_name;
+pub mod person_search;
+pub mod person_search_token;
 pub mod place;
 pub mod record_tag;
 pub mod record_version;

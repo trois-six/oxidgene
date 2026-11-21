@@ -564,9 +564,9 @@ pub enum PedigreeDirection {
 
 // ─── Search ─────────────────────────────────────────────────────────────────
 //
-// Since Sprint E.6 the search index lives in the database itself (SQLite FTS5
-// virtual table / plain PostgreSQL table `person_search_fts`). These types
-// remain as the API wire shape for search results.
+// The search index lives in the database itself (the `person_search` rows
+// and their words, the same tables on SQLite and PostgreSQL). These types
+// are the API wire shape of search results.
 
 /// A single search result entry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

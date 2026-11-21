@@ -2192,8 +2192,9 @@ impl TreeQuery {
 
     /// Server-side person search in a tree (spec name: `searchPersons`).
     ///
-    /// Backed by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL)
-    /// with accent-folded, normalised matching. Returns paginated results.
+    /// Backed by the `person_search` rows and their words, the same tables
+    /// and statements on SQLite and PostgreSQL, with accent-folded word
+    /// prefix matching. Returns paginated results.
     #[expect(
         clippy::too_many_arguments,
         reason = "a GraphQL resolver takes one Rust argument per field argument of the schema"

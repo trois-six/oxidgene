@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:29:03Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -656,16 +656,18 @@ Comfort:
 
 The archives of other countries stay planned with the archive viewer (§3b).
 
-## 12c. Planned: structural follow-ups
+## 12c. Active: structural follow-ups
 
 Changes to the structure of the code and of the data model that an audit
-of the whole application called for and that are not delivered:
+of the whole application called for, ticked once delivered:
 
 - [ ] One contract crate from which REST, GraphQL, MCP and the UI client
   derive their types. GraphQL is kept, by decision, although nothing in the
   repository consumes it yet.
 - [ ] Split `oxidgene-api` into an application crate and a transport crate.
-- [ ] One typed person-search table for both database backends.
+- [x] One typed person-search table for both database backends: typed
+  rows and a table of their words, matched by key ranges, the same
+  statements on SQLite and PostgreSQL ([Data Model §4.3](data-model.md)).
 - [ ] Gate the API tests that call GraphQL behind the `graphql` feature, so
   that the API's suite passes in the desktop's feature set
   (`just test-desktop-api`) and its weekly job can fail the run

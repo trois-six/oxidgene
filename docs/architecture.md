@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:29:03Z }
 ---
 
 
@@ -30,7 +30,7 @@ generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 | GeneWeb `.gw` | [geneweb](https://github.com/trois-six/rust-geneweb) | 0.6, ported to `oxidged` | Read only, incl. `gwplus`; converts to the same `oxidged` model, so one domain mapping serves both formats |
 | PDF reading | [hayro-syntax](https://github.com/LaurenzV/hayro) | 0.8 | Parser only, pure Rust (Apache-2.0 OR MIT): a PDF's page count and the scan its first page paints, with its CCITT, JBIG2 and JPEG 2000 decoders. Not the `hayro` renderer; see **Media ingest** (§4) |
 | PDF viewing | [pdf.js](https://github.com/mozilla/pdf.js) (`pdfjs-dist`) | 6.4, legacy build | Vendored files, not a Cargo dependency (Apache-2.0; its JPEG 2000 and JBIG2 wasm decoders BSD); see **PDF viewer** (§4) |
-| Read projections | Same database | — | `person_denorm`, `person_search_fts` and `sosa_ancestor`. See [Data Model §4](data-model.md); what a process keeps in memory between requests is the bounded tree cache ([§4.1](#41-tree-cache)) |
+| Read projections | Same database | — | `person_denorm`, `person_search` with its words (`person_search_token`) and `sosa_ancestor`. See [Data Model §4](data-model.md); what a process keeps in memory between requests is the bounded tree cache ([§4.1](#41-tree-cache)) |
 | Web object storage | S3-compatible | — | Durable media bytes; RustFS in development Compose |
 | Session storage | Redis | 8+ | Infrastructure provisioned for EPIC G: the web build's sessions, rate-limit counters and long-poll wake-ups once authentication ships ([Authentication §4.5](authentication.md#45-session-store)); not used before |
 | Identity | Any OpenID Connect provider; [Rauthy](https://github.com/sebadob/rauthy) bundled | 0.37 | EPIC G, web build only: Rauthy in development Compose and deployed by the Helm chart's `rauthy` mode, any other provider in its `external` mode ([Authentication §8](authentication.md#8-deployment)) |

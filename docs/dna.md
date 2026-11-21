@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "DNA Kits"
 description: "Planned import of consumer DNA raw data attached to persons, processed locally only: supported kit formats, haplogroups, matching between the kits of one tree cross-checked with its kinship paths, continental ancestry estimates, storage and encryption, consent and deletion, reference data and licences, API, and delivery phases."
 tags: [oxidgene, specification, dna, genetics, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:29:03Z }
 sources:
   - id: snps
     title: "snps — Python library reading every consumer raw-data format (BSD-3-Clause)"
@@ -268,7 +268,7 @@ would change `PersonProfile` and bump `PROJECTION_SCHEMA_VERSION`.
 ### 5.2 Out of every other flow
 
 Genotypes and segments never enter: GEDCOM / GEDZIP exports, the MCP tools,
-the AI relay, `person_denorm`, `person_search_fts`, logs and traces, and the
+the AI relay, `person_denorm`, `person_search`, logs and traces, and the
 change history, which records only that a kit was imported or deleted, for
 whom, never its content.
 

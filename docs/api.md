@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
+generated: { by: human:maintainer, at: 2026-11-21T18:29:03Z }
 ---
 
 
@@ -1920,7 +1920,8 @@ genuinely empty data. The internal version is not exposed. See
 [Data Model §4.1](data-model.md).
 
 Person search uses `GET /trees/{tree_id}/persons/search` and returns a paginated
-`SearchResult` backed by `person_search_fts`. Supported query parameters are:
+`SearchResult` backed by the `person_search` rows and their words
+([Data Model §4.3](data-model.md)). Supported query parameters are:
 
 | Category | Parameters |
 |---|---|
@@ -1938,18 +1939,24 @@ and `offset` are applied. An `offset` past 2^63 − 1, more than SQL can skip,
 is a `validation_error` on every surface.
 
 `q` is matched as a **prefix**, per word, on both backends: every word must
-match the start of a word of one of the indexed fields (`sophie` finds
-`Anne-Sophie`), in any order and in any field.
-The named filters (`surname`, `given_names`, and the `Relations` group) match a
-substring instead, so a filter finds a name recorded with a particle or a
-compound where a prefix would not.
+begin a word of the person's primary surname, given names, maiden name, or
+birth or death year as shown (`sophie` finds `Anne-Sophie`, `185` a birth in
+1850), in any order and in any of those fields. The named filters
+(`surname`, `given_names`, and the `Relations` group) match the same way,
+each in its own field: every word of the filter must begin a word of that
+name, so `cruz` finds `de la Cruz` and `dup` finds `Dupont`, while the
+inside of a word (`pont`) finds nothing. A relative's name is matched only
+by the `Relations` filters, never by `q`. Matching is the same on SQLite and
+PostgreSQL: the same statements over the same tables.
 
 `sort=relevance` ranks a hit whose surname starts with the search term above one
-whose given names do, and both above a match found further in; ties fall back to
-ascending name order. The term is the first word of `q`, or the `surname` /
+whose given names do, and both above a match found further in (a later word of
+the name, `de la Cruz` for `cruz`); ties fall back to ascending name order. The term is the first word of `q`, or the `surname` /
 `given_names` filter when `q` is empty, so relevance is meaningful for a search
 made only of structured filters. With nothing to rank by it is exactly
-`name_asc`.
+`name_asc`. Every order ends with the person's id, so the pages of one search
+never repeat or skip a person of equal name or date. Names sort by their
+folded form (case and accents ignored), particle included, byte by byte.
 
 Each `SearchEntry` names the person's close relatives — every spouse, the
 father and mother, and the number of children — so a result can be rendered

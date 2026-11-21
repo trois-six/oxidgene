@@ -67,8 +67,9 @@ pub struct DuplicateTreeRequest {
 
 /// Text, paging and ordering of a person search (Sprint E.6).
 ///
-/// The search goes through the `person_search_fts` table (accent-folded,
-/// all words must match) and returns a paginated `SearchResult`. An empty
+/// The search goes through the person search's words (accent-folded,
+/// every word must begin a word of a name) and returns a paginated
+/// `SearchResult`. An empty
 /// or missing `q` lists all persons sorted by name (browse mode).
 ///
 /// The structured filters are read from the same query string into

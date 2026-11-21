@@ -50,15 +50,15 @@ Le panneau compte trois groupes, **Individu**, **Événement** et **Relations** 
 
 | Filtre | Ce qu'il retient |
 |---|---|
-| **Nom**, **Prénom(s)** | Les personnes dont les noms contiennent le texte, sans tenir compte des majuscules ni des accents. Ce sont les mêmes champs que ceux de la barre supérieure : saisir dans l'un met l'autre à jour. |
+| **Nom**, **Prénom(s)** | Les personnes dont les noms ont un mot commençant par chacun des mots saisis, dans n'importe quel ordre, sans tenir compte des majuscules ni des accents : `cruz` trouve *de la Cruz* et `dup` trouve *Dupont*, mais pas `pont`. Ce sont les mêmes champs que ceux de la barre supérieure : saisir dans l'un met l'autre à jour. |
 | **Sexe** | **Tous**, **Masculin**, **Féminin** ou **Inconnu** |
 | **Profession** | Les personnes dont une profession correspond au texte |
 | **Né(e) entre**, **Décédé(e) entre** | Les personnes nées ou décédées entre les deux années, incluses |
 | **Lieu** | Les personnes ayant un événement, individuel ou de couple, dans un lieu correspondant |
 | **Type d'événement** | Les personnes ayant un événement de ce type : Naissance, Décès, Baptême, Inhumation, Mariage, Résidence, Profession ou Recensement |
 | **Événement entre** | Les personnes ayant un événement entre les deux années, incluses |
-| **Conjoint(e)** | Les personnes ayant un conjoint de ce nom et de ces prénoms |
-| **Père**, **Mère** | Les personnes dont le père ou la mère porte ce nom et ces prénoms |
+| **Conjoint(e)** | Les personnes ayant un conjoint de ce nom et de ces prénoms, comparés mot par mot comme ci-dessus |
+| **Père**, **Mère** | Les personnes dont le père ou la mère porte ce nom et ces prénoms, comparés mot par mot comme ci-dessus |
 | **Avec un média** | Les personnes ayant au moins un média rattaché |
 | **Étiquettes** | Les personnes portant toutes les étiquettes choisies, proposées parmi celles de l’arbre ; voir [Étiquettes](@/guide/tags.fr.md) |
 
@@ -70,7 +70,7 @@ Si rien ne correspond, la page l'indique et propose **Effacer les filtres**.
 
 Le sélecteur de tri au-dessus des résultats propose :
 
-- **Pertinence** : d'abord les noms de famille qui commencent par ce que vous avez saisi, puis les prénoms correspondants, puis les correspondances trouvées plus loin dans le nom ;
+- **Pertinence** : d'abord les noms de famille qui commencent par ce que vous avez saisi, puis les prénoms qui commencent par ce texte, puis les correspondances sur un mot suivant du nom ;
 - **Nom A → Z** (par défaut) et **Nom Z → A**, par nom de famille puis prénoms ;
 - **Date de naissance ↑** (les plus anciens d'abord) et **Date de naissance ↓** (les plus récents d'abord).
 

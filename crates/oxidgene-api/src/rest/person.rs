@@ -236,8 +236,8 @@ pub async fn get_kinship(
 
 /// GET /api/v1/trees/:tree_id/persons/search?q=...&limit=...&offset=...
 ///
-/// Server-side free-text person search: accent-folded multi-word matching
-/// against the `person_search_fts` table. Returns a `SearchResult` with
+/// Server-side free-text person search: accent-folded multi-word prefix
+/// matching against the person search's words. Returns a `SearchResult` with
 /// display-ready entries and a total count. An empty or missing `q` lists
 /// all persons sorted by name (browse mode). A repeated `tag` parameter, a
 /// tag id, keeps the persons carrying every one of the tags given.

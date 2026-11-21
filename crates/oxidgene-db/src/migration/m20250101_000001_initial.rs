@@ -195,7 +195,7 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let conn = manager.get_connection();
-        for table in ["person_search_fts", "person_search_key", "schema_meta"] {
+        for table in ["schema_meta"] {
             conn.execute_raw(Statement::from_string(
                 manager.get_database_backend(),
                 format!("DROP TABLE IF EXISTS {table}"),
@@ -226,6 +226,8 @@ impl MigrationTrait for Migration {
             AuditEntry::Table.into_table_ref(),
             PersonDistinct::Table.into_table_ref(),
             BackgroundJob::Table.into_table_ref(),
+            PersonSearchToken::Table.into_table_ref(),
+            PersonSearch::Table.into_table_ref(),
             PersonDenorm::Table.into_table_ref(),
             ProjectionState::Table.into_table_ref(),
             PersonVisibility::Table.into_table_ref(),
@@ -777,6 +779,39 @@ enum PersonDenorm {
     SchemaVersion,
     UpdatedAt,
     Generation,
+}
+
+#[derive(DeriveIden)]
+enum PersonSearch {
+    Table,
+    PersonId,
+    TreeId,
+    SurnameKey,
+    GivenKey,
+    MaidenKey,
+    Sex,
+    BirthYear,
+    BirthQualifier,
+    DeathYear,
+    DeathQualifier,
+    DateSort,
+    DisplayName,
+    SurnameDisplay,
+    GivenNamesDisplay,
+    BirthPlace,
+    SpouseNames,
+    FatherName,
+    MotherName,
+    ChildrenCount,
+}
+
+#[derive(DeriveIden)]
+enum PersonSearchToken {
+    Table,
+    TreeId,
+    Token,
+    PersonId,
+    Fields,
 }
 
 #[derive(DeriveIden)]
@@ -2602,113 +2637,140 @@ async fn create_jobs_and_search(manager: &SchemaManager<'_>) -> Result<(), DbErr
         )
         .await?;
 
-    // 18. person_search_fts: a real FTS5 virtual table on
-    // SQLite (desktop), or a plain table + index on PostgreSQL (web,
-    // where FTS5 isn't available — matching falls back to LIKE on
-    // pre-normalized token columns computed in Rust before insert).
-    let conn = manager.get_connection();
-    match manager.get_database_backend() {
-        DbBackend::Sqlite => {
-            conn.execute_raw(Statement::from_string(
-                DbBackend::Sqlite,
-                r#"
-                    CREATE VIRTUAL TABLE IF NOT EXISTS person_search_fts USING fts5(
-                        surname,
-                        given_names,
-                        maiden_name,
-                        birth_year,
-                        death_year,
-                        person_id UNINDEXED,
-                        tree_id UNINDEXED,
-                        sex UNINDEXED,
-                        display_name UNINDEXED,
-                        surname_display UNINDEXED,
-                        given_names_display UNINDEXED,
-                        birth_place UNINDEXED,
-                        date_sort UNINDEXED,
-                        birth_qualifier UNINDEXED,
-                        death_qualifier UNINDEXED,
-                        spouse_names UNINDEXED,
-                        spouse_surnames UNINDEXED,
-                        spouse_given_names UNINDEXED,
-                        father_name UNINDEXED,
-                        father_surname UNINDEXED,
-                        father_given_names UNINDEXED,
-                        mother_name UNINDEXED,
-                        mother_surname UNINDEXED,
-                        mother_given_names UNINDEXED,
-                        children_count UNINDEXED
-                    )
-                    "#
-                .to_owned(),
-            ))
-            .await?;
-            // `person_id` and `tree_id` are UNINDEXED above: FTS5 indexes only
-            // the words it matches, so an equality on either reads the whole
-            // table. This side table maps each person to its row's rowid, with
-            // an index on the tree; `PersonSearchRepo` writes both in step.
-            conn.execute_raw(Statement::from_string(
-                DbBackend::Sqlite,
-                "CREATE TABLE IF NOT EXISTS person_search_key ( \
-                     fts_rowid INTEGER PRIMARY KEY, \
-                     person_id TEXT NOT NULL UNIQUE, \
-                     tree_id TEXT NOT NULL \
-                 )"
-                .to_owned(),
-            ))
-            .await?;
-            conn.execute_raw(Statement::from_string(
-                DbBackend::Sqlite,
-                "CREATE INDEX IF NOT EXISTS idx_person_search_key_tree_id \
-                     ON person_search_key (tree_id)"
-                    .to_owned(),
-            ))
-            .await?;
-        }
-        backend => {
-            conn.execute_raw(Statement::from_string(
-                backend,
-                r#"
-                    CREATE TABLE IF NOT EXISTS person_search_fts (
-                        person_id TEXT NOT NULL PRIMARY KEY,
-                        tree_id TEXT NOT NULL,
-                        surname TEXT NOT NULL DEFAULT '',
-                        given_names TEXT NOT NULL DEFAULT '',
-                        maiden_name TEXT,
-                        birth_year TEXT,
-                        death_year TEXT,
-                        sex TEXT NOT NULL DEFAULT 'unknown',
-                        display_name TEXT NOT NULL DEFAULT '',
-                        surname_display TEXT NOT NULL DEFAULT '',
-                        given_names_display TEXT NOT NULL DEFAULT '',
-                        birth_place TEXT,
-                        date_sort TEXT,
-                        birth_qualifier TEXT NOT NULL DEFAULT 'exact',
-                        death_qualifier TEXT NOT NULL DEFAULT 'exact',
-                        spouse_names TEXT NOT NULL DEFAULT '',
-                        spouse_surnames TEXT NOT NULL DEFAULT '',
-                        spouse_given_names TEXT NOT NULL DEFAULT '',
-                        father_name TEXT,
-                        father_surname TEXT,
-                        father_given_names TEXT,
-                        mother_name TEXT,
-                        mother_surname TEXT,
-                        mother_given_names TEXT,
-                        children_count TEXT NOT NULL DEFAULT '0'
-                    )
-                    "#
-                .to_owned(),
-            ))
-            .await?;
-            conn.execute_raw(Statement::from_string(
-                backend,
-                "CREATE INDEX IF NOT EXISTS idx_person_search_fts_tree_id \
-                     ON person_search_fts (tree_id)"
-                    .to_owned(),
-            ))
-            .await?;
-        }
+    // 18. person_search and person_search_token (FK → person)
+    create_person_search(manager).await
+}
+
+/// A text column compared byte by byte on both backends: SQLite's default
+/// `BINARY` collation, PostgreSQL's `C`. The person search's keys and
+/// words are folded in Rust and matched by range (`token >= 'abc' AND
+/// token < 'abd'`), which only a byte order makes a prefix, and ordered by
+/// the same order on both backends.
+fn byte_ordered_text(backend: DbBackend, column: impl IntoIden) -> ColumnDef {
+    let mut column = text(column);
+    if backend == DbBackend::Postgres {
+        column.extra(r#"COLLATE "C""#);
     }
+    column
+}
+
+/// The person search's typed rows and their words (docs/data-model.md
+/// §4.3): the same tables, indexes and queries on both backends.
+async fn create_person_search(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    let backend = manager.get_database_backend();
+    manager
+        .create_table(
+            Table::create()
+                .table(PersonSearch::Table)
+                .if_not_exists()
+                .col(uuid(PersonSearch::PersonId).primary_key())
+                .col(uuid(PersonSearch::TreeId))
+                .col(byte_ordered_text(backend, PersonSearch::SurnameKey))
+                .col(byte_ordered_text(backend, PersonSearch::GivenKey))
+                .col(text_null(PersonSearch::MaidenKey))
+                .col(string_len(PersonSearch::Sex, 10))
+                .col(integer_null(PersonSearch::BirthYear))
+                .col(string_len(PersonSearch::BirthQualifier, 10))
+                .col(integer_null(PersonSearch::DeathYear))
+                .col(string_len(PersonSearch::DeathQualifier, 10))
+                .col(date_null(PersonSearch::DateSort))
+                .col(text(PersonSearch::DisplayName))
+                .col(text(PersonSearch::SurnameDisplay))
+                .col(text(PersonSearch::GivenNamesDisplay))
+                .col(text_null(PersonSearch::BirthPlace))
+                .col(text(PersonSearch::SpouseNames))
+                .col(text_null(PersonSearch::FatherName))
+                .col(text_null(PersonSearch::MotherName))
+                .col(integer(PersonSearch::ChildrenCount))
+                .check(enum_check::<sea_enums::Sex>("person_search", "sex"))
+                .check(enum_check::<sea_enums::DateQualifier>(
+                    "person_search",
+                    "birth_qualifier",
+                ))
+                .check(enum_check::<sea_enums::DateQualifier>(
+                    "person_search",
+                    "death_qualifier",
+                ))
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_person_search_person")
+                        .from(PersonSearch::Table, PersonSearch::PersonId)
+                        .to(Person::Table, Person::Id)
+                        .on_delete(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await?;
+    // The tree's rows in name order: a page of a browse or of a name sort
+    // read in one range, a tree's rows counted from the index alone, the
+    // homonyms of a name one equality.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_person_search_tree_name")
+                .table(PersonSearch::Table)
+                .col(PersonSearch::TreeId)
+                .col(PersonSearch::SurnameKey)
+                .col(PersonSearch::GivenKey)
+                .col(PersonSearch::PersonId)
+                .to_owned(),
+        )
+        .await?;
+    // The tree's rows born within years: a search on birth years alone.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_person_search_tree_birth_year")
+                .table(PersonSearch::Table)
+                .col(PersonSearch::TreeId)
+                .col(PersonSearch::BirthYear)
+                .col(PersonSearch::PersonId)
+                .to_owned(),
+        )
+        .await?;
+
+    // One row per word of a person, keyed by tree then word: a word prefix
+    // is one range of the key. On SQLite the key is the table (`WITHOUT
+    // ROWID`); on PostgreSQL the key's index carries `fields`, so that a
+    // range is read from the index alone.
+    let mut tokens = Table::create();
+    tokens
+        .table(PersonSearchToken::Table)
+        .if_not_exists()
+        .col(uuid(PersonSearchToken::TreeId))
+        .col(byte_ordered_text(backend, PersonSearchToken::Token))
+        .col(uuid(PersonSearchToken::PersonId))
+        .col(integer(PersonSearchToken::Fields))
+        .primary_key(
+            Index::create()
+                .name("pk_person_search_token")
+                .col(PersonSearchToken::TreeId)
+                .col(PersonSearchToken::Token)
+                .col(PersonSearchToken::PersonId)
+                .include(PersonSearchToken::Fields),
+        )
+        .foreign_key(
+            ForeignKey::create()
+                .name("fk_person_search_token_person")
+                .from(PersonSearchToken::Table, PersonSearchToken::PersonId)
+                .to(PersonSearch::Table, PersonSearch::PersonId)
+                .on_delete(ForeignKeyAction::Cascade),
+        );
+    if backend == DbBackend::Sqlite {
+        tokens.extra("WITHOUT ROWID");
+    }
+    manager.create_table(tokens).await?;
+    // A person's words: what replacing or deleting their row deletes, and
+    // what the foreign key's cascade looks up.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_person_search_token_person")
+                .table(PersonSearchToken::Table)
+                .col(PersonSearchToken::PersonId)
+                .to_owned(),
+        )
+        .await?;
     Ok(())
 }
 

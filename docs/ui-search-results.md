@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Search Results"
 description: "Filterable person search results page."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-10-23T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:45:40Z }
 ---
 
 
@@ -103,7 +103,7 @@ The expanded panel reuses the person form's visual and interaction patterns:
 
 | Filter | Type | Options / Format |
 |---|---|---|
-| **Surname / given names** | Text inputs suggesting the tree's values ([Common UI §4.4](ui-common.md)) | Case- and accent-insensitive partial matching |
+| **Surname / given names** | Text inputs suggesting the tree's values ([Common UI §4.4](ui-common.md)) | Case- and accent-insensitive: every word typed begins a word of the name, in any order (`cruz` finds "de la Cruz", `dup` finds "Dupont") |
 | **Gender** | Segmented buttons | All (default) / Male / Female / Unknown |
 | **Occupation** | Text input suggesting the tree's occupations | Matches occupation-event descriptions |
 | **Born between** | Two year inputs | Inclusive start and end years |
@@ -111,8 +111,8 @@ The expanded panel reuses the person form's visual and interaction patterns:
 | **Place** | Text input | Matches any individual or family event place |
 | **Event type** | Dropdown | All (default) / Birth / Death / Baptism / Burial / Marriage / Residence / Occupation / Census |
 | **Event between** | Two year inputs | Inclusive start and end years for matching events |
-| **Spouse** | Surname and given-name inputs, suggesting like the person's | Matches another spouse in the same family |
-| **Father / mother** | Surname and given-name inputs, suggesting like the person's | Matches the corresponding parent through family links |
+| **Spouse** | Surname and given-name inputs, suggesting like the person's | Matches a spouse's names, word by word as above |
+| **Father / mother** | Surname and given-name inputs, suggesting like the person's | Matches the corresponding parent's names, word by word as above |
 | **Has media** | Toggle | When enabled, only shows persons with at least one attached media |
 | **Tags** | Field suggesting the tree's person tags; each choice is added as a removable chip | Persons carrying every chosen tag ([API Contract](api.md)) |
 
@@ -128,7 +128,7 @@ A sort selector in the toolbar row above the results:
 
 | Option | Description |
 |---|---|
-| Relevance | Server-side ranking: a surname beginning with what was typed first, then a matching given name, then a match found further in. See [API](api.md). |
+| Relevance | Server-side ranking: a surname beginning with what was typed first, then given names beginning with it, then a match on a later word of the name. See [API](api.md). |
 | Name A -> Z (default) | Alphabetical by surname, then first name |
 | Name Z -> A | Reverse alphabetical |
 | Birth date (oldest first) | Oldest first |

@@ -400,10 +400,9 @@ async fn optimize_statistics(db: &DatabaseConnection) {
 /// the transaction is what keeps every statement on the connection it was
 /// set on, and [`Self::finish`] puts the previous value back before that
 /// connection returns to the pool, so other writes keep deleting at full
-/// speed. It reaches neither the write-ahead log's older frames nor the
-/// words FTS5 keeps after a delete: see [`erase_deleted_content`] and
-/// `PersonSearchRepo::merge_index`. PostgreSQL has no equivalent; there
-/// this is a plain transaction.
+/// speed. It does not reach the write-ahead log's older frames: see
+/// [`erase_deleted_content`]. PostgreSQL has no equivalent; there this is
+/// a plain transaction.
 #[derive(Debug)]
 pub struct ErasingTransaction {
     txn: DatabaseTransaction,
@@ -471,9 +470,9 @@ async fn set_secure_delete(txn: &DatabaseTransaction, value: i32) -> Result<i32,
 /// [`connect`] sets on the databases it creates; in an older file the
 /// vacuum does nothing and the zeroed pages stay, as free pages.
 ///
-/// Run after `PersonSearchRepo::merge_index`, so that the pages the merge
-/// frees go too. Best effort: on failure the free pages stay until the next
-/// purge or the next start's reclaiming pass. PostgreSQL reuses the space of
+/// Run after the purge's last erasing transaction. Best effort: on failure
+/// the free pages stay until the next purge or the next start's reclaiming
+/// pass. PostgreSQL reuses the space of
 /// deleted rows through autovacuum and has no equivalent short of
 /// `VACUUM FULL`.
 pub async fn erase_deleted_content(db: &DatabaseConnection) {

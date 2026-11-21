@@ -4,8 +4,8 @@
 //! flows where the user can either create a new person or link to an existing one.
 //!
 //! Performance: uses the server-side `/persons/search?q=...` endpoint, backed
-//! by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL) with
-//! accent-folded matching, instead of downloading the full tree.
+//! by the person search's rows and words in the database, with accent-folded
+//! word prefix matching, instead of downloading the full tree.
 
 use dioxus::prelude::*;
 use oxidgene_core::projection::{PersonProfile, ProfileEvent, SearchEntry};

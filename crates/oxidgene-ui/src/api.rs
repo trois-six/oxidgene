@@ -3989,9 +3989,9 @@ impl ApiClient {
 
     /// Free-text person search, server-side (Sprint E.6).
     ///
-    /// Backed by the `person_search_fts` DB table (SQLite FTS5 / PostgreSQL):
-    /// accent-folded, every word of the query must match (prefix matching on
-    /// SQLite). An empty query lists persons sorted by name (browse mode).
+    /// Backed by the person search's rows and words in the database:
+    /// accent-folded, every word of the query must begin a word of a name or
+    /// a year. An empty query lists persons sorted by name (browse mode).
     pub async fn search_persons(
         &self,
         tree_id: Uuid,

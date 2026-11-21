@@ -19,7 +19,7 @@ use oxidgene_core::projection::{
     Pedigree, PedigreeDelta, PersonProfile, SearchEntry, SearchResult,
 };
 use oxidgene_core::redaction::Redaction;
-use oxidgene_core::search::fold_words;
+use oxidgene_core::search::begins_words;
 use oxidgene_core::types::Connection;
 use oxidgene_db::repo::{
     PaginationParams, PersonDenormRepo, PersonSearchFilters, PersonSearchSort,
@@ -76,12 +76,12 @@ fn has_relative_filter(filters: &PersonSearchFilters) -> bool {
     .any(|value| value.as_deref().is_some_and(|v| !v.trim().is_empty()))
 }
 
-/// Whether `value` holds `wanted` once both are folded; an absent filter
-/// holds.
+/// Whether `value` holds `wanted` as the search's name filters match it,
+/// every word of it beginning a word of the value; an absent filter holds.
 fn holds(value: Option<&str>, wanted: Option<&str>) -> bool {
     match wanted.map(str::trim).filter(|w| !w.is_empty()) {
         None => true,
-        Some(wanted) => value.is_some_and(|value| fold_words(value).contains(&fold_words(wanted))),
+        Some(wanted) => value.is_some_and(|value| begins_words(value, wanted)),
     }
 }
 
