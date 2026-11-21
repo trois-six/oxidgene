@@ -139,7 +139,8 @@ pub struct Cost {
     /// The processor time the process used during the step, all threads
     /// together: what a busy machine distorts least.
     pub cpu_seconds: f64,
-    /// The most resident memory the process reached during the step.
+    /// The most resident memory the process reached during the step,
+    /// whichever of its phases reached it.
     pub peak_mib: u64,
     /// The resident memory once the step was over.
     pub after_mib: u64,
@@ -148,7 +149,7 @@ pub struct Cost {
 
 /// Run `step` and measure it.
 pub async fn measured<T>(step: impl Future<Output = T>) -> (T, Cost) {
-    take_peak_mib();
+    reset_highest_peak();
     let before = statements();
     let cpu = cpu_seconds();
     let started = Instant::now();
@@ -157,7 +158,7 @@ pub async fn measured<T>(step: impl Future<Output = T>) -> (T, Cost) {
     let cost = Cost {
         seconds,
         cpu_seconds: cpu_seconds() - cpu,
-        peak_mib: take_peak_mib(),
+        peak_mib: highest_peak_mib(),
         after_mib: status_mib("VmRSS:"),
         statements: statements() - before,
     };

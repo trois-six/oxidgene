@@ -428,12 +428,25 @@ test-desktop-api:
 fuzz seconds="60":
     cargo +nightly fuzz run --fuzz-dir crates/oxidgene-geneanet/fuzz session_decode -- -max_total_time={{ seconds }}
 
-# PLACEHOLDER, awaiting the opt-in tests on generated trees of 100,000 and
-# 1,000,000 persons: their command replaces this body, and the weekly
-# workflow's Large trees job runs it as it is.
-# Run the large-tree scale tests (not written yet)
-scale-large:
-    @echo "just scale-large: the 100,000- and 1,000,000-person scale tests are not wired yet; nothing ran"
+# Import a generated, fictitious tree of PERSONS persons the way the
+# application does, in release mode, then time a rebuild, the tree-wide
+# pages, an edit, a search, the kinships, the widest pedigrees, a place
+# renamed and an export, each with its peak memory, and fail over the
+# budgets the size has (docs/development.md §2.1). On SQLite, or on the
+# PostgreSQL database OXIDGENE_TEST_POSTGRES_URL names. The weekly workflow
+# runs the 100,000 persons; `just scale-large 1000000` needs some 12 GB of
+# memory and is run by hand. Everything is staged under target/, on disk
+# rather than in a RAM-backed /tmp, and deleted afterwards.
+# Measure a large generated tree against its budgets
+scale-large persons="100000":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work="$PWD/target/scale-large"
+    trap 'rm -rf "$work"' EXIT
+    mkdir -p "$work"
+    OXIDGENE_LARGE_TREE_PERSONS="{{ persons }}" TMPDIR="$work" \
+      cargo nextest run --locked --release -p oxidgene-api --test integration \
+        --run-ignored only --no-capture -E 'test(/^large_tree_test::/)'
 
 # Refuse a bulk target past 10,000 persons end to end on both surfaces. It
 # creates 10,001 persons, so it runs only on request.

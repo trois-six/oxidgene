@@ -236,15 +236,21 @@ jobs:
       project: ${{ matrix.project }}
       browsers: ${{ matrix.browsers }}
 
-  # PLACEHOLDER: the opt-in runs on generated trees of 100,000 and
-  # 1,000,000 persons are being written; `just scale-large` only says so
-  # until their command replaces its body. The job then needs the CI image,
-  # as the timing job below.
+  # A generated tree of 100,000 persons imported, rebuilt, read, edited and
+  # exported against its time and memory budgets (docs/development.md
+  # §2.1). The million-person run needs more memory than a hosted runner
+  # has, and stays a recipe run by hand.
   scale-large:
-    name: Large trees (awaiting their tests)
+    name: Large trees
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/ci-runner:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

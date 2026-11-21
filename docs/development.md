@@ -3,7 +3,7 @@ type: "Development Specification"
 title: "Development Environment and Workflows"
 description: "Local development, secure coding practices, verification workflows, and just command reference for OxidGene."
 tags: [oxidgene, specification, development, rust, security, just]
-generated: { by: human:maintainer, at: 2026-11-21T13:25:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T22:00:00Z }
 ---
 
 # Development Environment and Workflows
@@ -98,7 +98,7 @@ the repository root.
 | `just test-redis` | Keep, index, expire and end sessions in the Redis server `OXIDGENE_TEST_REDIS_URL` names, such as the Compose stack's ([Authentication §4.5](authentication.md#45-session-store)). |
 | `just test-desktop-api` | Run the tests of `oxidgene-api` with the features the desktop gives it, `mcp` and the telemetry context: `just test` builds the workspace, which unifies the server's features into the API, so only this recipe runs the API the desktop links (§2.7). The tests that call GraphQL still fail there, until they are gated behind the `graphql` feature (§2.8). |
 | `just fuzz [SECONDS]` | Fuzz the Geneanet session decoder on synthetic inputs for SECONDS, 60 by default, on the nightly toolchain (§5.7). |
-| `just scale-large` | Placeholder for the scale tests on generated trees of 100,000 and 1,000,000 persons, which are being written: it only says so. |
+| `just scale-large [PERSONS]` | Import a generated, fictitious tree of PERSONS persons, 100,000 by default, in release mode, time every tree-wide operation on it with its peak memory, and fail over the budgets the size has (§2.1). |
 | `just session-check` | Stream the private Geneanet session archive named by `OXIDGENE_GENEANET_SESSION` through REST (§5.7). |
 | `just geneanet-harness [args]` | Run the Geneanet content-matching harnesses on your own archives, in release mode (§3, *Geneanet content matching*). |
 | `just archives-live [archive…]` | Check every catalogued archive with an adapter, or those named (`fr-ad44`), against its real portal, archives sharing a portal address paused apart: the live end-to-end checks (§2.7, [Archive Portals §9.1](archives.md#91-live-checks)). |
@@ -164,6 +164,30 @@ Algorithmic complexity is tested at three levels.
   Scaling and import memory job runs it (§2.8), as timing on a shared runner
   is too noisy to gate a merge; locally it is opt-in, as timing wants an optimised build and
   a quiet machine.
+- **Large trees.** The growths above compare trees of a few thousand
+  persons with trees eight times larger; what only costs at a hundred
+  thousand persons — memory above all — they cannot see. `just scale-large`
+  (`crates/oxidgene-api/tests/large_tree_test.rs`) imports one generated,
+  fictitious population of 100,000 persons the way the application does —
+  an upload streamed from a file, the worker's job, a SQLite file with its
+  read pool and the desktop's one-tree cache, or the PostgreSQL database of
+  `OXIDGENE_TEST_POSTGRES_URL` — then measures, each with its time, its
+  processor time, its peak resident memory and its statements: a
+  whole-tree rebuild, the statistics cold, warm, after one edit and after
+  ten, the anomalies, the duplicates, the ancestry completeness, a search,
+  a kinship by blood and one through unions, the widest pedigrees, a place
+  renamed under 60 and under 2,000 births, and an export. The population
+  is one connected family over seventeen generations whose children marry
+  a third of their generation away, so that ancestries widen and meet and
+  an early couple's descent spreads through the tree
+  (`tests/common/population.rs`). The run prints every figure and fails
+  over the budgets its `BUDGETS` table holds for the size (§2.8).
+  `just scale-large 1000000` runs a million persons, or any other number,
+  without a budget: it reports. An import holds its parsed file, about
+  1 GiB of resident memory per 100,000 persons, and a tree-wide page of a
+  tree too large to keep decodes its projections, about 0.8 GiB per
+  100,000 ([Architecture §4.1, §6.1](architecture.md#41-tree-cache)), so a
+  million persons want a machine with 16 GB to spare and a few hours.
 
 ### 2.2 Backend and Database
 
@@ -372,6 +396,7 @@ an update, open a text PDF and a scanned PDF on the web and the desktop.
 | Browser JavaScript | The dependency-free Node.js tests of the browser glue under `crates/oxidgene-ui/tests/*.test.mjs` — downloads, history keys, the archive tab, the PDF viewer's transfer, preview queue and page names — and of the desktop archive window's scripts — page classification, cookie consent, progress overlay, banner and the go-to-view driver — under `apps/oxidgene-desktop/tests/*.test.mjs` | `just ui-js` | UI JavaScript tests | Yes |
 | Performance | The `#[ignore]`d timing tests of `algorithm_scaling_test.rs`, in release mode (§2.1) | `just scaling` | Weekly: Scaling and import memory | No |
 | Memory | The `#[ignore]`d `import_memory_test.rs`: a Geneanet import of a generated tree, in release mode, against its memory budgets (§2.8) | `just import-memory` | Weekly: Scaling and import memory | No |
+| Large trees | The `#[ignore]`d `large_tree_test.rs`: a generated tree of 100,000 persons imported, rebuilt, read, edited and exported, in release mode, against its time and memory budgets (§2.1) | `just scale-large` | Weekly: Large trees | No |
 | Crop timing | The `#[ignore]`d benchmark of `portrait_crop_test.rs`: a pedigree view's portraits cut and then read back stored, in release mode | `just crop-bench` | None | No |
 | End-to-end | The Playwright suite of `e2e/`, driving every page and major dialog of the web application in Chromium, its request budgets and trace continuity included | `just e2e` | Nightly: E2E (chromium); Release: End-to-end tests of the images (§6) | No |
 | End-to-end, other engines | The same suite in the other projects of `e2e/playwright.config.ts`, WebKit first: the engine of the desktop's window on Linux and macOS, and of Safari | `E2E_BROWSERS=webkit just e2e --project=webkit` | Weekly: E2E (webkit) | No |
@@ -390,7 +415,7 @@ binaries. Other `#[ignore]`d tests need private data, PostgreSQL or RustFS, or
 only time something; each one's ignore reason names the `just` recipe that
 runs it (`just bench`, `just test-postgres`, `just test-s3`, `just test-redis`,
 `just session-check`, `just geneanet-harness`, `just theme-preview`,
-`just real-import`, `just scaling`, `just import-memory`, `just crop-bench`,
+`just real-import`, `just scaling`, `just scale-large`, `just import-memory`, `just crop-bench`,
 `just archives-live`), and a guard fails on a reason that names none.
 
 Each crate builds a single integration test binary, `tests/integration.rs`,
@@ -419,6 +444,7 @@ The opt-in tests and the golden checks read these variables:
 |----------|---------|
 | `OXIDGENE_TEST_DATABASE_URL` | `just test-postgres`: an empty disposable PostgreSQL database, which `oxidgene-db`'s `migration_test` migrates up and down; the recipe then passes it on as `OXIDGENE_TEST_POSTGRES_URL` |
 | `OXIDGENE_TEST_POSTGRES_URL` | The functional tests of `oxidgene-db` and `oxidgene-api`: set, `setup_db` and `setup_app` give each test a migrated schema of its own in that PostgreSQL database instead of a SQLite one, so the suite exercises the SQL the web deployments run. The schemas are left behind, hundreds per run, and a container needs more shared memory than Docker's default 64 MB (`--shm-size=1g`). The few tests that read SQLite's own catalogue or statistics, its FTS5 key table or its read pool keep SQLite (`setup_sqlite_db`) |
+| `OXIDGENE_LARGE_TREE_PERSONS` | `large_tree_test.rs` (§2.1): the number of persons of the generated tree, which `just scale-large` sets; unset, the run skips itself. Its database and files go under `target/tmp/large-tree-N`, deleted afterwards |
 | `OXIDGENE_REAL_*` | `just real-import` (§3, *Real-data import check*), which also sets `OXIDGENE_REAL_WORKDIR` to its staging directory under `target/` |
 | `OXIDGENE_GENEANET_ARCHIVES`, `OXIDGENE_RENDITION_WIDTH` | `oxidgene-geneanet`'s `phash_separation` (§3, *Geneanet content matching*); the width of the simulated rendition defaults to 600 pixels |
 | `OXIDGENE_GW`, `OXIDGENE_REFERENCES` | `oxidgene-geneanet`'s `unkeyed_references`: a `.gw` export and a dump of Geneanet's media references, to measure which unkeyed references the name alone would join |
@@ -716,7 +742,7 @@ failing).
 | Desktop feature set | 4 | `just test-desktop-api` | Weekly: API tests in the desktop's feature set | The API's tests pass built as the desktop builds it, without the features the workspace build unifies into it. Reported without failing the run for now: the tests that call GraphQL are not compiled out without the `graphql` feature and fail there ([Roadmap §12c](roadmap.md#12c-planned-structural-follow-ups)) |
 | Fuzzing | 4 | `just fuzz 900` | Weekly: Fuzz the session decoder | The Geneanet session decoder survives a quarter of an hour of libFuzzer; a crash leaves its input as an artifact (§5.7) |
 | Other engines | 4 | `E2E_BROWSERS=webkit just e2e --project=webkit` | Weekly: E2E (webkit) | The browser suite passes in WebKit; skipped with a warning while the Playwright configuration defines no such project |
-| Large trees | 4 | `just scale-large` | Weekly: Large trees | Placeholder: the runs on generated trees of 100,000 and 1,000,000 persons are being written, and the recipe only says so |
+| Large trees | 4 | `just scale-large` | Weekly: Large trees | A generated tree of 100,000 persons is imported, rebuilt, read, edited and exported within the time and memory budgets of `large_tree_test.rs` |
 
 **Updating a budget.** A budget moves only with an intended change, in the
 commit that makes it, whose message says why:
@@ -738,6 +764,11 @@ commit that makes it, whose message says why:
   `crates/oxidgene-api/tests/import_memory_test.rs`, set about a quarter
   above what `just import-memory` measures, with that measurement in their
   comments;
+- large trees: the `BUDGETS` table of
+  `crates/oxidgene-api/tests/large_tree_test.rs`, per step, memory about a
+  quarter above what `just scale-large` measures and time four times it —
+  a shared runner is slower than the machine measured on, and a time
+  budget there only has to catch a change of order;
 - GraphQL schema and projection shape: `just graphql-schema`, and
   `OXIDGENE_BLESS=1` on `projection_shape_test` with the version bump.
 

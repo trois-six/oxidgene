@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-21T12:43:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T19:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -580,7 +580,11 @@ after a restart ([Architecture §6](architecture.md)). Post-MVP:
   changes instead of polling ([Architecture §6.3, §6.4](architecture.md)).
 - [ ] Add processing notifications.
 - [ ] Add chunked and resumable media uploads.
-- [ ] Validate 100,000-person trees and large media libraries.
+- [x] Measure generated trees of 100,000 persons against time and memory
+  budgets, weekly ([Development Guide §2.1](development.md#21-build-and-quality)).
+- [ ] Validate large media libraries, and trees of a million persons: an
+  import still holds its whole parsed file, and a tree too large for the
+  tree cache is decoded whole by each tree-wide page.
 - [x] Give file-backed SQLite one writer connection and a small read-only
   pool, routing read-only handlers to the pool, so that the application stays
   readable during an import ([Architecture §4](architecture.md)).

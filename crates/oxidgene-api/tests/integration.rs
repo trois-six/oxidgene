@@ -37,6 +37,7 @@ mod hidden_bounds_test;
 mod history_test;
 mod import_memory_test;
 mod kinship_test;
+mod large_tree_test;
 #[cfg(feature = "auth")]
 mod leak_test;
 mod mcp_test;
