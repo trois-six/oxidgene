@@ -11,6 +11,7 @@
 //! | `OXIDGENE_LOG_FORMAT`            | `text`                                     | Console format, or `json`   |
 //! | `OXIDGENE_CORS_ORIGIN`           | `http://127.0.0.1:8081`                    | Allowed CORS origin         |
 //! | `OXIDGENE_ALLOWED_HOSTS`         | unset                                      | More `Host` names to answer |
+//! | `OXIDGENE_TRUSTED_PROXIES`       | unset                                      | Reverse proxies believed on the client's address |
 //! | `OXIDGENE_GRAPHIQL`              | `false`                                    | Serve GraphiQL at `GET /graphql` |
 //! | `OXIDGENE_MEDIA_BACKEND`         | `filesystem`                               | `filesystem` or `s3`        |
 //! | `OXIDGENE_MEDIA_ROOT`            | platform data dir (see below)              | Filesystem media root       |
@@ -32,6 +33,13 @@
 //! host of `OXIDGENE_CORS_ORIGIN` (of `OXIDGENE_PUBLIC_URL` in the `oidc`
 //! mode), or one of the comma-separated `OXIDGENE_ALLOWED_HOSTS` (see
 //! `oxidgene_api::access::allowed_hosts`).
+//!
+//! The rate limits per address count a request under the address of its
+//! connection, unless that is one of the comma-separated addresses or CIDR
+//! ranges of `OXIDGENE_TRUSTED_PROXIES`: a reverse proxy, whose
+//! `X-Forwarded-For` then names the client (see
+//! `oxidgene_api::auth::client`). Behind a proxy that is not named, every
+//! visitor counts as one.
 //!
 //! The authentication settings — `OXIDGENE_AUTH_MODE`, `OXIDGENE_PUBLIC_URL`,
 //! `OXIDGENE_OIDC_*`, `OXIDGENE_AUTH_*`, `OXIDGENE_SESSION_*`,
@@ -61,6 +69,7 @@ use config::builder::DefaultState;
 use config::{Config, ConfigBuilder, Environment, File};
 use oxidgene_api::access::AllowedHosts;
 use oxidgene_api::auth::AuthSettings;
+use oxidgene_api::auth::client::{InvalidTrustedProxies, TrustedProxies};
 use oxidgene_api::mail::MailSettings;
 use oxidgene_api::media::{FsStore, MediaStore, S3Store, S3StoreConfig};
 use oxidgene_api::tree_cache::CacheSettings;
@@ -122,6 +131,12 @@ pub struct ServerConfig {
     #[serde(default)]
     pub allowed_hosts: String,
 
+    /// The reverse proxies in front of the server, as comma-separated
+    /// addresses and CIDR ranges: the only peers whose `X-Forwarded-For`
+    /// names the client the rate limits count.
+    #[serde(default)]
+    pub trusted_proxies: String,
+
     /// Whether `GET /graphql` serves GraphiQL (default: off). The page loads
     /// its scripts from a public CDN, so it is a development convenience.
     #[serde(default)]
@@ -179,6 +194,7 @@ impl std::fmt::Debug for ServerConfig {
             .field("log_format", &self.log_format)
             .field("cors_origin", &self.cors_origin)
             .field("allowed_hosts", &self.allowed_hosts)
+            .field("trusted_proxies", &self.trusted_proxies)
             .field("graphiql", &self.graphiql)
             .field("media_root", &self.media_root)
             .field("work_dir", &self.work_dir)
@@ -295,6 +311,15 @@ impl ServerConfig {
             std::iter::once(public_origin.unwrap_or(&self.cors_origin))
                 .chain(self.allowed_hosts.split(',')),
         )
+    }
+
+    /// The reverse proxies `OXIDGENE_TRUSTED_PROXIES` names.
+    ///
+    /// # Errors
+    ///
+    /// When an entry is neither an address nor a CIDR range.
+    pub fn trusted_proxies(&self) -> Result<TrustedProxies, InvalidTrustedProxies> {
+        TrustedProxies::parse(&self.trusted_proxies)
     }
 
     /// The console log format `OXIDGENE_LOG_FORMAT` selects.

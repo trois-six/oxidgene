@@ -367,6 +367,7 @@ The OxidGene backend and frontend runtime images use Debian Trixie variants.
 | `frontend.otlpEndpoint` | Public OTLP/HTTP base URL injected into the browser runtime; empty disables browser trace export. Its origin is added to the page's Content-Security-Policy `connect-src`. |
 | `frontend.extraConnectSrc` | Further origins the page may connect to (`connect-src`), such as an API on another origin. |
 | `backend.allowedHosts` | Further host names the API answers under besides loopback and the `corsOrigin` host; any other `Host` is refused. |
+| `backend.trustedProxies` | The reverse proxies whose `X-Forwarded-For` names the client the rate limits per address count; the private ranges by default, for the Ingress controller. |
 | `backend.graphiql` | Serve GraphiQL at `GET /graphql`; off by default because its page loads scripts from a public CDN. |
 | `backend.logFormat`, `worker.logFormat` | Console log format, `json` (one object per event, the default here) or `text`. With `otlpEndpoint` set, events also leave as OTLP logs, so a collector scraping the console as well receives each one twice. |
 | `autoscaling.*` | Optional backend and frontend HPAs. |

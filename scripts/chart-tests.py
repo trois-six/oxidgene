@@ -144,6 +144,15 @@ def run() -> None:
         expect_eq(env.get("OXIDGENE_OIDC_CLIENT_SECRET"), ("oxidgene-oidc", "client-secret"), "the client secret's Secret")
         expect_eq(env.get("OXIDGENE_SESSION_KEYS"), ("oxidgene-session", "keys"), "the session keys' Secret")
         expect_eq(env.get("OXIDGENE_SESSION_STORE"), "redis", "OXIDGENE_SESSION_STORE with Redis")
+        # The Ingress controller reaches the backend from inside the cluster:
+        # its X-Forwarded-For names the client the rate limits count.
+        expect_eq(
+            env.get("OXIDGENE_TRUSTED_PROXIES"),
+            "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7",
+            "OXIDGENE_TRUSTED_PROXIES",
+        )
+        narrowed = backend_env(render(*values("external"), "--set", "backend.trustedProxies={10.42.0.0/16}"))
+        expect_eq(narrowed.get("OXIDGENE_TRUSTED_PROXIES"), "10.42.0.0/16", "a narrowed OXIDGENE_TRUSTED_PROXIES")
         expect_eq(env.get("OXIDGENE_REDIS_URL"), ("oxidgene-redis", "url"), "OXIDGENE_REDIS_URL")
         expect_eq(env.get("OXIDGENE_OIDC_ROLES_CLAIM"), "groups", "OXIDGENE_OIDC_ROLES_CLAIM")
         expect_eq(env.get("OXIDGENE_OIDC_ADMIN_VALUES"), "genealogy-admins", "OXIDGENE_OIDC_ADMIN_VALUES")

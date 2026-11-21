@@ -204,6 +204,10 @@ services:
       OXIDGENE_CORS_ORIGIN: "http://localhost:8081"
       # Rauthy's back-channel logout calls the server by its Compose name.
       OXIDGENE_ALLOWED_HOSTS: "server"
+      # The web container's nginx and the host's port forward reach the
+      # server from the Compose network: their X-Forwarded-For names the
+      # client the rate limits per address count.
+      OXIDGENE_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
       # Sign-in against the Rauthy above: the shared settings of
       # rauthy/oxidgene-dev-auth.env, the back channel on the Compose
       # network, and the sessions in Redis.

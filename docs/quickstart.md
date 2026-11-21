@@ -3,7 +3,7 @@ type: "Quickstart Guide"
 title: "OxidGene Quickstart"
 description: "Requirements and procedures for running OxidGene as a downloaded desktop application, a source build, a Compose stack, or a Kubernetes deployment."
 tags: [oxidgene, quickstart, desktop, docker, kubernetes, helm]
-generated: { by: human:maintainer, at: 2026-11-21T17:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:05:00Z }
 ---
 
 # OxidGene Quickstart
@@ -243,6 +243,7 @@ the Helm chart set these for you; a server run by hand reads:
 | `OXIDGENE_LOG_FORMAT` | `text` | Console format, `text` or `json`. |
 | `OXIDGENE_CORS_ORIGIN` | `http://127.0.0.1:8081` | The one browser origin that may call the API; `*` is refused. Writes from any other origin answer `403 forbidden`. |
 | `OXIDGENE_ALLOWED_HOSTS` | Unset | Comma-separated host names the API also answers under. It always answers under `localhost`, `127.0.0.1`, `[::1]` and the host of `OXIDGENE_CORS_ORIGIN`; a request naming any other `Host` answers `403 forbidden`, which defeats DNS rebinding. `/healthz` answers whatever the host. |
+| `OXIDGENE_TRUSTED_PROXIES` | Unset | Comma-separated addresses and CIDR ranges of the reverse proxies in front of the server, such as `127.0.0.1` or `10.0.0.0/8`. The rate limits per address ([Authentication §9.2](authentication.md#92-rate-limits-and-brute-force)) count a request under the address of its connection; from one of these peers, under the client its `X-Forwarded-For` names. **Set it behind a reverse proxy**: unnamed, the proxy is the only address the server sees, and every visitor shares its thirty sign-ins a minute. Never name an address clients connect from directly: they would choose the address they are counted under. |
 | `OXIDGENE_GRAPHIQL` | `false` | Serve GraphiQL at `GET /graphql`. Its page loads scripts from a public CDN, so it is meant for development; Compose and `just dev-web` turn it on. |
 | `OXIDGENE_MEDIA_BACKEND` | `filesystem` | `filesystem` or `s3`. |
 | `OXIDGENE_MEDIA_ROOT` | Platform data directory | Filesystem media root. |
@@ -783,6 +784,7 @@ repeat the warning.
 | `backend.service.port` | `8080` | Backend Service port. |
 | `backend.corsOrigin` | `https://oxidgene.example.invalid` | Allowed browser origin. Set it to the public application origin; its host is also one the API answers under. |
 | `backend.graphiql` | `false` | Serve GraphiQL at `GET /graphql` (`OXIDGENE_GRAPHIQL`); its page loads scripts from a public CDN. |
+| `backend.trustedProxies` | The private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `fc00::/7`) | Reverse proxies whose `X-Forwarded-For` names the client the rate limits count (`OXIDGENE_TRUSTED_PROXIES`): the Ingress controller, which reaches the backend from inside the cluster. Narrow it to the controller's range in a cluster whose other workloads must not be believed, or whose pods have public addresses. |
 | `backend.allowedHosts` | `[]` | Further host names the API answers under (`OXIDGENE_ALLOWED_HOSTS`), for a client calling the backend Service directly. Any other `Host` is refused. |
 | `backend.logLevel` | `info` | `OXIDGENE_LOG_LEVEL` value. |
 | `backend.logFormat` | `json` | `OXIDGENE_LOG_FORMAT` value, `text` or `json`. With OTLP export enabled, a collector that also scrapes these lines receives every event twice. |

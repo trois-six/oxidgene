@@ -17,10 +17,12 @@ use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use super::Oidc;
+use super::client::ClientAddress;
 use super::cookie;
 use super::crypto::{self, csrf_token, digest};
 use super::identity::{Identity, Principal};
 use super::provider::{Metadata, ProviderError, TokenResponse, with_query};
+use super::rate_limit::{self, RateLimited};
 use super::store::{Session, StoreUnavailable, delete_all, now};
 use super::token::{self, AccessIdentity, Purpose, TokenFailure};
 use crate::rest::error::ErrorBody;
@@ -51,6 +53,8 @@ pub(crate) struct Refusal {
     clear_session: bool,
     /// The credential was a bearer token: `WWW-Authenticate` says why.
     bearer: bool,
+    /// The seconds a rate-limited caller waits: `Retry-After`.
+    retry_after: Option<u64>,
 }
 
 impl Refusal {
@@ -60,6 +64,7 @@ impl Refusal {
             code: "unauthenticated",
             clear_session: false,
             bearer: false,
+            retry_after: None,
         }
     }
 
@@ -77,6 +82,7 @@ impl Refusal {
             code: "forbidden",
             clear_session: false,
             bearer: false,
+            retry_after: None,
         }
     }
 
@@ -86,6 +92,18 @@ impl Refusal {
             code: "auth_unavailable",
             clear_session: false,
             bearer: false,
+            retry_after: None,
+        }
+    }
+
+    /// The caller is past a rate limit (§9.2): `429`, with the wait.
+    fn rate_limited(limited: RateLimited) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code: "rate_limited",
+            clear_session: false,
+            bearer: false,
+            retry_after: Some(limited.retry_after),
         }
     }
 
@@ -112,6 +130,7 @@ impl IntoResponse for Refusal {
         let message = match self.code {
             "unauthenticated" => "Authentication is required",
             "forbidden" => "The request is not allowed",
+            "rate_limited" => "Too many requests; try again later",
             _ => "The identity provider is unavailable",
         };
         let body = ErrorBody {
@@ -124,6 +143,9 @@ impl IntoResponse for Refusal {
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
         if self.clear_session {
             cookie::end_session(headers);
+        }
+        if let Some(seconds) = self.retry_after {
+            headers.insert(header::RETRY_AFTER, HeaderValue::from(seconds));
         }
         if self.bearer && self.status == StatusCode::UNAUTHORIZED {
             headers.insert(
@@ -175,13 +197,30 @@ impl Oidc {
         }
     }
 
+    /// Whether validating `token` asks the provider: an opaque token it
+    /// has not answered about lately.
+    fn asks_the_provider(&self, token: &str) -> bool {
+        self.config.introspection
+            && !token::is_jwt(token)
+            && token.len() <= token::MAX_TOKEN_BYTES
+            && self.introspection.known(token).is_none()
+    }
+
     /// The principal a bearer token names (§5.1): a user signed in through
-    /// a trusted client. Any other client's token is refused.
+    /// a trusted client. Any other client's token is refused. `address` is
+    /// the caller's, whose opaque tokens the provider is asked about
+    /// within [`rate_limit::INTROSPECTION`] (§9.2).
     pub(crate) async fn bearer_principal(
         &self,
         db: &DatabaseConnection,
         token: &str,
+        address: Option<ClientAddress>,
     ) -> Result<Principal, Refusal> {
+        if self.asks_the_provider(token) {
+            self.admit(rate_limit::INTROSPECTION, address)
+                .await
+                .map_err(Refusal::rate_limited)?;
+        }
         let identity = match self.access_identity(token).await {
             Ok(identity) => identity,
             Err(TokenFailure::Unavailable) => return Err(Refusal::unavailable()),

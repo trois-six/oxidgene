@@ -26,6 +26,11 @@ pub(crate) const MAX_TOKEN_BYTES: usize = 16 * 1024;
 const LEEWAY: u64 = 60;
 /// The longest an introspection answer is reused.
 const INTROSPECTION_LIFETIME: Duration = Duration::from_secs(60);
+/// How long a token the provider refused is refused without asking again.
+const REFUSAL_LIFETIME: Duration = Duration::from_secs(30);
+/// The most answers kept at once. A refusal past it is not kept: the
+/// token is asked about again, within its caller's rate limit.
+const MAX_ANSWERS: usize = 10_000;
 
 /// Which check a token failed: the `check` of the `token_invalid` log
 /// category (§9.3).
@@ -228,66 +233,97 @@ pub(crate) fn scopes(claims: &Map<String, Value>) -> Vec<String> {
     }
 }
 
-/// Introspection answers, kept for the token's lifetime and at most a
-/// minute, keyed by the token's digest: one token, one viewer.
+/// What the provider answered about a token: its identity, or why it
+/// carries none.
+type Answer = Result<AccessIdentity, TokenFailure>;
+
+/// Introspection answers, keyed by the token's digest: one token, one
+/// viewer. An identity is kept for the token's lifetime and at most a
+/// minute, a refusal for half a minute, so that a client repeating a dead
+/// token does not make the provider answer each time. A provider that
+/// could not be reached is no answer, and is not kept.
 #[derive(Debug, Default)]
 pub(crate) struct IntrospectionCache {
-    answers: Mutex<HashMap<String, (AccessIdentity, Instant)>>,
+    answers: Mutex<HashMap<String, (Answer, Instant)>>,
 }
 
 impl IntrospectionCache {
+    /// The answer kept about `token`, if one is current.
+    pub(crate) fn known(&self, token: &str) -> Option<Answer> {
+        let now = Instant::now();
+        self.lock()
+            .get(&super::crypto::digest(token))
+            .filter(|(_, until)| *until > now)
+            .map(|(answer, _)| answer.clone())
+    }
+
     /// The identity an opaque `token` carries, by introspection.
     pub(crate) async fn identity(
         &self,
         validator: &Validator,
         provider: &Provider,
         token: &str,
-    ) -> Result<AccessIdentity, TokenFailure> {
+    ) -> Answer {
         if token.len() > MAX_TOKEN_BYTES {
             return Err(TokenFailure::Malformed);
         }
-        let key = super::crypto::digest(token);
+        if let Some(answer) = self.known(token) {
+            return answer;
+        }
+        let answer = introspect(validator, provider, token).await;
+        let lifetime = match &answer {
+            Ok(identity) => {
+                let remaining = identity.expires_at - super::store::now();
+                Duration::from_secs(u64::try_from(remaining).unwrap_or(0))
+                    .min(INTROSPECTION_LIFETIME)
+            }
+            Err(TokenFailure::Unavailable) => return answer,
+            Err(_) => REFUSAL_LIFETIME,
+        };
         let now = Instant::now();
-        if let Some((identity, until)) = self.lock().get(&key)
-            && *until > now
-        {
-            return Ok(identity.clone());
-        }
-        let answer = provider
-            .introspect(token)
-            .await
-            .map_err(|error| match error {
-                ProviderError::Unreachable => TokenFailure::Unavailable,
-                ProviderError::InvalidGrant | ProviderError::Refused => TokenFailure::Malformed,
-            })?;
-        if !answer.active {
-            return Err(TokenFailure::Expired);
-        }
-        let claims = answer.claims;
-        if claims.get("iss").and_then(Value::as_str) != Some(validator.issuer.as_str()) {
-            return Err(TokenFailure::Issuer);
-        }
-        if !audience_contains(claims.get("aud"), &validator.audience) {
-            return Err(TokenFailure::Audience);
-        }
-        let identity = AccessIdentity::from_claims(claims)?;
-        let remaining = identity.expires_at - super::store::now();
-        if remaining <= 0 {
-            return Err(TokenFailure::Expired);
-        }
-        let lifetime =
-            Duration::from_secs(u64::try_from(remaining).unwrap_or(0)).min(INTROSPECTION_LIFETIME);
         let mut answers = self.lock();
         answers.retain(|_, (_, until)| *until > now);
-        answers.insert(key, (identity.clone(), now + lifetime));
-        Ok(identity)
+        if answer.is_ok() || answers.len() < MAX_ANSWERS {
+            answers.insert(
+                super::crypto::digest(token),
+                (answer.clone(), now + lifetime),
+            );
+        }
+        answer
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, (AccessIdentity, Instant)>> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, (Answer, Instant)>> {
         self.answers
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
     }
+}
+
+/// Ask `provider` about the opaque `token` and check what it answers as a
+/// JWT's claims would be.
+async fn introspect(validator: &Validator, provider: &Provider, token: &str) -> Answer {
+    let answer = provider
+        .introspect(token)
+        .await
+        .map_err(|error| match error {
+            ProviderError::Unreachable => TokenFailure::Unavailable,
+            ProviderError::InvalidGrant | ProviderError::Refused => TokenFailure::Malformed,
+        })?;
+    if !answer.active {
+        return Err(TokenFailure::Expired);
+    }
+    let claims = answer.claims;
+    if claims.get("iss").and_then(Value::as_str) != Some(validator.issuer.as_str()) {
+        return Err(TokenFailure::Issuer);
+    }
+    if !audience_contains(claims.get("aud"), &validator.audience) {
+        return Err(TokenFailure::Audience);
+    }
+    let identity = AccessIdentity::from_claims(claims)?;
+    if identity.expires_at <= super::store::now() {
+        return Err(TokenFailure::Expired);
+    }
+    Ok(identity)
 }
 
 fn audience_contains(aud: Option<&Value>, expected: &str) -> bool {

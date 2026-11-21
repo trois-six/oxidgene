@@ -1,10 +1,13 @@
 //! The HTTP application the server binds: the API under its time limits,
 //! behind its CORS policy, host allowlist, same-origin write check, request
-//! context and trace layer, plus the health check.
+//! context, client address and trace layer, plus the health check.
+
+use std::net::SocketAddr;
 
 use axum::Router;
 use axum::http::{HeaderValue, Method, header};
 use oxidgene_api::access::{AllowedHosts, allowed_hosts, same_origin_writes};
+use oxidgene_api::auth::client::{TrustedProxies, client_addresses};
 use oxidgene_api::limits::{TimeLimits, with_time_limits};
 use oxidgene_api::request_context;
 use oxidgene_api::startup::with_health_check;
@@ -36,6 +39,9 @@ pub struct Exposure {
     /// Whether responses carry `Strict-Transport-Security`: the public URL
     /// is `https`.
     pub hsts: bool,
+    /// The reverse proxies whose `X-Forwarded-For` names the client the
+    /// rate limits count (docs/authentication.md §9.2).
+    pub proxies: TrustedProxies,
 }
 
 impl Exposure {
@@ -47,6 +53,7 @@ impl Exposure {
             origin,
             hosts,
             hsts: false,
+            proxies: TrustedProxies::none(),
         }
     }
 }
@@ -58,11 +65,15 @@ impl Exposure {
 /// below. Probes call `/healthz` every few seconds, under whatever address
 /// the orchestrator dials: it is answered outside the host check and the
 /// trace layer, so they are never refused and produce neither spans nor
-/// metric points.
+/// metric points. Every request carries the address of its client, read
+/// from the peer [`serve`] gives and the trusted proxies.
 pub fn app(api_router: Router, exposure: Exposure) -> Router {
     let mut api = request_context::wrap(allowed_hosts(
         same_origin_writes(
-            with_time_limits(api_router, TimeLimits::default()),
+            with_time_limits(
+                client_addresses(api_router, exposure.proxies),
+                TimeLimits::default(),
+            ),
             exposure.origin,
         ),
         exposure.hosts,
@@ -92,6 +103,26 @@ pub fn app(api_router: Router, exposure: Exposure) -> Router {
             .on_response(on_http_response),
     );
     with_health_check(api)
+}
+
+/// Serve `app` on `listener` until `shutdown` completes, each request
+/// knowing the peer address of its connection: what the rate limits per
+/// address start from.
+///
+/// # Errors
+///
+/// When the listener fails.
+pub async fn serve(
+    listener: tokio::net::TcpListener,
+    app: Router,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await
 }
 
 /// `Strict-Transport-Security` on every response of an `https` deployment.
@@ -302,6 +333,7 @@ mod tests {
                 origin: HeaderValue::from_static("https://genealogy.example.invalid"),
                 hosts: AllowedHosts::new(["https://genealogy.example.invalid"]),
                 hsts: true,
+                proxies: TrustedProxies::none(),
             },
         );
         let send = |method: &str, origin: &str| {
@@ -363,6 +395,57 @@ mod tests {
             .await
             .expect("infallible router");
         assert_eq!(response.headers()["access-control-max-age"], "7200");
+    }
+
+    /// What the rate limits per address count by: the peer of the
+    /// connection, or the client a trusted proxy names; a forwarded header
+    /// from anybody else is not believed.
+    #[tokio::test]
+    async fn a_served_request_knows_its_client_behind_the_trusted_proxies() {
+        use axum::Extension;
+        use oxidgene_api::auth::client::ClientAddress;
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+        async fn whoami(address: Option<Extension<ClientAddress>>) -> String {
+            address.map_or_else(
+                || "unknown".into(),
+                |Extension(address)| address.0.to_string(),
+            )
+        }
+
+        for (trusted, expected) in [("", "127.0.0.1"), ("127.0.0.0/8", "203.0.113.9")] {
+            let api = Router::new().route("/api/v1/whoami", get(whoami));
+            let app = app(
+                api,
+                Exposure {
+                    proxies: TrustedProxies::parse(trusted).expect("valid"),
+                    ..Exposure::cors(
+                        HeaderValue::from_static("http://127.0.0.1:8081"),
+                        AllowedHosts::loopback(),
+                    )
+                },
+            );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("binds");
+            let address = listener.local_addr().expect("bound");
+            let server = tokio::spawn(serve(listener, app, std::future::pending()));
+            let mut stream = tokio::net::TcpStream::connect(address)
+                .await
+                .expect("connects");
+            stream
+                .write_all(
+                    b"GET /api/v1/whoami HTTP/1.1\r\nHost: 127.0.0.1\r\n\
+                      X-Forwarded-For: 198.51.100.7, 203.0.113.9\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("sends");
+            let mut answer = String::new();
+            stream.read_to_string(&mut answer).await.expect("answers");
+            server.abort();
+            assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+            assert!(answer.ends_with(expected), "{trusted:?}: {answer}");
+        }
     }
 
     #[tokio::test]

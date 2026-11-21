@@ -24,6 +24,18 @@ backend:
   # defeats DNS rebinding. Add an in-cluster name here only if something
   # calls the backend Service directly.
   allowedHosts: []
+  # The reverse proxies whose X-Forwarded-For names the client the rate
+  # limits per address count: the Ingress controller, which reaches the
+  # backend Service from inside the cluster, hence the private ranges.
+  # Narrow it to the controller's range in a cluster whose other workloads
+  # must not be believed, or whose pods have public addresses; a proxy that
+  # is not named is the only address the backend sees, and every visitor
+  # then shares one limit.
+  trustedProxies:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - fc00::/7
   # Serve GraphiQL at GET /graphql. Its page loads scripts from a public CDN,
   # so every visitor's browser calls a third party: a development aid.
   graphiql: false

@@ -22,6 +22,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
 use super::Auth;
+use super::client::ClientAddress;
 use super::cookie;
 use super::identity::Principal;
 use super::session::Refusal;
@@ -37,7 +38,8 @@ pub(crate) async fn authenticate(
     // Borrowing the request itself across an await would make this future
     // `!Send`: its body is not `Sync`.
     let (head, body) = request.into_parts();
-    let principal = principal(&state, &auth, &head.headers, &head.method).await;
+    let address = head.extensions.get::<ClientAddress>().copied();
+    let principal = principal(&state, &auth, &head.headers, &head.method, address).await;
     let mut request = Request::from_parts(head, body);
     let principal = match principal {
         Ok(principal) => principal,
@@ -82,12 +84,13 @@ async fn principal(
     auth: &Auth,
     headers: &HeaderMap,
     method: &Method,
+    address: Option<ClientAddress>,
 ) -> Result<Principal, Refusal> {
     let Some(oidc) = auth.oidc() else {
         return Ok(Principal::Local);
     };
     if let Some(token) = bearer(headers) {
-        return oidc.bearer_principal(&state.reader, token).await;
+        return oidc.bearer_principal(&state.reader, token, address).await;
     }
     let Some(cookie) = cookie::read(headers, cookie::SESSION) else {
         return Ok(Principal::Anonymous);

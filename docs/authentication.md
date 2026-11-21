@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authentication and Sessions"
 description: "Authentication of the web deployment against any OpenID Connect provider, OxidGene never holding a password: the Backend-for-Frontend sign-in with server-side tokens and a session cookie, bearer access tokens validated on every request, the client application named on every request and job, users provisioned from claims, how the web-only code stays out of the unchanged desktop, the Helm chart's external and Rauthy modes with the setup Rauthy is bootstrapped with, the development identity provider, security baselines, threat model, and tests."
 tags: [oxidgene, specification, security, authentication, oidc, oauth, sessions, rauthy, deployment]
-generated: { by: human:maintainer, at: 2026-11-21T19:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T19:05:00Z }
 ---
 
 # Authentication and Sessions
@@ -232,7 +232,10 @@ failure), `signup_closed` (§6.2), `account_deactivated` (§6.5),
    the hash of `state`, with the hash of a fresh binding value, which it
    sets in the `__Host-oxidgene-login` cookie (`Secure`, `HttpOnly`,
    `SameSite=Lax`, `Path=/`, ten minutes). A sign-in started in another tab
-   replaces it.
+   replaces it. Nobody is signed in yet, so the store keeps at most 10,000
+   transactions: one more drops the one nearest its end, whose callback
+   fails as a replayed one does, and an address starts at most thirty a
+   minute (§9.2).
 2. It redirects to the provider's authorization endpoint with
    `response_type=code`, `client_id`, `redirect_uri`
    (`{OXIDGENE_PUBLIC_URL}/auth/callback`), `scope`, `state`, `nonce`,
@@ -294,7 +297,7 @@ builds.
 | Store | When | Behaviour |
 |---|---|---|
 | `memory` | One backend process | A map in the process. A restart ends every session; users sign in again, usually without typing anything while their provider session lives |
-| `redis` | Several backend replicas | `oxidgene:session:{hash}` with the idle expiry as TTL, plus the indexes `oxidgene:user-sessions:{user_id}` and `oxidgene:sid:{sid}` for ending a user's or a provider session's sessions. Redis is the one place the replicas share a session, a sign-in transaction and the rate-limit counters (§9.2) |
+| `redis` | Several backend replicas | `oxidgene:session:{hash}` with the idle expiry as TTL, plus the indexes `oxidgene:user-sessions:{user_id}` and `oxidgene:sid:{sid}` for ending a user's or a provider session's sessions; `oxidgene:login:{hash}` for a sign-in transaction, ordered by their end in `oxidgene:logins` so that their number stays bounded (§4.3); `oxidgene:rate:{limit}:{hash}` for a counter per address, living for its window (§9.2). Redis is the one place the replicas share a session, a sign-in transaction and the counters of the limits per address |
 
 The Helm chart selects `redis` whenever Redis is configured and refuses to
 render more than one backend replica, or autoscaling, with `memory` (§8.1).
@@ -415,7 +418,11 @@ With `OXIDGENE_OIDC_INTROSPECTION`, a token that is not a JWT is introspected
 (RFC 7662) with the web client's credentials; `active`, `iss`, `aud`, `exp`,
 `client_id` and `scope` are checked as in §5.2. The answer is kept for the
 token's lifetime, at most 60 seconds, keyed by the token's SHA-256: one
-token, one viewer, never shared.
+token, one viewer, never shared. A refusal is kept 30 seconds the same way
+— at most 10,000 answers at once — so a client repeating a dead token does
+not make the provider answer each time, and an address makes it answer
+about at most thirty new tokens a minute (§9.2). A provider that cannot be
+reached is no answer, and is asked again.
 
 ### 5.4 The identity a request carries
 
@@ -710,6 +717,12 @@ chart never installing an operator or its CRDs.
 - The session store is `redis` whenever `redis.mode` is not `disabled`;
   with `redis.mode=disabled` and authentication on, rendering fails for
   `backend.replicaCount` above 1 or backend autoscaling.
+- `backend.trustedProxies` becomes `OXIDGENE_TRUSTED_PROXIES` (§9.2). It
+  defaults to the private address ranges: the backend Service is reached
+  from inside the cluster only, through the Ingress controller, whose
+  `X-Forwarded-For` then names each visitor. A cluster whose pods have
+  public addresses, or whose other workloads must not be believed, names
+  the controller's range instead.
 - The Ingress gains the backend paths `/auth`, `/mcp` and
   `/.well-known/oauth-protected-resource`, so the frontend and the API share
   one origin. With a mode other than `none`, `ingress.exposeApiWithoutAuth` is
@@ -870,7 +883,10 @@ provider, its mail relay and the session store beside the application:
   and ends their sessions for the end-to-end suite. It differs from the
   chart's only there, and by calling the back-channel logout at
   `http://server:8080/auth/backchannel-logout`, the server's Compose name,
-  which the server accepts through `OXIDGENE_ALLOWED_HOSTS=server`.
+  which the server accepts through `OXIDGENE_ALLOWED_HOSTS=server`. The
+  server trusts the private address ranges as proxies
+  (`OXIDGENE_TRUSTED_PROXIES`, §9.2): its callers are the `web` container's
+  nginx and the host's port forward, both on the Compose network.
   `just chart-test` fails when the two setups drift apart.
 - A one-shot `rauthy-init` service applies `docker/rauthy/oxidgene-web.json`
   through the admin API once Rauthy answers, as the chart's job does; the
@@ -957,20 +973,53 @@ provider, its mail relay and the session store beside the application:
 ### 9.2 Rate limits and brute force
 
 Password guessing, credential stuffing and lockout are the provider's.
-OxidGene limits what it answers itself, per address for anonymous requests
-and per principal otherwise, with counters in Redis when several replicas run
-and in the process otherwise; past a limit, `429 rate_limited` with
-`Retry-After` (GraphQL `RATE_LIMITED`).
+OxidGene limits what it answers itself, per address for what an anonymous
+caller can make it do and per principal otherwise; past a limit,
+`429 rate_limited` with `Retry-After` (GraphQL `RATE_LIMITED`).
 
-| What | Default limit |
+| What | Limit |
 |---|---|
-| `/auth/login`, `/auth/callback` | 30 per minute per address |
+| `/auth/login` | 30 per minute per address |
+| `/auth/callback` | 30 per minute per address |
 | `/auth/share/{token}` | 30 per minute per address |
+| Opaque bearer tokens the provider is asked about (§5.3) | 30 new tokens per minute per address; a token answered about within its 30 or 60 seconds is not counted |
 | Share and invitation lookups by email or username, and the invitation mails resent | 30 per hour per user ([Authorization §6.1](authorization.md#61-sharing-with-a-user-of-the-instance)) |
 | An API client | 600 requests per minute, bursts of 100 ([Authorization §7.5](authorization.md#75-rate-limits-and-usage)) |
 | Messages | [Messaging §8](messaging.md#8-rate-limits) |
 
-Addresses are held in counters for the window only and never stored.
+**Counters per address.** Each limit per address has a counter of its own
+in the session store (§4.5) — Redis when the deployment has one, so its
+replicas count together, the process otherwise — which starts a window at
+the first request and ends with it. It is named by a SHA-256 of the
+address: neither the process nor Redis holds the address, nothing logs it,
+and nothing is left of it once the window ends. An IPv4 address counts by
+itself, an IPv6 one by its /64, the prefix one subscriber holds. The
+process keeps at most 100,000 counters; a flood from more addresses than
+that is not one a limit per address stops, and a counter past the bound is
+not kept rather than refusing whoever comes next. A session store that
+cannot be reached limits nothing: what these requests go on to do needs
+it, and answers `auth_unavailable`. The lookups per user are counted in
+the process, each replica counting its own.
+
+**The client's address.** A request counts under the address of its
+connection, unless that peer is one of the reverse proxies
+`OXIDGENE_TRUSTED_PROXIES` names — comma-separated addresses and CIDR
+ranges, none by default. Then the client is the nearest address of the
+peer's `X-Forwarded-For` that is not a trusted proxy: each proxy appends
+the address it received from, so the list is read from its end and what a
+client wrote itself is never reached. A forwarded header from any other
+peer is ignored — a client believed on its word would choose the address
+it is counted under — and the first one met is reported once in the log as
+`proxy_untrusted`, without the address: either a forged header, or a proxy
+the setting does not name, behind which every visitor counts as one. An
+operator behind a reverse proxy therefore names it; the Helm chart and the
+Compose stack do (§8.1, §8.5). A request whose address the server was not
+given counts with every other such request, under one counter.
+
+**What an anonymous caller can leave behind** is bounded besides: the
+sign-in transactions (§4.3), the introspection answers (§5.3), and the
+access log, which records at most 60 events naming no user a minute per
+process ([Authorization §9.2](authorization.md#92-access-log)).
 
 ### 9.3 Logs
 
@@ -998,7 +1047,9 @@ retention ([Authorization §9.2](authorization.md#92-access-log)).
 | Information disclosure | Enumerating trees or users | `404` for what the viewer may not see ([Authorization §4.3](authorization.md#43-errors-401-403-and-404)); no user directory; rate-limited exact lookups |
 | Information disclosure | Living persons leaking through search, statistics, exports, caches or logs | Server-side redaction in one policy ([Privacy](privacy.md)); `no-store`; anonymized logs |
 | Information disclosure | Share token in a URL | Redeemed then redirected away; `Referrer-Policy: no-referrer`; route templates in logs |
-| Denial of service | Flooding sign-in or forged `kid`s | Rate limits (§9.2); JWKS refetch at most once a minute (§5.2) |
+| Denial of service | Flooding sign-in or forged `kid`s | Rate limits per address (§9.2); JWKS refetch at most once a minute (§5.2) |
+| Denial of service | Anonymous requests filling the session store, the access log or the provider's introspection endpoint | Bounded sign-in transactions (§4.3), a budget of anonymous access events, refused tokens remembered and new ones counted per address (§5.3, §9.2) |
+| Spoofing | A forged `X-Forwarded-For` choosing the address a limit counts | Believed from the peers of `OXIDGENE_TRUSTED_PROXIES` only, read from its end (§9.2) |
 | Denial of service | Expensive scopes or exclusions | Materialized, rebuilt once per change ([Authorization §6.5](authorization.md#65-access-scopes)) |
 | Elevation of privilege | An editor granting themselves more | Only the owner manages members, shares and exclusions ([Authorization §3.2](authorization.md#32-permission-matrix)) |
 | Elevation of privilege | An API client wider than its owner | Effective rights are the owner's ∩ the client's ∩ the token's scopes ([Authorization §7.1](authorization.md#71-design)) |

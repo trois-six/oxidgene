@@ -28,6 +28,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use http_body_util::BodyExt;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use oxidgene_api::AppState;
+use oxidgene_api::auth::client::ClientAddress;
 use oxidgene_api::auth::{Auth, AuthConfig, AuthSettings, MemoryStore};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
@@ -102,6 +103,8 @@ pub struct Controls {
     pub jwks_fetches: usize,
     /// Opaque tokens and the identity they introspect to.
     pub opaque: HashMap<String, Value>,
+    /// How many tokens the provider was asked about.
+    pub introspections: usize,
 }
 
 struct Shared {
@@ -553,10 +556,9 @@ async fn introspect(
     if !authenticated(&headers) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    let answer = shared
-        .controls
-        .lock()
-        .unwrap()
+    let mut controls = shared.controls.lock().unwrap();
+    controls.introspections += 1;
+    let answer = controls
         .opaque
         .get(&form["token"])
         .cloned()
@@ -572,6 +574,9 @@ pub struct Browser {
     pub csrf: Option<String>,
     /// Sent as `Origin` on writes when set.
     pub origin: Option<String>,
+    /// The address the server reads the client at, when set: what the
+    /// rate limits per address count by.
+    pub address: Option<std::net::IpAddr>,
 }
 
 /// An answer: status, headers and JSON body (`Null` when not JSON).
@@ -605,6 +610,7 @@ impl Browser {
             cookies: HashMap::new(),
             csrf: None,
             origin: Some(PUBLIC_URL.to_string()),
+            address: None,
         }
     }
 
@@ -644,6 +650,9 @@ impl Browser {
         }
         if let Some(content_type) = content_type {
             request = request.header(header::CONTENT_TYPE, content_type);
+        }
+        if let Some(address) = self.address {
+            request = request.extension(ClientAddress(address));
         }
         let response = self
             .app

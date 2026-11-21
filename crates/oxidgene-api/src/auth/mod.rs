@@ -11,17 +11,22 @@
 //! - `layer` turns each request's cookie or bearer token into the
 //!   [`Principal`] every handler and resolver receives; `bff` answers the
 //!   `/auth/*` routes of the Backend-for-Frontend.
+//! - [`client`] reads the address a request comes from behind the trusted
+//!   proxies, and `rate_limit` counts by it what an anonymous caller can
+//!   make the server do.
 //!
 //! The `none` mode gives every request the local owner of every tree, as the
 //! server behaved before authentication existed.
 
 pub(crate) mod bff;
+pub mod client;
 pub mod config;
 pub(crate) mod cookie;
 pub(crate) mod crypto;
 pub mod identity;
 pub(crate) mod layer;
 mod provider;
+mod rate_limit;
 mod session;
 pub mod store;
 mod token;

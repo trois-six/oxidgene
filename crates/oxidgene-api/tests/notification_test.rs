@@ -114,6 +114,7 @@ fn same_session(browser: &Browser) -> Browser {
         cookies: browser.cookies.clone(),
         csrf: browser.csrf.clone(),
         origin: browser.origin.clone(),
+        address: browser.address,
     }
 }
 

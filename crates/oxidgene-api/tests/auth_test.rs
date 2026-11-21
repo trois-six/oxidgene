@@ -896,3 +896,128 @@ async fn a_sign_in_on_another_host_starts_again_on_the_public_url() {
             .any(|cookie| cookie.starts_with("__Host-oxidgene-login="))
     );
 }
+
+/// The counters of §9.2: an address starts, completes and opens thirty a
+/// minute each, and another address is not held back by it.
+#[tokio::test]
+async fn an_address_past_its_limit_is_refused_until_the_minute_ends() {
+    let provider = MockProvider::start().await;
+    let db = setup_db().await;
+    let (app, _) = provider.app(&db, &[]);
+    let mut flood = Browser::new(&app);
+    flood.address = Some("203.0.113.9".parse().unwrap());
+    for uri in [
+        "/auth/login?return_to=/trees",
+        "/auth/callback?state=unknown",
+        "/auth/share/ogs_unknown",
+    ] {
+        for _ in 0..30 {
+            assert_eq!(flood.get(uri).await.status, StatusCode::SEE_OTHER, "{uri}");
+        }
+        let refused = flood.get(uri).await;
+        assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS, "{uri}");
+        assert_eq!(refused.json["error"], "rate_limited", "{uri}");
+        let wait: u64 = refused.headers[header::RETRY_AFTER]
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!((1..=60).contains(&wait), "{uri}: {wait}");
+        assert_eq!(refused.headers[header::CACHE_CONTROL], "no-store");
+    }
+
+    // Another address, and another subscriber's IPv6 prefix, sign in.
+    for address in ["203.0.113.10", "2001:db8:1:2::7"] {
+        let mut other = Browser::new(&app);
+        other.address = Some(address.parse().unwrap());
+        let answer = other.sign_in(&provider, &MockUser::new("ines")).await;
+        assert_eq!(answer.status, StatusCode::SEE_OTHER, "{address}");
+        assert!(other.cookies.contains_key("__Host-oxidgene"), "{address}");
+    }
+
+    // Requests whose address the server does not know count together.
+    for _ in 0..30 {
+        let answer = Browser::new(&app).get("/auth/login").await;
+        assert_eq!(answer.status, StatusCode::SEE_OTHER);
+    }
+    assert_eq!(
+        Browser::new(&app).get("/auth/login").await.status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+}
+
+/// A flood of requests nobody answers for writes a bounded number of
+/// access events (docs/authorization.md §9.2).
+#[tokio::test]
+async fn anonymous_refusals_fill_the_access_log_within_a_budget() {
+    use oxidgene_db::repo::{AccessEventRepo, PaginationParams};
+
+    let provider = MockProvider::start().await;
+    let db = setup_db().await;
+    let (app, _) = provider.app(&db, &[]);
+    let mut visitor = Browser::new(&app);
+    for _ in 0..200 {
+        let answer = visitor.get("/api/v1/trees").await;
+        assert_eq!(answer.status, StatusCode::UNAUTHORIZED);
+    }
+    // The events are written off the request path: wait for the budget's
+    // worth, then for any that would exceed it.
+    let recorded = || async {
+        AccessEventRepo::list(&db, None, &PaginationParams::default())
+            .await
+            .unwrap()
+            .total_count
+    };
+    for _ in 0..250 {
+        if recorded().await >= 60 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let count = recorded().await;
+    assert!((1..=60).contains(&count), "{count} events recorded");
+}
+
+/// A dead opaque token is asked about once, and an address makes the
+/// provider answer about thirty new ones a minute (§9.2).
+#[tokio::test]
+async fn opaque_tokens_reach_the_provider_once_and_within_the_address_limit() {
+    let provider = MockProvider::start().await;
+    let db = setup_db().await;
+    let (app, _) = provider.app(&db, &[("oidc_introspection", "true")]);
+    let user = MockUser::new("ines");
+    Browser::new(&app).sign_in(&provider, &user).await;
+    let asked = || provider.controls(|controls| controls.introspections);
+
+    for _ in 0..5 {
+        assert_eq!(
+            bearer(&app, "opaque-dead", "/api/v1/me").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(asked(), 1, "a refused token is not asked about again");
+
+    for n in 0..29 {
+        assert_eq!(
+            bearer(&app, &format!("opaque-guess-{n}"), "/api/v1/me")
+                .await
+                .0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let (status, headers) = bearer(&app, "opaque-one-more", "/api/v1/me").await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(headers.contains_key(header::RETRY_AFTER));
+    assert_eq!(asked(), 30, "the provider is not asked past the limit");
+
+    // A token already answered about, and a JWT, ask the provider nothing
+    // and are not counted.
+    assert_eq!(
+        bearer(&app, "opaque-dead", "/api/v1/me").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let token = provider.access_token(&user.subject, TRUSTED_CLIENT, 300);
+    assert_eq!(bearer(&app, &token, "/api/v1/me").await.0, StatusCode::OK);
+    assert_eq!(asked(), 30);
+}

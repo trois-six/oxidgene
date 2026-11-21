@@ -134,9 +134,7 @@ async fn main() {
     info!(%addr, "Listening");
 
     or_exit(
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
-            .await,
+        oxidgene_server::http::serve(listener, app, shutdown_signal()).await,
         "server_runtime",
         "Server error",
     );
@@ -216,8 +214,18 @@ fn warn_disabled() {
 /// serves the frontend and the API under one origin with no CORS; the one
 /// trusted CORS origin in `none`.
 fn exposure(cfg: &ServerConfig, auth: &Auth) -> Exposure {
+    // The setting is named, never its value.
+    let proxies = cfg.trusted_proxies().unwrap_or_else(|_| {
+        error!(
+            error = "trusted_proxies",
+            variable = "OXIDGENE_TRUSTED_PROXIES",
+            "Invalid trusted proxies: expected addresses or CIDR ranges"
+        );
+        std::process::exit(1)
+    });
     if let Some(origin) = auth.public_origin() {
         return Exposure {
+            proxies,
             cors: None,
             origin: or_exit(
                 origin.parse::<HeaderValue>(),
@@ -237,7 +245,10 @@ fn exposure(cfg: &ServerConfig, auth: &Auth) -> Exposure {
         "cors_origin",
         "Invalid CORS origin",
     );
-    Exposure::cors(cors_origin, cfg.allowed_hosts(None))
+    Exposure {
+        proxies,
+        ..Exposure::cors(cors_origin, cfg.allowed_hosts(None))
+    }
 }
 
 /// A listener on `host`, an IP literal or a host name, and `port`.

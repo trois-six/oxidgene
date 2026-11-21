@@ -76,6 +76,10 @@ spec:
             - name: OXIDGENE_ALLOWED_HOSTS
               value: {{ join "," . | quote }}
             {{- end }}
+            {{- with .Values.backend.trustedProxies }}
+            - name: OXIDGENE_TRUSTED_PROXIES
+              value: {{ join "," . | quote }}
+            {{- end }}
             {{- with .Values.backend.otlpEndpoint }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: {{ . | quote }}

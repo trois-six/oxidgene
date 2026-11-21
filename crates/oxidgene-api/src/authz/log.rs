@@ -7,8 +7,16 @@
 //! is an audit aid, not a gate. So is an event met while 1,024 others
 //! wait to be written: a flood of refused requests piles up neither tasks
 //! nor memory, nor holds back the writes that matter.
+//!
+//! The events nobody answers for — a request refused to a visitor without
+//! an account, a failed sign-in, a refused back-channel call — cost their
+//! sender nothing, so they share a budget of sixty a minute: past
+//! it they are dropped and counted, and a flood fills neither the table
+//! nor the log.
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::{Principal, ViewerContext};
@@ -72,6 +80,64 @@ fn reserve() -> Option<Pending> {
         .map(|_| Pending)
 }
 
+/// The most events without a user the process records in a minute: a
+/// visitor's refused requests are few, and a flood's are all alike.
+const ANONYMOUS_PER_MINUTE: u32 = 60;
+
+/// The events without a user recorded and dropped in the current minute.
+#[derive(Debug, Default)]
+struct Budget {
+    /// When the current minute ends; none before the first event.
+    until: Option<Instant>,
+    recorded: u32,
+    dropped: u64,
+}
+
+impl Budget {
+    /// Whether one more event is recorded at `now`; and, when a minute
+    /// just ended, how many events it dropped.
+    fn admit(&mut self, now: Instant) -> (bool, u64) {
+        let mut dropped = 0;
+        if self.until.is_none_or(|until| until <= now) {
+            dropped = std::mem::take(&mut self.dropped);
+            self.until = Some(now + Duration::from_secs(60));
+            self.recorded = 0;
+        }
+        if self.recorded < ANONYMOUS_PER_MINUTE {
+            self.recorded += 1;
+            (true, dropped)
+        } else {
+            self.dropped += 1;
+            (false, dropped)
+        }
+    }
+}
+
+static ANONYMOUS: Mutex<Budget> = Mutex::new(Budget {
+    until: None,
+    recorded: 0,
+    dropped: 0,
+});
+
+/// Record `event`, which names no user, within the budget of such events
+/// (sixty a minute). What a minute dropped is said once, when
+/// the next one starts.
+pub fn record_anonymous(db: &DatabaseConnection, event: NewAccessEvent) {
+    let (admitted, dropped) = ANONYMOUS
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .admit(Instant::now());
+    if dropped > 0 {
+        tracing::warn!(
+            dropped,
+            "access events of requests without a user dropped: over the budget of a minute"
+        );
+    }
+    if admitted {
+        record(db, event);
+    }
+}
+
 /// Record `event` without waiting for it.
 pub fn record(db: &DatabaseConnection, event: NewAccessEvent) {
     let Some(pending) = reserve() else {
@@ -108,7 +174,11 @@ pub fn refusal(
     event.tree_id = tree_id;
     event.route = Some(route.to_string());
     event.permission = Some(requirement.name());
-    record(db, event);
+    if viewer.user().is_some() {
+        record(db, event);
+    } else {
+        record_anonymous(db, event);
+    }
 }
 
 #[cfg(test)]
@@ -122,6 +192,21 @@ mod tests {
         assert!(reserve().is_none(), "one more than the bound");
         drop(held);
         assert!(reserve().is_some());
+    }
+
+    #[test]
+    fn events_without_a_user_stay_within_their_budget_each_minute() {
+        let mut budget = Budget::default();
+        let start = Instant::now();
+        let admitted = (0..ANONYMOUS_PER_MINUTE + 25)
+            .filter(|_| budget.admit(start).0)
+            .count();
+        assert_eq!(admitted, ANONYMOUS_PER_MINUTE as usize);
+        // Still the same minute: dropped, and nothing reported yet.
+        assert_eq!(budget.admit(start + Duration::from_secs(59)), (false, 0));
+        // The next minute admits again and reports what the last dropped.
+        assert_eq!(budget.admit(start + Duration::from_secs(60)), (true, 26));
+        assert_eq!(budget.admit(start + Duration::from_secs(61)), (true, 0));
     }
 
     #[test]

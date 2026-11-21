@@ -4,7 +4,7 @@
 //! than product operations, and have no GraphQL twin. Every answer is
 //! `Cache-Control: no-store`.
 
-use axum::extract::{Query, State};
+use axum::extract::{Extension, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -15,9 +15,11 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::Oidc;
+use super::client::ClientAddress;
 use super::cookie;
 use super::crypto::{self, csrf_token, digest, pkce_challenge};
 use super::provider::{ProviderError, with_query};
+use super::rate_limit;
 use super::session::{NewSession, browser_family};
 use super::store::{LoginTransaction, Session, now};
 use super::token::Purpose;
@@ -116,14 +118,21 @@ pub(crate) struct LoginQuery {
 /// where it names `localhost` — is first sent to the same address there:
 /// the binding cookie is set for the host that answers, and the callback
 /// comes back to the public URL, whose browser would have none to show.
+///
+/// Each one keeps a transaction until its callback, so an address starts
+/// at most [`rate_limit::LOGIN`] a minute (§9.2).
 async fn login(
     State(state): State<AppState>,
     Query(query): Query<LoginQuery>,
+    address: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
 ) -> Response {
     let oidc = oidc(&state);
     if let Some(canonical) = canonical_login(&oidc.config, &headers, &query) {
         return redirect(&canonical, &[]);
+    }
+    if let Err(limited) = oidc.admit(rate_limit::LOGIN, client(address)).await {
+        return limited.into_response();
     }
     let Ok(metadata) = oidc.provider.metadata().await else {
         log_failure("auth_unavailable", &oidc.config.client_id);
@@ -213,13 +222,24 @@ fn login_failed(reason: &'static str) -> Failure {
     }
 }
 
-/// `GET /auth/callback`: complete the sign-in (§4.3).
+/// The client address the server resolved, if it was given one.
+fn client(address: Option<Extension<ClientAddress>>) -> Option<ClientAddress> {
+    address.map(|Extension(address)| address)
+}
+
+/// `GET /auth/callback`: complete the sign-in (§4.3). A failed one costs
+/// a call to the provider and an access event, so an address completes at
+/// most [`rate_limit::CALLBACK`] a minute (§9.2).
 async fn callback(
     State(state): State<AppState>,
     Query(query): Query<CallbackQuery>,
+    address: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
 ) -> Response {
     let oidc = oidc(&state);
+    if let Err(limited) = oidc.admit(rate_limit::CALLBACK, client(address)).await {
+        return limited.into_response();
+    }
     match complete(&state, oidc, &query, &headers).await {
         Ok((cookie_value, return_to, user_id)) => {
             tracing::info!(
@@ -258,6 +278,9 @@ async fn callback(
 
 /// Record a sign-in or sign-out in the access log (docs/authorization.md
 /// §9.2): the user's id and the client, never an identity or an address.
+/// An event naming no user is one anybody can cause — a failed sign-in, a
+/// refused back-channel call — and is recorded within the budget of such
+/// events.
 fn access_event(
     state: &AppState,
     kind: &'static str,
@@ -265,21 +288,26 @@ fn access_event(
     user_id: Option<uuid::Uuid>,
     client_id: &str,
 ) {
-    crate::authz::log::record(
-        &state.db,
-        oxidgene_db::repo::NewAccessEvent {
-            kind,
-            principal_kind: if user_id.is_some() {
-                "user"
-            } else {
-                "anonymous"
-            },
-            user_id,
-            client_id: Some(client_id.to_string()),
-            outcome: outcome.to_string(),
-            ..oxidgene_db::repo::NewAccessEvent::default()
+    let event = oxidgene_db::repo::NewAccessEvent {
+        kind,
+        principal_kind: if user_id.is_some() {
+            "user"
+        } else {
+            "anonymous"
         },
-    );
+        user_id,
+        client_id: Some(client_id.to_string()),
+        outcome: outcome.to_string(),
+        ..oxidgene_db::repo::NewAccessEvent::default()
+    };
+    // A back-channel call that ended a session carried the provider's
+    // signature: it is the provider's, however many it sends.
+    let provider = kind == "backchannel_logout" && outcome == "ended";
+    if user_id.is_some() || provider {
+        crate::authz::log::record(&state.db, event);
+    } else {
+        crate::authz::log::record_anonymous(&state.db, event);
+    }
 }
 
 fn log_failure(reason: &'static str, client_id: &str) {
@@ -574,12 +602,18 @@ const MAX_SHARE_GRANTS: usize = 50;
 /// has none, whether anyone is signed in or not — and the browser is sent
 /// to the tree, so the token leaves the address bar at once. A link that
 /// opens nothing lands on the homepage with `auth_error=share_link_invalid`.
+/// Each one is a guess at a token, so an address opens at most
+/// [`rate_limit::SHARE_LINK`] a minute (§9.2).
 async fn open_share_link(
     State(state): State<AppState>,
     axum::extract::Path(token): axum::extract::Path<String>,
+    address: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
 ) -> Response {
     let oidc = oidc(&state);
+    if let Err(limited) = oidc.admit(rate_limit::SHARE_LINK, client(address)).await {
+        return limited.into_response();
+    }
     let principal = match cookie::read(&headers, cookie::SESSION) {
         Some(value) => oidc
             .resolve_session(&state.connections(), &value, None)

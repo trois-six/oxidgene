@@ -1,6 +1,6 @@
-//! Where sessions, sign-in transactions, refresh locks and seen logout
-//! tokens live (docs/authentication.md §4.5): a map in the process, or Redis
-//! when several backend replicas share them.
+//! Where sessions, sign-in transactions, refresh locks, seen logout tokens
+//! and the rate limits' counters live (docs/authentication.md §4.5, §9.2): a
+//! map in the process, or Redis when several backend replicas share them.
 //!
 //! The store never holds a usable secret. A session is keyed by the digest
 //! of its cookie value, its CSRF token is held as a digest too, and the
@@ -91,6 +91,26 @@ pub struct LinkGrants {
     pub expires_at: i64,
 }
 
+/// The most sign-ins under way a store keeps: one more drops the one
+/// nearest its end, whose callback then fails as a replayed one does.
+/// Nobody is signed in yet when a transaction is written, so their number
+/// is whatever the callers of `/auth/login` make it; at 2 KiB of
+/// `return_to` each, the bound is some 25 MiB.
+pub(crate) const MAX_PENDING_LOGINS: usize = 10_000;
+
+/// The most counters the process keeps at once: some 12 MiB. One more is
+/// not kept, so its caller is not limited; a flood from more addresses
+/// than this is not one a limit per address stops.
+const MAX_COUNTERS: usize = 100_000;
+
+/// What a counter reads once counted: how many in its window, this one
+/// included, and how long until the window ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tally {
+    pub count: u64,
+    pub resets_in: Duration,
+}
+
 /// The operations a session store answers. Keys are digests: base64url,
 /// no separator a key scheme could confuse.
 #[async_trait::async_trait]
@@ -104,7 +124,8 @@ pub trait SessionStore: Send + Sync + std::fmt::Debug {
     async fn user_sessions(&self, user_id: Uuid) -> Result<Vec<Session>, StoreUnavailable>;
     /// The keys of the live sessions of the provider session `sid`.
     async fn sid_sessions(&self, sid: &str) -> Result<Vec<String>, StoreUnavailable>;
-    /// Keep `transaction` under `state_hash` for `ttl`, replacing any.
+    /// Keep `transaction` under `state_hash` for `ttl`, replacing any; past
+    /// 10,000 of them, the transactions nearest their end go.
     async fn put_login(
         &self,
         state_hash: &str,
@@ -131,6 +152,9 @@ pub trait SessionStore: Send + Sync + std::fmt::Debug {
     /// The unexpired grants of `id_hash`.
     async fn get_grants(&self, id_hash: &str) -> Result<Option<LinkGrants>, StoreUnavailable>;
     async fn delete_grants(&self, id_hash: &str) -> Result<(), StoreUnavailable>;
+    /// Count one more under `name` in its current window, which starts at
+    /// the first count and lasts `window`: a rate limit's counter.
+    async fn count(&self, name: &str, window: Duration) -> Result<Tally, StoreUnavailable>;
 }
 
 /// The time to live of `grants` at `now`.
@@ -163,6 +187,8 @@ struct Memory {
     marks: HashMap<String, Instant>,
     /// Locks, with their holder's token and when they lapse.
     locks: HashMap<String, (String, Instant)>,
+    /// Counters, with when their window ends.
+    counters: HashMap<String, (u64, Instant)>,
     last_sweep: Option<Instant>,
 }
 
@@ -184,6 +210,47 @@ impl Memory {
         self.logins.retain(|_, (_, until)| *until > now);
         self.marks.retain(|_, until| *until > now);
         self.locks.retain(|_, (_, until)| *until > now);
+        self.counters.retain(|_, (_, until)| *until > now);
+    }
+
+    /// Keep `transaction` under `state_hash` until `until`, dropping the
+    /// transaction nearest its end when [`MAX_PENDING_LOGINS`] are kept.
+    fn put_login(&mut self, state_hash: &str, transaction: LoginTransaction, until: Instant) {
+        if self.logins.len() >= MAX_PENDING_LOGINS
+            && !self.logins.contains_key(state_hash)
+            && let Some(oldest) = self
+                .logins
+                .iter()
+                .min_by_key(|(_, (_, until))| *until)
+                .map(|(key, _)| key.clone())
+        {
+            self.logins.remove(&oldest);
+        }
+        self.logins
+            .insert(state_hash.to_string(), (transaction, until));
+    }
+
+    /// Count one more under `name` at `now`.
+    fn count(&mut self, name: &str, window: Duration, now: Instant) -> Tally {
+        if let Some((count, until)) = self.counters.get_mut(name)
+            && *until > now
+        {
+            *count += 1;
+            return Tally {
+                count: *count,
+                resets_in: until.duration_since(now),
+            };
+        }
+        if self.counters.len() >= MAX_COUNTERS {
+            self.counters.retain(|_, (_, until)| *until > now);
+        }
+        if self.counters.len() < MAX_COUNTERS || self.counters.contains_key(name) {
+            self.counters.insert(name.to_string(), (1, now + window));
+        }
+        Tally {
+            count: 1,
+            resets_in: window,
+        }
     }
 
     fn live(&self, id_hash: &str) -> Option<&Session> {
@@ -254,10 +321,7 @@ impl SessionStore for MemoryStore {
         ttl: Duration,
     ) -> Result<(), StoreUnavailable> {
         self.with(|memory| {
-            memory.logins.insert(
-                state_hash.to_string(),
-                (transaction.clone(), Instant::now() + ttl),
-            );
+            memory.put_login(state_hash, transaction.clone(), Instant::now() + ttl);
         });
         Ok(())
     }
@@ -332,6 +396,10 @@ impl SessionStore for MemoryStore {
         self.with(|memory| memory.grants.remove(id_hash));
         Ok(())
     }
+
+    async fn count(&self, name: &str, window: Duration) -> Result<Tally, StoreUnavailable> {
+        Ok(self.with(|memory| memory.count(name, window, Instant::now())))
+    }
 }
 
 /// Set `key` in `marks` for `ttl` unless it is set and current: `SET NX`.
@@ -350,7 +418,9 @@ fn mark(marks: &mut HashMap<String, Instant>, key: &str, ttl: Duration) -> bool 
 /// to live; `oxidgene:user-sessions:{user_id}` and `oxidgene:sid:{sid}` are
 /// sets of session keys, so that a user's or a provider session's sessions
 /// end together. A key in an index whose session has lapsed is dropped as it
-/// is met.
+/// is met. `oxidgene:logins` orders the sign-ins under way by their end, so
+/// that their number stays bounded, and `oxidgene:rate:{name}` is a rate
+/// limit's counter, living for its window.
 #[derive(Clone)]
 pub struct RedisStore {
     connection: redis::aio::ConnectionManager,
@@ -366,6 +436,8 @@ const SESSION: &str = "oxidgene:session:";
 const USER_SESSIONS: &str = "oxidgene:user-sessions:";
 const SID: &str = "oxidgene:sid:";
 const LOGIN: &str = "oxidgene:login:";
+const LOGINS: &str = "oxidgene:logins";
+const RATE: &str = "oxidgene:rate:";
 const LOCK: &str = "oxidgene:lock:";
 const SEEN: &str = "oxidgene:seen:";
 const GRANTS: &str = "oxidgene:share-grants:";
@@ -529,23 +601,76 @@ impl SessionStore for RedisStore {
         ttl: Duration,
     ) -> Result<(), StoreUnavailable> {
         let json = serde_json::to_string(transaction).map_err(|_| StoreUnavailable)?;
-        self.query::<()>(
-            redis::cmd("SET")
-                .arg(format!("{LOGIN}{state_hash}"))
-                .arg(json)
-                .arg("EX")
-                .arg(ttl.as_secs().max(1)),
-        )
-        .await
+        let seconds = ttl.as_secs().max(1);
+        let at = now();
+        let ends = at.saturating_add(i64::try_from(seconds).unwrap_or(i64::MAX));
+        let mut pipeline = redis::pipe();
+        pipeline.atomic();
+        pipeline
+            .cmd("SET")
+            .arg(format!("{LOGIN}{state_hash}"))
+            .arg(json)
+            .arg("EX")
+            .arg(seconds)
+            .ignore();
+        // The transactions that lapsed leave the index, this one joins it,
+        // and the index outlives the last of them by a minute.
+        pipeline
+            .cmd("ZREMRANGEBYSCORE")
+            .arg(LOGINS)
+            .arg("-inf")
+            .arg(at)
+            .ignore();
+        pipeline
+            .cmd("ZADD")
+            .arg(LOGINS)
+            .arg(ends)
+            .arg(state_hash)
+            .ignore();
+        pipeline
+            .cmd("EXPIRE")
+            .arg(LOGINS)
+            .arg(seconds.saturating_add(60))
+            .ignore();
+        pipeline.cmd("ZCARD").arg(LOGINS);
+        let mut connection = self.connection.clone();
+        let (pending,): (usize,) = pipeline
+            .query_async(&mut connection)
+            .await
+            .map_err(|_| StoreUnavailable)?;
+        if pending <= MAX_PENDING_LOGINS {
+            return Ok(());
+        }
+        let dropped: Vec<(String, f64)> = self
+            .query(
+                redis::cmd("ZPOPMIN")
+                    .arg(LOGINS)
+                    .arg(pending - MAX_PENDING_LOGINS),
+            )
+            .await?;
+        if dropped.is_empty() {
+            return Ok(());
+        }
+        let mut delete = redis::cmd("DEL");
+        for (hash, _) in &dropped {
+            delete.arg(format!("{LOGIN}{hash}"));
+        }
+        self.query::<()>(&delete).await
     }
 
     async fn take_login(
         &self,
         state_hash: &str,
     ) -> Result<Option<LoginTransaction>, StoreUnavailable> {
-        let json: Option<String> = self
-            .query(redis::cmd("GETDEL").arg(format!("{LOGIN}{state_hash}")))
-            .await?;
+        let mut pipeline = redis::pipe();
+        pipeline.atomic();
+        pipeline.cmd("GETDEL").arg(format!("{LOGIN}{state_hash}"));
+        pipeline.cmd("ZREM").arg(LOGINS).arg(state_hash).ignore();
+        let mut connection = self.connection.clone();
+        let (json,): (Option<String>,) = pipeline
+            .query_async(&mut connection)
+            .await
+            .map_err(|_| StoreUnavailable)?;
         Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
     }
 
@@ -606,6 +731,31 @@ impl SessionStore for RedisStore {
         self.query::<()>(redis::cmd("DEL").arg(format!("{GRANTS}{id_hash}")))
             .await
     }
+
+    async fn count(&self, name: &str, window: Duration) -> Result<Tally, StoreUnavailable> {
+        let key = format!("{RATE}{name}");
+        let seconds = window.as_secs().max(1);
+        let mut pipeline = redis::pipe();
+        pipeline.atomic();
+        pipeline.cmd("INCR").arg(&key);
+        // The window starts at the first count: later ones leave its end.
+        pipeline
+            .cmd("EXPIRE")
+            .arg(&key)
+            .arg(seconds)
+            .arg("NX")
+            .ignore();
+        pipeline.cmd("TTL").arg(&key);
+        let mut connection = self.connection.clone();
+        let (count, remaining): (u64, i64) = pipeline
+            .query_async(&mut connection)
+            .await
+            .map_err(|_| StoreUnavailable)?;
+        Ok(Tally {
+            count,
+            resets_in: Duration::from_secs(u64::try_from(remaining).unwrap_or(seconds).max(1)),
+        })
+    }
 }
 
 /// The sessions of `store` that `keys` name, deleted; how many there were.
@@ -658,6 +808,23 @@ mod tests {
         exercise_sessions(store).await;
         exercise_logins(store).await;
         exercise_marks(store).await;
+        exercise_counters(store).await;
+    }
+
+    /// A counter counts within its window, which starts at the first count,
+    /// and starts again once it ended.
+    async fn exercise_counters(store: &dyn SessionStore) {
+        let name = super::super::crypto::random_token();
+        let window = Duration::from_secs(1);
+        for expected in 1..=3 {
+            let tally = store.count(&name, window).await.unwrap();
+            assert_eq!(tally.count, expected);
+            assert!(tally.resets_in <= window && !tally.resets_in.is_zero());
+        }
+        let other = super::super::crypto::random_token();
+        assert_eq!(store.count(&other, window).await.unwrap().count, 1);
+        tokio::time::sleep(Duration::from_millis(1300)).await;
+        assert_eq!(store.count(&name, window).await.unwrap().count, 1);
     }
 
     async fn exercise_sessions(store: &dyn SessionStore) {
@@ -762,6 +929,52 @@ mod tests {
     #[tokio::test]
     async fn the_memory_store_keeps_sessions_and_their_indexes() {
         exercise(&MemoryStore::default()).await;
+    }
+
+    /// Nobody is signed in when a transaction is written: their number is
+    /// bounded, and the one nearest its end makes room.
+    #[tokio::test]
+    async fn the_sign_ins_under_way_are_bounded() {
+        let store = MemoryStore::default();
+        let transaction = LoginTransaction {
+            binding_hash: "binding".into(),
+            nonce_hash: "nonce".into(),
+            pkce_verifier: "verifier".into(),
+            return_to: "/trees".into(),
+        };
+        let lifetime = Duration::from_secs(600);
+        for n in 0..=MAX_PENDING_LOGINS {
+            store
+                .put_login(&format!("state-{n}"), &transaction, lifetime)
+                .await
+                .unwrap();
+        }
+        assert_eq!(store.with(|memory| memory.logins.len()), MAX_PENDING_LOGINS);
+        assert_eq!(store.take_login("state-0").await.unwrap(), None);
+        assert!(store.take_login("state-1").await.unwrap().is_some());
+        let last = format!("state-{MAX_PENDING_LOGINS}");
+        assert!(store.take_login(&last).await.unwrap().is_some());
+    }
+
+    /// The counters are bounded too: past the bound a new one is not kept,
+    /// and those kept still count.
+    #[test]
+    fn the_counters_are_bounded() {
+        let mut memory = Memory::default();
+        let now = Instant::now();
+        let window = Duration::from_secs(60);
+        for n in 0..MAX_COUNTERS {
+            memory.count(&format!("counter-{n}"), window, now);
+        }
+        assert_eq!(memory.count("one-more", window, now).count, 1);
+        assert_eq!(memory.count("one-more", window, now).count, 1, "not kept");
+        assert_eq!(memory.counters.len(), MAX_COUNTERS);
+        assert_eq!(memory.count("counter-0", window, now).count, 2);
+        // Once their window ended, the lapsed ones make room.
+        let later = now + window;
+        assert_eq!(memory.count("one-more", window, later).count, 1);
+        assert_eq!(memory.count("one-more", window, later).count, 2);
+        assert_eq!(memory.counters.len(), 1);
     }
 
     #[test]

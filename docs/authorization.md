@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:05:00Z }
 ---
 
 # Authorization and Sharing
@@ -682,7 +682,14 @@ Administrators read the instance's log, owners their tree's. Rows older than
 An event is written in a task of its own, so a refusal is answered without
 waiting for the database; while 1,024 events wait to be written, one more is
 dropped with a warning, so that a flood of refused requests piles up neither
-tasks nor memory. Phase 2 records refusals (`request_refused`, with
+tasks nor memory. The events naming no user — a request refused to a
+visitor without an account or to the holder of a share link, a failed
+sign-in, a refused back-channel call — cost their sender nothing, so a
+server process records at most 60 of them a minute; those past it are
+dropped, and the next minute says in one warning how many, so that a flood
+fills neither the table nor the log. A back-channel logout that ended a
+session carried the provider's signature and is always recorded. Phase 2
+records refusals (`request_refused`, with
 the requirement refused), sign-ins (`login_succeeded`, `login_failed` with
 its reason), sign-outs (`logout`, `logout_everywhere`), back-channel
 logouts, expired memberships (`membership_expired`) and administrator
