@@ -1,8 +1,10 @@
-//! Who may call the backend before authentication ships.
+//! Who may call the backend at all, whoever they say they are.
 //!
-//! There are no accounts yet (Cross-cutting Rules §7.1), so nothing here
-//! identifies a user. What it does is keep the callers that are certainly not
-//! the application out.
+//! Nothing here identifies a user: that is the web build's authentication
+//! (`crate::auth`, docs/authentication.md), which the desktop does not
+//! compile and the `none` mode does without. What this module does, in
+//! every build and every mode, is keep out the callers that are certainly
+//! not the application (Cross-cutting Rules §7.1).
 //!
 //! - **The desktop's embedded server** listens on a loopback port, and loopback
 //!   is not private: every local account, every process, and every page open in
@@ -13,8 +15,10 @@
 //!   a [`LocalToken`] at launch, hands it to its own client, and the server
 //!   refuses every request that does not carry it.
 //! - **The standalone server** is reached by a browser frontend on one trusted
-//!   origin. CORS already stops other origins from *reading*; [`same_origin_writes`]
-//!   stops them from *writing* through the requests CORS lets through unasked.
+//!   origin — its own in the `oidc` mode, which sends no CORS header, the
+//!   CORS origin in `none`. CORS already stops other origins from *reading*;
+//!   [`same_origin_writes`] stops them from *writing* through the requests
+//!   CORS lets through unasked, beside the session's own CSRF token.
 //! - **Both** answer only under a host name they are known by
 //!   ([`allowed_hosts`]). A page that rebinds its own DNS name to the
 //!   server's address becomes same-origin with it, past CORS and the origin
