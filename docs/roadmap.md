@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T15:00:00Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -584,6 +584,81 @@ after a restart ([Architecture §6](architecture.md)). Post-MVP:
 - [x] Give file-backed SQLite one writer connection and a small read-only
   pool, routing read-only handlers to the pool, so that the application stays
   readable during an import ([Architecture §4](architecture.md)).
+
+## 12b. Planned: research, outputs, exchange and comfort
+
+Features approved for delivery and not specified yet. Each one is specified
+in its domain document before it is built; where a line names a constraint,
+the specification starts from it.
+
+Research:
+
+- [ ] A list of the records to find: for each event without a source, the
+  catalogued archive and the register series that cover its place and year.
+  It is computed locally from the archive catalogue, with no request to any
+  archive portal; a portal is contacted only when the reader opens one
+  entry, exactly as for a cited source today
+  ([Archive Portals §8](archives.md#8-access-etiquette)). The feature must
+  never add to the load of an archive site nor risk a block.
+- [ ] Research tasks and a research log per person — a task's status, where
+  and when a search was made, negative results — beyond today's notes. Its
+  scope is confirmed with the owner before it is specified.
+- [ ] Record-based entry: a record — a marriage, a baptism, a census… — is
+  entered once and creates or links its persons, events, witnesses and
+  citation in one transaction. Its place in the interface is designed with
+  the owner first.
+
+Outputs:
+
+- [ ] An ancestor list by SOSA number, a descendant register and a family
+  group sheet.
+- [ ] A single-page poster export of a chart, as SVG and PDF.
+- [ ] A CSV export of the lists.
+- [ ] A static website export of a tree, applying the privacy rules
+  ([Privacy](privacy.md)).
+
+Backups and exchange:
+
+- [ ] Automatic local backups: an interface that lists the snapshots the
+  backend takes and restores one. It follows the backend's snapshots.
+- [ ] Synchronisation between a desktop tree and a web deployment, after
+  the backups.
+- [ ] Re-import as a merge: update an existing tree from a newer GEDCOM or
+  Geneanet export instead of creating another.
+- [ ] Import Gramps XML and GEDCOM X.
+
+Collaboration, in the web deployment:
+
+- [ ] Suggest a correction: a Guest or a Visitor proposes a change, which
+  the Owner reviews. It comes before messaging (§8, phase 7), which stays
+  planned after it.
+
+Comfort:
+
+- [ ] A global undo backed by the change history.
+- [ ] A command palette.
+- [ ] Anniversaries on the home page.
+- [ ] A migration map of a lineage.
+- [ ] A timeline of historical context.
+- [ ] A sample tree at first launch.
+- [ ] A notice of a newer desktop release.
+
+The archives of other countries stay planned with the archive viewer (§3b).
+
+## 12c. Planned: structural follow-ups
+
+Changes to the structure of the code and of the data model that an audit
+of the whole application called for and that are not delivered:
+
+- [ ] One contract crate from which REST, GraphQL, MCP and the UI client
+  derive their types. GraphQL is kept, by decision, although nothing in the
+  repository consumes it yet.
+- [ ] Split `oxidgene-api` into an application crate and a transport crate.
+- [ ] Remove soft deletion in favour of the change history.
+- [ ] One typed person-search table for both database backends.
+- [ ] Extend the data model: citations on names, links and places; a
+  status and a confidence on parent-child links; a preferred event among
+  conflicting ones.
 
 ## 13. Definition of done
 
