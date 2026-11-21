@@ -34,9 +34,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, TransactionTrait};
 use tracing::{Instrument as _, debug, info, instrument, warn};
 use uuid::Uuid;
 
-use super::builder::{
-    self, TreeData, build_all_persons, build_db_search_entry, search_entry_from_db,
-};
+use super::builder::{self, TreeData, build_db_search_entry, search_entry_from_db};
 use super::{invalidation, pedigree, sosa};
 use crate::tree_cache::{TreeCache, TreeProfiles};
 
@@ -50,6 +48,12 @@ use crate::tree_cache::{TreeCache, TreeProfiles};
 /// that the work and the memory follow the affected persons and never the
 /// tree: a slice costs the same statements whatever the tree around it.
 const REFRESH_SLICE: usize = 500;
+
+/// From how many persons a build runs on the blocking pool rather than on
+/// the async worker that read their rows: a slice of a whole-tree rebuild
+/// or of a wide refresh is tens of milliseconds of CPU, the few persons of
+/// an ordinary mutation a fraction of one.
+const BLOCKING_BUILD: usize = 64;
 
 /// Page size of a person search when the caller names none.
 pub const SEARCH_DEFAULT_LIMIT: usize = 25;
@@ -185,31 +189,49 @@ impl ProfileService {
         tree_id: Uuid,
         rebuilds: &Rebuilds,
     ) -> Result<usize, OxidGeneError> {
-        info!("Starting full projection rebuild");
         rebuilds.run.fetch_add(1, Ordering::AcqRel);
 
-        let tree_data = Box::pin(Self::fetch_tree_data(conn, tree_id)).await?;
-        let persons = build_all_persons(tree_id, &tree_data);
-        rebuilds
-            .built
-            .fetch_add(persons.len() as u64, Ordering::AcqRel);
-        debug!(count = persons.len(), "Built projections");
-
-        PersonDenormRepo::replace_tree(conn, tree_id, &persons).await?;
-
-        let search_entries: Vec<_> = persons.iter().map(build_db_search_entry).collect();
-        PersonSearchRepo::replace_tree(conn, tree_id, &search_entries).await?;
+        PersonSearchRepo::delete_tree(conn, tree_id).await?;
+        PersonDenormRepo::delete_tree(conn, tree_id).await?;
+        let built = Self::build_tree(conn, tree_id, rebuilds).await?;
         #[cfg(feature = "auth")]
-        super::visibility::rebuild_from(conn, tree_id, &tree_data).await?;
+        super::visibility::rebuild_tree(conn, tree_id).await?;
+        info!(count = built, "Completed full projection rebuild");
+        Ok(built)
+    }
+
+    /// Build and write the projections and the search rows of every live
+    /// person of a tree that has none: how many were built.
+    ///
+    /// The tree is built as an affected set is, a slice of persons at a
+    /// time, in id order — the order persons were created in, so that a
+    /// slice's relatives are mostly in it. What stays in memory for the
+    /// whole rebuild is the tree's person ids, 16 bytes each.
+    async fn build_tree(
+        conn: &impl ConnectionTrait,
+        tree_id: Uuid,
+        rebuilds: &Rebuilds,
+    ) -> Result<usize, OxidGeneError> {
+        let mut person_ids: Vec<Uuid> = PersonRepo::live_ids(conn, tree_id)
+            .await?
+            .into_iter()
+            .collect();
+        person_ids.sort_unstable();
+        let mut built = 0;
+        for slice in person_ids.chunks(REFRESH_SLICE) {
+            let persons = Self::build_targeted(conn, tree_id, slice, rebuilds).await?;
+            PersonDenormRepo::upsert(conn, &persons).await?;
+            let entries: Vec<_> = persons.iter().map(build_db_search_entry).collect();
+            PersonSearchRepo::upsert(conn, &entries).await?;
+            built += persons.len();
+        }
         // Having just written a tree's worth of rows the planner has no
         // statistics for — an import's last bulk write: its history entry
         // stores no version. A tree without persons wrote none.
-        if !persons.is_empty() {
+        if built > 0 {
             oxidgene_db::repo::refresh_statistics(conn).await;
         }
-
-        info!(count = persons.len(), "Completed full projection rebuild");
-        Ok(persons.len())
+        Ok(built)
     }
 
     /// How many whole-tree rebuilds this service ran, for the tests and the
@@ -938,7 +960,18 @@ impl ProfileService {
         rebuilds: &Rebuilds,
     ) -> Result<Vec<PersonProfile>, OxidGeneError> {
         let data = Box::pin(Self::fetch_persons_data(conn, tree_id, person_ids)).await?;
-        let built = builder::build_persons(tree_id, person_ids, &data);
+        // A handful of persons are built where they are; a slice is CPU
+        // work for a blocking thread.
+        let built = if person_ids.len() < BLOCKING_BUILD {
+            builder::build_persons(tree_id, person_ids, &data)
+        } else {
+            let person_ids = person_ids.to_vec();
+            let span = tracing::info_span!("profile.build", person.count = person_ids.len());
+            crate::service::blocking::run(span, move || {
+                builder::build_persons(tree_id, &person_ids, &data)
+            })
+            .await?
+        };
         rebuilds
             .built
             .fetch_add(built.len() as u64, Ordering::AcqRel);
@@ -964,10 +997,10 @@ impl ProfileService {
     /// memberships, all members of those families (for spouse / parent /
     /// child denormalization), their events + places, media and notes.
     ///
-    /// Callers box this future, as they do [`Self::fetch_tree_data`]'s: the
-    /// reads it runs at once make it the largest of a projection rebuild, and
-    /// awaited inline it would be copied into the frame of every caller above
-    /// it — every mutation's stack.
+    /// Callers box this future: the reads it runs at once make it the
+    /// largest of a projection rebuild, and awaited inline it would be
+    /// copied into the frame of every caller above it — every mutation's
+    /// stack.
     async fn fetch_persons_data(
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -985,22 +1018,29 @@ impl ProfileService {
                 .chain(as_child.iter().map(|c| c.family_id)),
         );
         // Deleting a family is a soft delete and leaves its membership rows
-        // behind, so reaching families through them would resurrect one. The
-        // whole-tree path gets this for free from `FamilyRepo::list_all`;
-        // without this the two paths disagree, and a targeted rebuild would
-        // keep naming parents the user has just removed.
+        // behind, so reaching families through them would resurrect one:
+        // without this a rebuild would keep naming parents the user has
+        // just removed.
         let mut family_ids = FamilyRepo::live_ids(conn, &family_ids).await?;
         family_ids.sort();
 
         // 2. All members of those families, plus attached entities.
-        let (spouses, children, person_events, family_events, media_links, citations, notes) = tokio::try_join!(
+        let (
+            spouses,
+            children,
+            person_events,
+            family_events,
+            media_links,
+            citation_counts,
+            note_counts,
+        ) = tokio::try_join!(
             FamilySpouseRepo::list_by_families(conn, &family_ids),
             FamilyChildRepo::list_by_families(conn, &family_ids),
             EventRepo::list_by_persons(conn, targets),
             EventRepo::list_by_families(conn, &family_ids),
             MediaLinkRepo::list_by_persons(conn, targets),
-            CitationRepo::list_by_persons(conn, targets),
-            NoteRepo::list_by_persons_untagged(conn, tree_id, targets),
+            CitationRepo::count_by_persons(conn, targets),
+            NoteRepo::count_by_persons(conn, tree_id, targets),
         )?;
 
         // 3. Related person rows + names, places, media, tags.
@@ -1069,64 +1109,8 @@ impl ProfileService {
             media,
             media_links,
             portrait_vignettes,
-            citations,
-            notes,
-            person_tags,
-            event_tags,
-        })
-    }
-
-    /// Fetch everything needed to build every projection of a tree. Boxed
-    /// by its callers, like [`Self::fetch_persons_data`].
-    async fn fetch_tree_data(
-        conn: &impl ConnectionTrait,
-        tree_id: Uuid,
-    ) -> Result<TreeData, OxidGeneError> {
-        let (persons, events, families, places, media, citations, notes) = tokio::try_join!(
-            PersonRepo::list_all(conn, tree_id),
-            EventRepo::list_all(conn, tree_id),
-            FamilyRepo::list_all(conn, tree_id),
-            PlaceRepo::list_all_untagged(conn, tree_id),
-            MediaRepo::list_all(conn, tree_id),
-            CitationRepo::list_all(conn, tree_id),
-            NoteRepo::list_all_untagged(conn, tree_id),
-        )?;
-
-        let person_ids: Vec<Uuid> = persons.iter().map(|p| p.id).collect();
-        let names = PersonNameRepo::list_by_persons(conn, &person_ids).await?;
-
-        let family_ids: Vec<Uuid> = families.iter().map(|f| f.id).collect();
-        let (spouses, children) = tokio::try_join!(
-            FamilySpouseRepo::list_by_families(conn, &family_ids),
-            FamilyChildRepo::list_by_families(conn, &family_ids),
-        )?;
-
-        let media_ids: Vec<Uuid> = media.iter().map(|m| m.id).collect();
-        let media_links = MediaLinkRepo::list_by_medias(conn, &media_ids).await?;
-
-        // Only the crops that are somebody's portrait: every vignette in the
-        // tree would be a large slice to carry for a field usually null.
-        let portrait_ids: Vec<Uuid> = persons
-            .iter()
-            .filter_map(|p| p.portrait_vignette_id)
-            .collect();
-        let portrait_vignettes = VignetteRepo::get_many(conn, &portrait_ids).await?;
-
-        let (person_tags, event_tags) =
-            Self::tags_of_persons_and_events(conn, &persons, &events).await?;
-
-        Ok(TreeData {
-            persons,
-            names,
-            events,
-            places,
-            spouses,
-            children,
-            media,
-            media_links,
-            portrait_vignettes,
-            citations,
-            notes,
+            citation_counts,
+            note_counts,
             person_tags,
             event_tags,
         })

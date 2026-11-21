@@ -179,16 +179,6 @@ impl PersonDenormRepo {
         Ok(())
     }
 
-    /// Replace every projection of a tree (full rebuild / GEDCOM import).
-    pub async fn replace_tree(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        entries: &[PersonProfile],
-    ) -> Result<(), OxidGeneError> {
-        Self::delete_tree(db, tree_id).await?;
-        Self::upsert(db, entries).await
-    }
-
     /// Drop one person's projection.
     ///
     /// The `ON DELETE CASCADE` on `person_id` already covers a hard person

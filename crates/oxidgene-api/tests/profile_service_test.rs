@@ -1871,3 +1871,127 @@ async fn a_surname_recut_refreshes_its_bearers_without_rebuilding_the_tree() {
     .await;
     assert_eq!(profile["primary_name"]["surname"], "LE BRANCH");
 }
+
+// ─────────────────────── Sliced rebuilds ─────────────────────────────
+
+/// A projection counts its person's notes and citations without reading
+/// them, and counts the same whether the whole tree or the person alone is
+/// rebuilt: the live notes, and the citations of live sources.
+#[tokio::test]
+async fn a_projection_counts_the_live_notes_and_the_citations_of_live_sources() {
+    use axum::http::Method;
+    use serde_json::json;
+
+    let (app, _profiles, _db, _directory) = file_backed_app().await;
+    let tree = common::new_tree(&app, "Counts").await;
+    let person = common::new_person(&app, &tree).await;
+    let created = |path: &str, body: serde_json::Value| {
+        let (app, uri) = (app.clone(), format!("/api/v1/trees/{tree}/{path}"));
+        async move {
+            common::ok(&app, Method::POST, &uri, Some(body)).await["id"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        }
+    };
+    let kept = created("sources", json!({ "title": "Sample register" })).await;
+    let dropped = created("sources", json!({ "title": "Other register" })).await;
+    for source in [&kept, &dropped] {
+        created(
+            "citations",
+            json!({ "source_id": source, "person_id": person, "page": "f. 12" }),
+        )
+        .await;
+    }
+    created(
+        "notes",
+        json!({ "text": "Sample remark", "person_id": person }),
+    )
+    .await;
+    let removed = created(
+        "notes",
+        json!({ "text": "Other remark", "person_id": person }),
+    )
+    .await;
+    for record in [format!("notes/{removed}"), format!("sources/{dropped}")] {
+        common::ok(
+            &app,
+            Method::DELETE,
+            &format!("/api/v1/trees/{tree}/{record}"),
+            None,
+        )
+        .await;
+    }
+
+    for rebuild in [
+        "profiles/rebuild".to_owned(),
+        format!("profiles/rebuild/{person}"),
+    ] {
+        common::ok(
+            &app,
+            Method::POST,
+            &format!("/api/v1/trees/{tree}/{rebuild}"),
+            None,
+        )
+        .await;
+        let profile = common::ok(
+            &app,
+            Method::GET,
+            &format!("/api/v1/trees/{tree}/profiles/{person}"),
+            None,
+        )
+        .await;
+        assert_eq!(profile["citation_count"], 1, "{rebuild}: {profile}");
+        assert_eq!(profile["note_count"], 1, "{rebuild}: {profile}");
+    }
+}
+
+/// A whole-tree rebuild builds the tree a slice at a time and writes what
+/// rebuilding each person alone writes: slicing loses nobody at a slice's
+/// edge and changes no projection.
+#[tokio::test]
+async fn a_whole_tree_rebuild_writes_what_each_person_rebuilt_alone_would() {
+    use axum::http::Method;
+
+    // 600 persons: two slices, the second one partial.
+    const BLOCKS: usize = 60;
+    let (app, profiles, db, _directory) = file_backed_app().await;
+    let (tree, _anchor) = common::family_blocks_tree(&app, &db, BLOCKS).await;
+    let tree_id: Uuid = tree.parse().unwrap();
+    let payloads = |profiles: Vec<serde_json::Value>| -> Vec<serde_json::Value> {
+        profiles
+            .into_iter()
+            .map(|mut profile| {
+                // When it was built says nothing of what was built.
+                profile.as_object_mut().unwrap().remove("built_at");
+                profile
+            })
+            .collect()
+    };
+
+    let built = profiles.built_profiles();
+    common::ok(
+        &app,
+        Method::POST,
+        &format!("/api/v1/trees/{tree}/profiles/rebuild"),
+        None,
+    )
+    .await;
+    assert_eq!(profiles.built_profiles() - built, (BLOCKS * 10) as u64);
+    let whole = payloads(common::all_profiles(&app, &tree).await);
+    assert_eq!(whole.len(), BLOCKS * 10);
+
+    for profile in &whole {
+        let person: Uuid = profile["person_id"].as_str().unwrap().parse().unwrap();
+        profiles.rebuild_one(tree_id, person).await.unwrap();
+    }
+    assert_eq!(payloads(common::all_profiles(&app, &tree).await), whole);
+    let found = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree}/persons/search?q="),
+        None,
+    )
+    .await;
+    assert_eq!(found["total_count"], BLOCKS * 10);
+}

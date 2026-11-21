@@ -87,21 +87,33 @@ impl CitationRepo {
         hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
-    /// List citations directly linked to any of the given persons.
-    pub async fn list_by_persons(
+    /// How many citations of a live source are directly linked to each of
+    /// the given persons; a person without any is absent. One grouped read
+    /// per chunk of persons: the profile projections show the count and
+    /// never the citations.
+    pub async fn count_by_persons(
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
-    ) -> Result<Vec<Citation>, OxidGeneError> {
-        let citations = in_chunks(person_ids, |chunk| async move {
-            let models = Entity::find()
+    ) -> Result<std::collections::HashMap<Uuid, u32>, OxidGeneError> {
+        let counts: Vec<(Option<Uuid>, i64)> = in_chunks(person_ids, |chunk| async move {
+            Entity::find()
+                .select_only()
+                .column(Column::PersonId)
+                .column_as(Column::Id.count(), "citations")
+                .join(JoinType::InnerJoin, citation::Relation::Source.def())
                 .filter(Column::PersonId.is_in(chunk))
+                .filter(source::Column::DeletedAt.is_null())
+                .group_by(Column::PersonId)
+                .into_tuple()
                 .all(db)
                 .await
-                .map_err(db_err)?;
-            Ok(models.into_iter().map(into_domain).collect())
+                .map_err(db_err)
         })
         .await?;
-        hydrate(db, citations).await
+        Ok(counts
+            .into_iter()
+            .filter_map(|(person, count)| Some((person?, u32::try_from(count).ok()?)))
+            .collect())
     }
 
     /// Citations directly attached to a person or one of the supplied events.

@@ -197,6 +197,37 @@ impl NoteRepo {
         Self::list_live_by_untagged(db, tree_id, Column::PersonId, person_ids).await
     }
 
+    /// How many live notes of a tree are attached to each of the given
+    /// persons; a person without any is absent. One grouped read per chunk
+    /// of persons, which reads no note text: the profile projections show
+    /// the count and never the notes.
+    pub async fn count_by_persons(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+        person_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, u32>, OxidGeneError> {
+        use sea_orm::QuerySelect as _;
+        let counts: Vec<(Option<Uuid>, i64)> = in_chunks(person_ids, |chunk| async move {
+            Entity::find()
+                .select_only()
+                .column(Column::PersonId)
+                .column_as(Column::Id.count(), "notes")
+                .filter(Column::TreeId.eq(tree_id))
+                .filter(Column::DeletedAt.is_null())
+                .filter(Column::PersonId.is_in(chunk))
+                .group_by(Column::PersonId)
+                .into_tuple()
+                .all(db)
+                .await
+                .map_err(db_err)
+        })
+        .await?;
+        Ok(counts
+            .into_iter()
+            .filter_map(|(person, count)| Some((person?, u32::try_from(count).ok()?)))
+            .collect())
+    }
+
     /// List the live notes attached to any of the given events in a tree.
     pub async fn list_by_events(
         db: &impl ConnectionTrait,

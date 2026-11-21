@@ -1,25 +1,26 @@
 //! Projection builder — assembles denormalized read models from raw entities.
 //!
 //! Takes the normalized rows a caller has already fetched (see
-//! `ProfileService::fetch_tree_data` / `fetch_persons_data`) and folds them into
-//! the shapes stored in `person_denorm` and `person_search_fts`.
+//! `ProfileService::fetch_persons_data`) and folds them into the shapes
+//! stored in `person_denorm` and `person_search_fts`.
 
 use chrono::Utc;
 use oxidgene_core::enums::*;
 use oxidgene_core::projection::*;
 
 use oxidgene_core::types::{
-    Citation, Event, FamilyChild, FamilySpouse, Media, MediaLink, Note, Person, PersonName, Place,
-    TagRef, Vignette,
+    Event, FamilyChild, FamilySpouse, Media, MediaLink, Person, PersonName, Place, TagRef, Vignette,
 };
 use oxidgene_db::repo::RELATIVE_SEP;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-/// Holds all raw data for a tree, used to build projections efficiently.
+/// The rows a set of projections is built from: the persons, their
+/// relatives, and what is attached to them — see
+/// `ProfileService::fetch_persons_data`.
 ///
-/// This is populated once (in parallel) and then used to build every
-/// projection without additional database calls.
+/// Read once, then used to build every projection of the set without
+/// another database call.
 pub struct TreeData {
     pub persons: Vec<Person>,
     pub names: Vec<PersonName>,
@@ -33,195 +34,165 @@ pub struct TreeData {
     /// portrait. Every vignette in the tree would be a large slice to carry
     /// for a field that is usually null.
     pub portrait_vignettes: Vec<Vignette>,
-    pub citations: Vec<Citation>,
-    pub notes: Vec<Note>,
+    /// How many citations are directly linked to each person; a person
+    /// without any is absent. A projection shows the count, never the
+    /// citations, so they are counted by the database and not read.
+    pub citation_counts: HashMap<Uuid, u32>,
+    /// How many notes each person has, as `citation_counts`.
+    pub note_counts: HashMap<Uuid, u32>,
     /// The tags of each person of `persons`, sorted by folded label.
     pub person_tags: HashMap<Uuid, Vec<TagRef>>,
     /// The tags of each event of `events`, sorted by folded label.
     pub event_tags: HashMap<Uuid, Vec<TagRef>>,
 }
 
-/// Pre-indexed tree data for efficient projection building.
-struct IndexedData {
+/// The rows of a [`TreeData`], indexed for building projections. It
+/// borrows every row: indexing copies nothing.
+struct IndexedData<'a> {
     /// PersonName entries grouped by person_id
-    names_by_person: HashMap<Uuid, Vec<PersonName>>,
+    names_by_person: HashMap<Uuid, Vec<&'a PersonName>>,
     /// Events grouped by person_id (individual events)
-    events_by_person: HashMap<Uuid, Vec<Event>>,
+    events_by_person: HashMap<Uuid, Vec<&'a Event>>,
     /// Events grouped by family_id (family events)
-    events_by_family: HashMap<Uuid, Vec<Event>>,
+    events_by_family: HashMap<Uuid, Vec<&'a Event>>,
     /// Place indexed by place_id
-    places_by_id: HashMap<Uuid, Place>,
+    places_by_id: HashMap<Uuid, &'a Place>,
     /// FamilySpouse entries grouped by family_id
-    spouses_by_family: HashMap<Uuid, Vec<FamilySpouse>>,
+    spouses_by_family: HashMap<Uuid, Vec<&'a FamilySpouse>>,
     /// FamilyChild entries grouped by family_id
-    children_by_family: HashMap<Uuid, Vec<FamilyChild>>,
+    children_by_family: HashMap<Uuid, Vec<&'a FamilyChild>>,
     /// FamilySpouse entries grouped by person_id (families where person is a spouse)
-    families_by_spouse: HashMap<Uuid, Vec<FamilySpouse>>,
+    families_by_spouse: HashMap<Uuid, Vec<&'a FamilySpouse>>,
     /// FamilyChild entries grouped by person_id (family where person is a child)
-    family_by_child: HashMap<Uuid, Vec<FamilyChild>>,
+    family_by_child: HashMap<Uuid, Vec<&'a FamilyChild>>,
     /// MediaLink entries grouped by person_id
-    media_links_by_person: HashMap<Uuid, Vec<MediaLink>>,
+    media_links_by_person: HashMap<Uuid, Vec<&'a MediaLink>>,
     /// The crops that are somebody's portrait, by id.
-    portrait_vignette_by_id: HashMap<Uuid, Vignette>,
+    portrait_vignette_by_id: HashMap<Uuid, &'a Vignette>,
     /// Media indexed by media_id
-    media_by_id: HashMap<Uuid, Media>,
+    media_by_id: HashMap<Uuid, &'a Media>,
     /// The first page of each document, by the document's id.
     first_page_by_document: HashMap<Uuid, Uuid>,
     /// Citation count by person_id
-    citation_count_by_person: HashMap<Uuid, u32>,
+    citation_count_by_person: &'a HashMap<Uuid, u32>,
     /// Note count by person_id
-    note_count_by_person: HashMap<Uuid, u32>,
-    /// Primary name display string by person_id (for cross-references)
-    display_names: HashMap<Uuid, String>,
-    /// Primary name as `(surname, given_names)` by person_id, so a relative's
-    /// name can be projected already split instead of re-parsed from
-    /// `display_names`.
-    split_names: HashMap<Uuid, (Option<String>, Option<String>)>,
+    note_count_by_person: &'a HashMap<Uuid, u32>,
+    /// Primary name by person_id, for the names a relative's projection
+    /// carries: the display name, and the surname and given names already
+    /// split.
+    primary_names: HashMap<Uuid, &'a PersonName>,
     /// Person sex by person_id
     sex_by_person: HashMap<Uuid, Sex>,
     /// Tags of each person, by person_id
-    tags_by_person: HashMap<Uuid, Vec<TagRef>>,
+    tags_by_person: &'a HashMap<Uuid, Vec<TagRef>>,
     /// Tags of each event, by event_id
-    tags_by_event: HashMap<Uuid, Vec<TagRef>>,
+    tags_by_event: &'a HashMap<Uuid, Vec<TagRef>>,
 }
 
-impl IndexedData {
-    fn new(data: &TreeData) -> Self {
+impl<'a> IndexedData<'a> {
+    fn new(data: &'a TreeData) -> Self {
         // Index names by person
-        let mut names_by_person: HashMap<Uuid, Vec<PersonName>> = HashMap::new();
-        let mut display_names: HashMap<Uuid, String> = HashMap::new();
-        let mut split_names: HashMap<Uuid, (Option<String>, Option<String>)> = HashMap::new();
+        let mut names_by_person: HashMap<Uuid, Vec<&PersonName>> = HashMap::new();
+        let mut primary_names: HashMap<Uuid, &PersonName> = HashMap::new();
         for name in &data.names {
             names_by_person
                 .entry(name.person_id)
                 .or_default()
-                .push(name.clone());
+                .push(name);
             if name.is_primary {
-                display_names.insert(name.person_id, name.display_name());
-                split_names.insert(
-                    name.person_id,
-                    (name.surname.clone(), name.given_names.clone()),
-                );
+                primary_names.insert(name.person_id, name);
             }
         }
 
         // Index events by person and family
-        let mut events_by_person: HashMap<Uuid, Vec<Event>> = HashMap::new();
-        let mut events_by_family: HashMap<Uuid, Vec<Event>> = HashMap::new();
+        let mut events_by_person: HashMap<Uuid, Vec<&Event>> = HashMap::new();
+        let mut events_by_family: HashMap<Uuid, Vec<&Event>> = HashMap::new();
         for event in &data.events {
             if let Some(pid) = event.person_id {
-                events_by_person.entry(pid).or_default().push(event.clone());
+                events_by_person.entry(pid).or_default().push(event);
             }
             if let Some(fid) = event.family_id {
-                events_by_family.entry(fid).or_default().push(event.clone());
+                events_by_family.entry(fid).or_default().push(event);
             }
         }
 
-        // Index places
-        let places_by_id: HashMap<Uuid, Place> =
-            data.places.iter().map(|p| (p.id, p.clone())).collect();
-
-        // Index spouses by family
-        let mut spouses_by_family: HashMap<Uuid, Vec<FamilySpouse>> = HashMap::new();
-        let mut families_by_spouse: HashMap<Uuid, Vec<FamilySpouse>> = HashMap::new();
+        // Index spouses by family and by person
+        let mut spouses_by_family: HashMap<Uuid, Vec<&FamilySpouse>> = HashMap::new();
+        let mut families_by_spouse: HashMap<Uuid, Vec<&FamilySpouse>> = HashMap::new();
         for spouse in &data.spouses {
             spouses_by_family
                 .entry(spouse.family_id)
                 .or_default()
-                .push(spouse.clone());
+                .push(spouse);
             families_by_spouse
                 .entry(spouse.person_id)
                 .or_default()
-                .push(spouse.clone());
+                .push(spouse);
         }
 
         // Index children by family and by person
-        let mut children_by_family: HashMap<Uuid, Vec<FamilyChild>> = HashMap::new();
-        let mut family_by_child: HashMap<Uuid, Vec<FamilyChild>> = HashMap::new();
+        let mut children_by_family: HashMap<Uuid, Vec<&FamilyChild>> = HashMap::new();
+        let mut family_by_child: HashMap<Uuid, Vec<&FamilyChild>> = HashMap::new();
         for child in &data.children {
             children_by_family
                 .entry(child.family_id)
                 .or_default()
-                .push(child.clone());
+                .push(child);
             family_by_child
                 .entry(child.person_id)
                 .or_default()
-                .push(child.clone());
+                .push(child);
         }
 
         // Index media links by person
-        let mut media_links_by_person: HashMap<Uuid, Vec<MediaLink>> = HashMap::new();
+        let mut media_links_by_person: HashMap<Uuid, Vec<&MediaLink>> = HashMap::new();
         for link in &data.media_links {
             if let Some(pid) = link.person_id {
-                media_links_by_person
-                    .entry(pid)
-                    .or_default()
-                    .push(link.clone());
+                media_links_by_person.entry(pid).or_default().push(link);
             }
         }
-
-        // Index media by ID
-        let portrait_vignette_by_id: HashMap<Uuid, Vignette> = data
-            .portrait_vignettes
-            .iter()
-            .map(|v| (v.id, v.clone()))
-            .collect();
-
-        let media_by_id: HashMap<Uuid, Media> =
-            data.media.iter().map(|m| (m.id, m.clone())).collect();
-        let first_page_by_document = first_pages(&data.media);
-
-        // Count citations directly linked to each person.
-        let mut citation_count_by_person: HashMap<Uuid, u32> = HashMap::new();
-        for citation in &data.citations {
-            if let Some(pid) = citation.person_id {
-                *citation_count_by_person.entry(pid).or_default() += 1;
-            }
-        }
-
-        // Count notes by person
-        let mut note_count_by_person: HashMap<Uuid, u32> = HashMap::new();
-        for note in &data.notes {
-            if let Some(pid) = note.person_id {
-                *note_count_by_person.entry(pid).or_default() += 1;
-            }
-        }
-
-        // Index sex by person
-        let sex_by_person: HashMap<Uuid, Sex> =
-            data.persons.iter().map(|p| (p.id, p.sex)).collect();
 
         Self {
             names_by_person,
             events_by_person,
             events_by_family,
-            places_by_id,
+            places_by_id: data.places.iter().map(|p| (p.id, p)).collect(),
             spouses_by_family,
             children_by_family,
             families_by_spouse,
             family_by_child,
             media_links_by_person,
-            portrait_vignette_by_id,
-            media_by_id,
-            first_page_by_document,
-            citation_count_by_person,
-            note_count_by_person,
-            display_names,
-            split_names,
-            sex_by_person,
-            tags_by_person: data.person_tags.clone(),
-            tags_by_event: data.event_tags.clone(),
+            portrait_vignette_by_id: data.portrait_vignettes.iter().map(|v| (v.id, v)).collect(),
+            media_by_id: data.media.iter().map(|m| (m.id, m)).collect(),
+            first_page_by_document: first_pages(&data.media),
+            citation_count_by_person: &data.citation_counts,
+            note_count_by_person: &data.note_counts,
+            primary_names,
+            sex_by_person: data.persons.iter().map(|p| (p.id, p.sex)).collect(),
+            tags_by_person: &data.person_tags,
+            tags_by_event: &data.event_tags,
         }
+    }
+
+    /// The primary name of `person_id` as displayed, if one is recorded.
+    fn display_name_of(&self, person_id: Uuid) -> Option<String> {
+        self.primary_names
+            .get(&person_id)
+            .map(|name| name.display_name())
     }
 
     /// The primary surname of `person_id`, if one is recorded.
     fn surname_of(&self, person_id: Uuid) -> Option<String> {
-        self.split_names.get(&person_id).and_then(|n| n.0.clone())
+        self.primary_names
+            .get(&person_id)
+            .and_then(|name| name.surname.clone())
     }
 
     /// The primary given names of `person_id`, if any are recorded.
     fn given_names_of(&self, person_id: Uuid) -> Option<String> {
-        self.split_names.get(&person_id).and_then(|n| n.1.clone())
+        self.primary_names
+            .get(&person_id)
+            .and_then(|name| name.given_names.clone())
     }
 }
 
@@ -252,7 +223,7 @@ fn first_pages(media: &[Media]) -> HashMap<Uuid, Uuid> {
 /// index.
 fn build_profile_event(
     event: &Event,
-    places: &HashMap<Uuid, Place>,
+    places: &HashMap<Uuid, &Place>,
     tags: &HashMap<Uuid, Vec<TagRef>>,
     pid: Uuid,
 ) -> ProfileEvent {
@@ -295,17 +266,6 @@ pub fn extract_qualifier(event: Option<&ProfileEvent>) -> DateQualifier {
     event.map(|e| e.date_qualifier).unwrap_or_default()
 }
 
-/// Build all `PersonProfile` entries for an entire tree.
-pub fn build_all_persons(tree_id: Uuid, data: &TreeData) -> Vec<PersonProfile> {
-    let idx = IndexedData::new(data);
-    let now = Utc::now();
-
-    data.persons
-        .iter()
-        .map(|person| build_one_person(person, tree_id, &idx, now))
-        .collect()
-}
-
 /// Build the `PersonProfile` of each of `person_ids` from targeted tree data.
 ///
 /// `data` only needs to contain the persons, their relatives (spouses,
@@ -339,12 +299,12 @@ pub fn build_persons(tree_id: Uuid, person_ids: &[Uuid], data: &TreeData) -> Vec
 /// as it stands. The same rule as the portrait resolution in
 /// `PersonRepo::list_portraits`, and it must stay the same, or a card and an
 /// avatar disagree about the same person.
-fn drawable_media<'a>(idx: &'a IndexedData, media: &'a Media) -> Option<&'a Media> {
+fn drawable_media<'a>(idx: &IndexedData<'a>, media: &'a Media) -> Option<&'a Media> {
     match media.parent_media_id {
         None => idx
             .first_page_by_document
             .get(&media.id)
-            .and_then(|page| idx.media_by_id.get(page)),
+            .and_then(|page| idx.media_by_id.get(page).copied()),
         Some(_) => media.can_portray().then_some(media),
     }
 }
@@ -353,7 +313,7 @@ fn drawable_media<'a>(idx: &'a IndexedData, media: &'a Media) -> Option<&'a Medi
 fn build_one_person(
     person: &Person,
     tree_id: Uuid,
-    idx: &IndexedData,
+    idx: &IndexedData<'_>,
     now: chrono::DateTime<Utc>,
 ) -> PersonProfile {
     let pid = person.id;
@@ -369,7 +329,7 @@ fn build_one_person(
         .get(&pid)
         .and_then(|entries| entries.first())
         .map(|fc| child_link(idx, fc));
-    let media_links: &[MediaLink] = idx
+    let media_links: &[&MediaLink] = idx
         .media_links_by_person
         .get(&pid)
         .map_or(&[], Vec::as_slice);
@@ -399,7 +359,7 @@ fn build_one_person(
 }
 
 /// The primary name of person `pid`, and their other names.
-fn profile_names(idx: &IndexedData, pid: Uuid) -> (Option<ProfileName>, Vec<ProfileName>) {
+fn profile_names(idx: &IndexedData<'_>, pid: Uuid) -> (Option<ProfileName>, Vec<ProfileName>) {
     let mut primary_name: Option<ProfileName> = None;
     let mut other_names: Vec<ProfileName> = Vec::new();
     for name in idx.names_by_person.get(&pid).into_iter().flatten() {
@@ -433,10 +393,10 @@ struct KeyEvents {
 }
 
 impl KeyEvents {
-    fn of(idx: &IndexedData, pid: Uuid) -> Self {
+    fn of(idx: &IndexedData<'_>, pid: Uuid) -> Self {
         let mut events = Self::default();
         for event in idx.events_by_person.get(&pid).into_iter().flatten() {
-            let cached = build_profile_event(event, &idx.places_by_id, &idx.tags_by_event, pid);
+            let cached = build_profile_event(event, &idx.places_by_id, idx.tags_by_event, pid);
             match event.event_type {
                 EventType::Birth => events.birth = Some(cached),
                 EventType::Death => events.death = Some(cached),
@@ -450,7 +410,7 @@ impl KeyEvents {
 }
 
 /// Person `pid`'s link to a family they are a spouse in.
-fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamilyLink {
+fn spouse_link(idx: &IndexedData<'_>, pid: Uuid, fs: &FamilySpouse) -> ProfileFamilyLink {
     let family_id = fs.family_id;
     let spouse_id = idx
         .spouses_by_family
@@ -463,7 +423,7 @@ fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamily
         .get(&family_id)
         .into_iter()
         .flatten()
-        .map(|e| build_profile_event(e, &idx.places_by_id, &idx.tags_by_event, pid))
+        .map(|e| build_profile_event(e, &idx.places_by_id, idx.tags_by_event, pid))
         .collect();
     let children_ids: Vec<Uuid> = idx
         .children_by_family
@@ -477,7 +437,7 @@ fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamily
         family_id,
         role: fs.role,
         spouse_id,
-        spouse_display_name: spouse_id.and_then(|sid| idx.display_names.get(&sid).cloned()),
+        spouse_display_name: spouse_id.and_then(|sid| idx.display_name_of(sid)),
         spouse_surname: spouse_id.and_then(|sid| idx.surname_of(sid)),
         spouse_given_names: spouse_id.and_then(|sid| idx.given_names_of(sid)),
         spouse_sex: spouse_id.and_then(|sid| idx.sex_by_person.get(&sid).copied()),
@@ -487,7 +447,7 @@ fn spouse_link(idx: &IndexedData, pid: Uuid, fs: &FamilySpouse) -> ProfileFamily
 }
 
 /// A person's link to the family they are a child of.
-fn child_link(idx: &IndexedData, fc: &FamilyChild) -> ProfileChildLink {
+fn child_link(idx: &IndexedData<'_>, fc: &FamilyChild) -> ProfileChildLink {
     let (father_id, mother_id) = father_and_mother(idx, fc.family_id);
     ProfileChildLink {
         father_placeholder: None,
@@ -495,11 +455,11 @@ fn child_link(idx: &IndexedData, fc: &FamilyChild) -> ProfileChildLink {
         family_id: fc.family_id,
         child_type: fc.child_type,
         father_id,
-        father_display_name: father_id.and_then(|id| idx.display_names.get(&id).cloned()),
+        father_display_name: father_id.and_then(|id| idx.display_name_of(id)),
         father_surname: father_id.and_then(|id| idx.surname_of(id)),
         father_given_names: father_id.and_then(|id| idx.given_names_of(id)),
         mother_id,
-        mother_display_name: mother_id.and_then(|id| idx.display_names.get(&id).cloned()),
+        mother_display_name: mother_id.and_then(|id| idx.display_name_of(id)),
         mother_surname: mother_id.and_then(|id| idx.surname_of(id)),
         mother_given_names: mother_id.and_then(|id| idx.given_names_of(id)),
     }
@@ -507,7 +467,7 @@ fn child_link(idx: &IndexedData, fc: &FamilyChild) -> ProfileChildLink {
 
 /// The father and the mother among a family's spouses, by role, then by sex
 /// for a partner; a partner of unknown sex takes the first empty place.
-fn father_and_mother(idx: &IndexedData, family_id: Uuid) -> (Option<Uuid>, Option<Uuid>) {
+fn father_and_mother(idx: &IndexedData<'_>, family_id: Uuid) -> (Option<Uuid>, Option<Uuid>) {
     let mut father_id: Option<Uuid> = None;
     let mut mother_id: Option<Uuid> = None;
     for parent in idx.spouses_by_family.get(&family_id).into_iter().flatten() {
@@ -527,9 +487,9 @@ fn father_and_mother(idx: &IndexedData, family_id: Uuid) -> (Option<Uuid>, Optio
 /// What represents a person: their chosen portrait — a crop keeps its
 /// vignette — or, nothing chosen, their first linked photograph.
 fn primary_media(
-    idx: &IndexedData,
+    idx: &IndexedData<'_>,
     person: &Person,
-    media_links: &[MediaLink],
+    media_links: &[&MediaLink],
 ) -> Option<ProfileMediaRef> {
     let crop = || {
         let vignette_id = person.portrait_vignette_id?;

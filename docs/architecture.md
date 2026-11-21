@@ -661,9 +661,17 @@ history and completes the job with a serializable summary, all in one
 transaction. A file is parsed, and a GEDZIP's media stored, before that
 transaction opens. A terminal job removes all of its staged input objects.
 
-The transaction keeps no dataset in memory: rows are inserted in bounded
-batches, and media are read, decoded and stored through the bounded window
-of the media phase, one at a time per slot. Under SQLite, in write-ahead-log
+What an import holds in memory is the parsed file. `oxidged` reads a
+GEDCOM whole, and the records converted from it stay until they are
+persisted: about 1 GiB of resident memory for a generated tree of 100,000
+persons, a 29 MiB file, and 3 GiB for 300,000 — the import's peak, which
+the size of the file sets. The transaction adds no dataset to it: rows are
+inserted in bounded batches, the projections are built and written 500
+persons at a time once the parsed records are released
+([Data Model §4.4](data-model.md#44-refresh-and-consistency): 280 to
+300 MiB for those trees), and media are read, decoded and stored through
+the bounded window of the media phase, one at a time per slot. Under
+SQLite, in write-ahead-log
 mode, the pages an uncommitted transaction writes go to the `-wal` file
 rather than to memory once the page cache is full, so a long import costs
 disk until it commits, not RAM; PostgreSQL keeps them in its own buffers and

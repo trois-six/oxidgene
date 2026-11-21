@@ -1147,6 +1147,21 @@ Whole-tree imports and explicit maintenance rebuilds perform idempotent bulk
 work. On every tree-wide read, `ensure_materialized` checks that the tree is
 materialized (§4.1) and rebuilds it when it is not.
 
+**A whole-tree rebuild is that refresh over every person.** It reads the
+tree's live person ids — 16 bytes each, all that stays in memory from one
+end to the other — and builds them in id order, the order persons were
+created in, so that a slice's relatives are mostly in it; each slice is
+read, built and written as above, within the rebuild's one transaction.
+Its memory is therefore a slice's, whatever the tree. Importing a
+generated tree of 100,000 persons (release build, SQLite), the projection
+phase peaked at 280 MiB of resident memory, and at 300 MiB for 300,000
+persons, where reading all the tree's rows to build it from peaked at
+1.9 GiB for the 100,000; a rebuild alone peaked at 120 MiB against
+1.6 GiB. It pays for that in reads: a slice reads its persons' relatives,
+most of whom another slice builds, so a rebuild takes about twice the
+processor time it did — 61 s against 32 s for those 100,000 persons,
+5.6 s against 2.7 s for 10,000.
+
 **A whole-tree rebuild is atomic and runs once.** It deletes the tree's
 projections and search rows and writes them again in one transaction on the
 writer — the import's or the duplication's own, or one the rebuild opens
@@ -1238,6 +1253,8 @@ depend on the database or API implementation crates.
     than by scanning every tree's dated events) carry none.
 - Search should use backend-native indexes and avoid offset scans for ordinary
     list APIs.
+- A whole-tree rebuild holds a slice of the tree in memory, never the tree
+    (§4.4).
 - Refresh latency is part of mutation latency and must remain bounded to the
     affected set — in statements, in time and in memory, whatever the size
     of the tree around it (§4.4); whole-tree rebuilds are reserved for

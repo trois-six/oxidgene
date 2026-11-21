@@ -36,22 +36,8 @@ use sea_orm::ConnectionTrait;
 use tracing::debug;
 use uuid::Uuid;
 
-use super::builder::TreeData;
-
-/// Rebuild every row of `tree_id` from `data`, the records a full
-/// projection rebuild read.
-pub(crate) async fn rebuild_from(
-    conn: &impl ConnectionTrait,
-    tree_id: Uuid,
-    data: &TreeData,
-) -> Result<usize, OxidGeneError> {
-    let rows = derive_records(&data.persons, &data.events, &data.spouses, &data.children);
-    let rows: Vec<(Uuid, PersonVisibility)> = rows.into_iter().collect();
-    PersonVisibilityRepo::replace_tree(conn, tree_id, &rows).await?;
-    Ok(rows.len())
-}
-
-/// Rebuild every row of `tree_id` from its records.
+/// Rebuild every row of `tree_id` from its records: what a full projection
+/// rebuild ends with, once its own rows are written and out of memory.
 pub(crate) async fn rebuild_tree(
     conn: &impl ConnectionTrait,
     tree_id: Uuid,
