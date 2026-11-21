@@ -598,6 +598,17 @@ pub const LAYOUT_STYLES: &str = r#"
         border-bottom: 1px solid var(--border);
     }
 
+    /* A pedigree cut short of the depth asked for, the tree being too
+       large (ui-genealogy-tree.md). */
+    .pedigree-truncated {
+        padding: var(--space-3) var(--space-8);
+        font-size: var(--text-80);
+        color: var(--text-secondary);
+        background: var(--bg-panel);
+        border-bottom: 1px solid var(--border);
+        text-align: center;
+    }
+
     /* The one avatar of a user (`UserAvatar`): the uploaded image, else
        the initials on the colour of `--avatar-N-*`. */
     .user-avatar {

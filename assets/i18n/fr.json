@@ -8030,6 +8030,7 @@
     "pedigree.resize_events": "Redimensionner le panneau des événements",
     "pedigree.spouses": "Conjoints",
     "pedigree.tree_view": "Vue arbre",
+    "pedigree.truncated": "Cet arbre est trop grand pour afficher toutes les générations demandées : les plus éloignées ne sont pas affichées.",
     "pedigree.zoom_in": "Zoom avant",
     "pedigree.zoom_out": "Zoom arrière",
     "person.age.child": "enfant",

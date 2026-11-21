@@ -901,6 +901,7 @@ impl ProfileService {
             new_edges,
             ancestor_depth_loaded: expanded.ancestor_depth_loaded,
             descendant_depth_loaded: expanded.descendant_depth_loaded,
+            truncated: expanded.truncated,
         })
     }
 
@@ -1454,8 +1455,9 @@ impl ProfileService {
                     family_events: pedigree::family_events(&persons),
                     persons: nodes,
                     families,
-                    ancestor_depth_loaded: ancestor_depth,
-                    descendant_depth_loaded: descendant_depth,
+                    ancestor_depth_loaded: window.depths_loaded.0,
+                    descendant_depth_loaded: window.depths_loaded.1,
+                    truncated: window.truncated,
                     built_at,
                 }
             })
@@ -1483,12 +1485,21 @@ impl ProfileService {
             AncestryRepo::ancestors_of_many(conn, roots, Some(depths.0 as i32)),
             AncestryRepo::descendants_of_many(conn, roots, Some(depths.1 as i32)),
         )?;
+        let most = crate::service::pedigrees::MAX_PEDIGREE_PERSONS;
         let mut windows: Vec<pedigree::Window> = roots
             .iter()
             .map(|root| {
-                let up = ancestors.remove(root).unwrap_or_default();
-                let down = descendants.remove(root).unwrap_or_default();
-                pedigree::Window::new(*root, &up, &down)
+                let mut up = ancestors.remove(root).unwrap_or_default();
+                let mut down = descendants.remove(root).unwrap_or_default();
+                let (up_loaded, up_cut) = pedigree::within(&mut up, most, depths.0);
+                let (down_loaded, down_cut) = pedigree::within(&mut down, most, depths.1);
+                pedigree::Window::new(
+                    *root,
+                    &up,
+                    &down,
+                    (up_loaded, down_loaded),
+                    up_cut || down_cut,
+                )
             })
             .collect();
         let inside: Vec<Uuid> = windows

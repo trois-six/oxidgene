@@ -23,6 +23,18 @@ use crate::profile::ProfileService;
 /// surface enforces it, so no request can ask for a whole closure.
 pub const MAX_PEDIGREE_DEPTH: u32 = 10;
 
+/// The most persons a pedigree's walk reaches in one direction: past it the
+/// generation that crosses the bound, and those beyond, are left out, and
+/// the pedigree says so ([`Pedigree::truncated`]).
+///
+/// A depth bounds an ancestry — ten generations up are 2,046 persons at
+/// most — but not a descent: ten generations down from an early couple are
+/// tens of thousands of persons in a large tree, each with a projection to
+/// read, a node to build and a card to draw. Twice a whole ancestry of ten
+/// generations: no ancestry is ever cut, and a descent is cut where no
+/// screen draws it.
+pub const MAX_PEDIGREE_PERSONS: usize = 4_096;
+
 /// A pedigree depth, as a request gave it: within `0..=MAX_PEDIGREE_DEPTH`
 /// or a validation error. Taken as `i64` so a negative GraphQL `Int` is
 /// refused rather than wrapped into a huge `u32`.

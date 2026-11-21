@@ -693,6 +693,11 @@ pub fn TreeDetail(tree_id: String, person: Option<String>) -> Element {
             }
         }
 
+        // The pedigree holds fewer generations than asked for: say so.
+        if matches!(&*pedigree_resource.read(), Some(Ok(pedigree)) if pedigree.truncated) {
+            div { class: "pedigree-truncated", role: "status", {i18n.t("pedigree.truncated")} }
+        }
+
         // ── Pedigree chart (fills remaining space) ──
         div { class: "pedigree-card",
             match (pedigree_data.clone(), root_person_id) {

@@ -33,14 +33,42 @@ pub(super) struct Window {
     /// the window.
     person_ids: Vec<Uuid>,
     depths: HashMap<Uuid, i32>,
+    /// How many generations up and down the window holds.
+    pub(super) depths_loaded: (u32, u32),
+    /// Whether a walk was cut short of the depth asked for.
+    pub(super) truncated: bool,
+}
+
+/// Keep of `walk`, the persons a walk reached with their depths, the whole
+/// generations that hold `most` persons in all, the nearest first, and the
+/// first one whatever its size: the depth kept, and whether further
+/// generations were left out. `asked` is the depth the walk was given.
+pub(super) fn within(walk: &mut Vec<AncestryLink>, most: usize, asked: u32) -> (u32, bool) {
+    if walk.len() <= most {
+        return (asked, false);
+    }
+    walk.sort_unstable_by_key(|link| (link.depth, link.person_id));
+    // The walk is past the bound: the generation that crosses it goes, and
+    // those beyond.
+    let crossing = walk[most].depth;
+    let kept_depth = (crossing - 1).max(1);
+    let reached = walk.len();
+    walk.retain(|link| link.depth <= kept_depth);
+    if walk.len() == reached {
+        return (asked, false);
+    }
+    (u32::try_from(kept_depth).unwrap_or(asked).min(asked), true)
 }
 
 impl Window {
-    /// The window of `root`, from its walks up and down.
+    /// The window of `root`, from its walks up and down, `depths_loaded`
+    /// generations deep, `truncated` when that is less than was asked for.
     pub(super) fn new(
         root: Uuid,
         ancestors: &[AncestryLink],
         descendants: &[AncestryLink],
+        depths_loaded: (u32, u32),
+        truncated: bool,
     ) -> Self {
         let person_ids = sorted_unique(
             std::iter::once(root)
@@ -51,6 +79,8 @@ impl Window {
             root,
             person_ids,
             depths: generations(root, ancestors, descendants),
+            depths_loaded,
+            truncated,
         }
     }
 

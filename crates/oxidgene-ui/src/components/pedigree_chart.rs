@@ -7905,6 +7905,7 @@ mod member_tests {
             )]),
             ancestor_depth_loaded: 1,
             descendant_depth_loaded: 0,
+            truncated: false,
             built_at: chrono::Utc::now(),
         };
 
@@ -7988,6 +7989,7 @@ mod member_tests {
             )]),
             ancestor_depth_loaded: 1,
             descendant_depth_loaded: 0,
+            truncated: false,
             built_at: chrono::Utc::now(),
         };
         let i18n = I18n::new(crate::i18n::Language::english());

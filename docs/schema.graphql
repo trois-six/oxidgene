@@ -2595,6 +2595,11 @@ type GqlPedigree {
 	familyEvents: [GqlPedigreeFamilyEvents!]!
 	ancestorDepthLoaded: Int!
 	descendantDepthLoaded: Int!
+	"""
+	Whether a depth loaded is less than the one asked for, the window
+	having reached the most persons a pedigree holds.
+	"""
+	truncated: Boolean!
 }
 
 """
@@ -2605,6 +2610,10 @@ type GqlPedigreeDelta {
 	newEdges: [GqlPedigreeEdge!]!
 	ancestorDepthLoaded: Int!
 	descendantDepthLoaded: Int!
+	"""
+	As `Pedigree.truncated`, of the window expanded to.
+	"""
+	truncated: Boolean!
 }
 
 """

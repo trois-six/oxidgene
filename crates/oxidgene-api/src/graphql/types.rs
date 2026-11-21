@@ -4532,6 +4532,9 @@ pub struct GqlPedigree {
     pub family_events: Vec<GqlPedigreeFamilyEvents>,
     pub ancestor_depth_loaded: i32,
     pub descendant_depth_loaded: i32,
+    /// Whether a depth loaded is less than the one asked for, the window
+    /// having reached the most persons a pedigree holds.
+    pub truncated: bool,
 }
 
 /// One pedigree from a batched request, paired with the root it was asked for.
@@ -4557,6 +4560,8 @@ pub struct GqlPedigreeDelta {
     pub new_edges: Vec<GqlPedigreeEdge>,
     pub ancestor_depth_loaded: i32,
     pub descendant_depth_loaded: i32,
+    /// As `Pedigree.truncated`, of the window expanded to.
+    pub truncated: bool,
 }
 
 // ── From impls for pedigree types ─────────────────────────────────────
@@ -4610,6 +4615,7 @@ impl From<oxidgene_core::projection::Pedigree> for GqlPedigree {
                 .collect(),
             ancestor_depth_loaded: p.ancestor_depth_loaded as i32,
             descendant_depth_loaded: p.descendant_depth_loaded as i32,
+            truncated: p.truncated,
         }
     }
 }
@@ -4621,6 +4627,7 @@ impl From<oxidgene_core::projection::PedigreeDelta> for GqlPedigreeDelta {
             new_edges: d.new_edges.into_iter().map(Into::into).collect(),
             ancestor_depth_loaded: d.ancestor_depth_loaded as i32,
             descendant_depth_loaded: d.descendant_depth_loaded as i32,
+            truncated: d.truncated,
         }
     }
 }

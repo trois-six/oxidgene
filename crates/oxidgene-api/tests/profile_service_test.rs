@@ -1995,3 +1995,119 @@ async fn a_whole_tree_rebuild_writes_what_each_person_rebuilt_alone_would() {
     .await;
     assert_eq!(found["total_count"], BLOCKS * 10);
 }
+
+// ─────────────────────── The most persons of a pedigree ──────────────
+
+/// A descent wider than a pedigree holds is cut at a generation, on REST
+/// and GraphQL alike: the generation that would cross the bound is left
+/// out with those beyond, the pedigree says how deep it reaches and that
+/// it was cut, and an expansion past the cut brings nothing more.
+#[tokio::test]
+async fn a_pedigree_past_the_most_persons_stops_at_a_generation_and_says_so() {
+    use axum::http::Method;
+    use oxidgene_api::service::pedigrees::MAX_PEDIGREE_PERSONS;
+
+    // A root with 70 children, each with 60: 4,200 grandchildren.
+    const CHILDREN: usize = 70;
+    const GRANDCHILDREN: usize = 60;
+    const { assert!(CHILDREN + CHILDREN * GRANDCHILDREN > MAX_PEDIGREE_PERSONS) };
+    let mut gedcom = String::from("0 HEAD\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n");
+    gedcom += "0 @R@ INDI\n1 NAME Rootgiven /BRANCH_R/\n1 SEX M\n1 FAMS @FR@\n";
+    gedcom += "0 @FR@ FAM\n1 HUSB @R@\n";
+    for child in 0..CHILDREN {
+        gedcom += &format!("1 CHIL @C{child}@\n");
+    }
+    for child in 0..CHILDREN {
+        gedcom += &format!(
+            "0 @C{child}@ INDI\n1 NAME Child_{child} /BRANCH_R/\n1 SEX M\n\
+             1 FAMC @FR@\n1 FAMS @F{child}@\n0 @F{child}@ FAM\n1 HUSB @C{child}@\n"
+        );
+        for grandchild in 0..GRANDCHILDREN {
+            gedcom += &format!("1 CHIL @G{child}_{grandchild}@\n");
+        }
+        for grandchild in 0..GRANDCHILDREN {
+            gedcom += &format!(
+                "0 @G{child}_{grandchild}@ INDI\n1 NAME Grandchild_{grandchild} /BRANCH_R/\n\
+                 1 SEX F\n1 FAMC @F{child}@\n"
+            );
+        }
+    }
+    gedcom += "0 TRLR\n";
+
+    let (app, _profiles, db, _directory) = file_backed_app().await;
+    let tree = common::new_tree(&app, "Wide descent").await;
+    common::import_gedcom(&app, &db, &tree, &gedcom).await;
+    let found = common::ok(
+        &app,
+        Method::GET,
+        &format!("/api/v1/trees/{tree}/persons/search?q=Rootgiven"),
+        None,
+    )
+    .await;
+    let root = found["entries"][0]["person_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let pedigree = |depth: usize| {
+        let (app, uri) = (
+            app.clone(),
+            format!(
+                "/api/v1/trees/{tree}/pedigree/{root}?ancestor_depth=0&descendant_depth={depth}"
+            ),
+        );
+        async move { common::ok(&app, Method::GET, &uri, None).await }
+    };
+
+    // One generation fits: nothing is cut, and nothing says so.
+    let children = pedigree(1).await;
+    assert_eq!(children["persons"].as_object().unwrap().len(), 1 + CHILDREN);
+    assert_eq!(children["descendant_depth_loaded"], 1);
+    assert!(children.get("truncated").is_none(), "{children}");
+
+    // Two would not: the second generation is left out whole.
+    let cut = pedigree(3).await;
+    assert_eq!(cut["persons"].as_object().unwrap().len(), 1 + CHILDREN);
+    assert_eq!(cut["descendant_depth_loaded"], 1);
+    assert_eq!(cut["truncated"], true);
+
+    // Expanding past the cut brings nothing, and says why.
+    let expanded = common::ok(
+        &app,
+        Method::GET,
+        &format!(
+            "/api/v1/trees/{tree}/pedigree/{root}/expand\
+             ?direction=descendants&from_depth=1&to_depth=2"
+        ),
+        None,
+    )
+    .await;
+    assert_eq!(expanded["new_nodes"], serde_json::json!([]));
+    assert_eq!(expanded["descendant_depth_loaded"], 1);
+    assert_eq!(expanded["truncated"], true);
+
+    if cfg!(feature = "graphql") {
+        let data = common::gql_ok(
+            &app,
+            "query($tree: ID!, $root: ID!) {
+                pedigree(treeId: $tree, rootPersonId: $root, ancestorDepth: 0, descendantDepth: 3) {
+                    truncated descendantDepthLoaded nodes { personId }
+                }
+                expandPedigree(treeId: $tree, rootPersonId: $root, direction: DESCENDANTS,
+                               fromDepth: 1, toDepth: 2) {
+                    truncated descendantDepthLoaded newNodes { personId }
+                }
+            }",
+            serde_json::json!({ "tree": tree, "root": root }),
+        )
+        .await;
+        assert_eq!(data["pedigree"]["truncated"], true);
+        assert_eq!(data["pedigree"]["descendantDepthLoaded"], 1);
+        assert_eq!(
+            data["pedigree"]["nodes"].as_array().unwrap().len(),
+            1 + CHILDREN
+        );
+        assert_eq!(data["expandPedigree"]["truncated"], true);
+        assert_eq!(data["expandPedigree"]["descendantDepthLoaded"], 1);
+        assert_eq!(data["expandPedigree"]["newNodes"], serde_json::json!([]));
+    }
+}

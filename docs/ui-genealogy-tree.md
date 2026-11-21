@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Genealogy Tree"
 description: "Pedigree canvas with person cards, connectors, navigation, the events sidebar, and the other charts it can draw."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-02T13:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 
@@ -55,6 +55,15 @@ pedigree, focus, SOSA data, drawn depth or theme changes — never for the depth
 popover, the events sidebar or a selection. Portraits are not part of the
 layout either: they load after the pedigree and reach each card's picture and
 the events panel on their own, so their arrival redraws the pictures alone.
+
+A pedigree holds at most 4,096 persons in each direction
+([API](api.md#profiles--pedigree)): a descent wider than that
+comes back cut at a generation, with the depth it reaches and `truncated`
+set. The chart then draws the generations it holds — it never draws deeper
+than the pedigree it was given — under a one-line notice above it
+(`pedigree.truncated`: the tree is too large to show every generation
+asked for, the furthest ones are left out). Raising the depth further
+changes nothing; refocusing on a person lower in the descent shows theirs.
 
 Opening a tree with no person chosen asks the server for the pedigree around
 the tree's default root (its SOSA root, else its first person), so the chart

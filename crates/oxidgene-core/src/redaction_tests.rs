@@ -312,6 +312,7 @@ fn a_pedigree_loses_absent_persons_and_their_links() {
         )]),
         ancestor_depth_loaded: 1,
         descendant_depth_loaded: 0,
+        truncated: false,
         built_at: Utc::now(),
     };
     redaction(GUEST, HiddenDisplay::Stub, &t).pedigree(&mut pedigree);

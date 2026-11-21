@@ -8030,6 +8030,7 @@
     "pedigree.resize_events": "Grootte van het gebeurtenissenpaneel aanpassen",
     "pedigree.spouses": "Partners",
     "pedigree.tree_view": "Boomweergave",
+    "pedigree.truncated": "Deze stamboom is te groot om alle gevraagde generaties te tonen: de verste worden weggelaten.",
     "pedigree.zoom_in": "Inzoomen",
     "pedigree.zoom_out": "Uitzoomen",
     "person.age.child": "kind",

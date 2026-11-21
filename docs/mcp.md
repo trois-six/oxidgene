@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: tools that each name their tree, read-only by default and writing only when the launch command opts in, stdio transport, consent, history, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-11-02T12:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
 ---
 
 # Assistant Access (MCP)
@@ -184,7 +184,9 @@ Bounds:
   25, maximum 100).
 - `get_pedigree` narrows each depth to 0–10 generations, the same range the
   pedigree view offers ([Tree Settings §11](ui-settings.md#11-section-global-preferences)) and the limit
-  REST and GraphQL enforce.
+  REST and GraphQL enforce. As theirs, its pedigree holds at most 4,096
+  persons in each direction and says `truncated` when a generation was
+  left out ([API](api.md#profiles--pedigree)).
 
 ### 5.2 Write tools
 

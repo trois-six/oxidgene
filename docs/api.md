@@ -1845,7 +1845,20 @@ Every pedigree depth — `ancestor_depth`, `descendant_depth`, `from_depth`,
 `to_depth`, `other_depth`, and their GraphQL counterparts — lies between 0 and
 **10** generations, the range the pedigree view offers; anything else, a
 negative GraphQL `Int` included, is a `validation_error`. REST, GraphQL and
-the assistant tools ([MCP](mcp.md)) enforce the same limit. The batched
+the assistant tools ([MCP](mcp.md)) enforce the same limit.
+
+A depth bounds an ancestry — ten generations up are 2,046 persons at most —
+but not a descent, which in a large tree runs to tens of thousands of
+persons from an early couple. A pedigree therefore also holds at most
+**4,096** persons reached in each direction (`MAX_PEDIGREE_PERSONS`): when
+a walk reaches more, the generation that crosses the bound is left out
+whole with those beyond it, the first generation always kept. The answer
+says so — `truncated: true` (left out when false), GraphQL `truncated` —
+and `ancestor_depth_loaded` / `descendant_depth_loaded` give the depth it
+actually holds, less than the one asked for. An expansion
+(`…/expand`, `expandPedigree`) carries the same `truncated`: past the cut
+it returns no new node. The spouses of the window's persons are added
+beside them and are not counted. The batched
 `pedigrees` checks the tree's projections once for the whole batch and
 assembles its pedigrees together: one walk up and one down from all the
 roots, then one read of projections, portraits and SOSA marks per step for

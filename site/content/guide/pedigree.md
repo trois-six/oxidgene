@@ -53,7 +53,7 @@ A dashed card with a **+** stands for a parent the tree does not record yet, at 
 - **Pan.** Drag anywhere on the canvas, cards included.
 - **Zoom.** Use the mouse wheel or a pinch to zoom around the pointer, or the **Zoom in** and **Zoom out** buttons of the left sidebar. The tree view zooms from 0.3× to 4×.
 - **Fit.** **Fit to screen** frames the whole chart in the window. When the tree is too large to fit, it is centred on the focus person.
-- **Change the depth.** Hover **Generation depth** in the left sidebar. A small panel opens with two counters, ancestors (up arrow) and descendants (down arrow), each from 0 to 10. Every **+** or **−** redraws the chart at once.
+- **Change the depth.** Hover **Generation depth** in the left sidebar. A small panel opens with two counters, ancestors (up arrow) and descendants (down arrow), each from 0 to 10. Every **+** or **−** redraws the chart at once. In a very large tree a descent can hold more persons than a chart shows at once (4,096 in each direction): the furthest generations are then left out, a line above the chart says so, and making a person lower in the descent the focus shows theirs.
 
 The depth a new tree opens with is 4 generations of ancestors and 3 of descendants; change it under **Pedigree depth** in the application [settings](@/guide/settings.md). Once you have moved around a tree, its view (focus person, depths, pan and zoom) is kept for as long as the window is open: leave for another page and come back, and the chart is as you left it. Each person you make the focus by clicking a card, or by going to a relative, is a page of the history: **Back** returns to the person before, and **Forward** comes back again. A long press on either button lists these persons by name.
 

@@ -8137,6 +8137,7 @@
     "pedigree.resize_events": "Zmień rozmiar panelu wydarzeń",
     "pedigree.spouses": "Małżonkowie",
     "pedigree.tree_view": "Widok drzewa",
+    "pedigree.truncated": "To drzewo jest zbyt duże, aby pokazać wszystkie żądane pokolenia: najdalsze zostały pominięte.",
     "pedigree.zoom_in": "Powiększ",
     "pedigree.zoom_out": "Pomniejsz",
     "person.age.child": "dziecko",

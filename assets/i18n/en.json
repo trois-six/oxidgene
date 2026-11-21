@@ -8030,6 +8030,7 @@
     "pedigree.resize_events": "Resize events panel",
     "pedigree.spouses": "Spouses",
     "pedigree.tree_view": "Tree view",
+    "pedigree.truncated": "This tree is too large to show every generation asked for: the furthest ones are left out.",
     "pedigree.zoom_in": "Zoom in",
     "pedigree.zoom_out": "Zoom out",
     "person.age.child": "child",

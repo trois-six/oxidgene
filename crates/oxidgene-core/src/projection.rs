@@ -378,6 +378,12 @@ pub struct Pedigree {
     pub families: HashMap<Uuid, PedigreeFamily>,
     pub ancestor_depth_loaded: u32,
     pub descendant_depth_loaded: u32,
+    /// Whether a depth loaded is less than the one asked for because the
+    /// next generation would have taken the window past the most persons a
+    /// pedigree holds: `ancestor_depth_loaded` and `descendant_depth_loaded`
+    /// say how far it reaches.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
     pub built_at: DateTime<Utc>,
 }
 
@@ -544,6 +550,9 @@ pub struct PedigreeDelta {
     pub new_edges: Vec<PedigreeEdge>,
     pub ancestor_depth_loaded: u32,
     pub descendant_depth_loaded: u32,
+    /// As [`Pedigree::truncated`], of the window expanded to.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 /// Direction for pedigree expansion.
