@@ -357,7 +357,7 @@ fn enforce_bound(ids: Vec<Uuid>, bound: Option<usize>) -> Result<Vec<Uuid>, Oxid
     }
 }
 
-/// The live persons carrying `tag`, which must be a tag of the tree.
+/// The persons carrying `tag`, which must be a tag of the tree.
 async fn tagged_persons(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
@@ -365,7 +365,7 @@ async fn tagged_persons(
 ) -> Result<Vec<Uuid>, OxidGeneError> {
     TagRepo::get(db, tree_id, tag).await?;
     let carriers = RecordTagRepo::persons_with_tag(db, tree_id, tag).await?;
-    live_only(db, tree_id, carriers).await
+    Ok(sorted_unique(carriers))
 }
 
 /// The direction a branch target walks from its root.
@@ -388,7 +388,7 @@ async fn listed_persons(
             "a target lists at most {MAX_LISTED_PERSONS} persons"
         )));
     }
-    let live = live_persons(db, tree_id, &ids).await?;
+    let live = persons_of_tree(db, tree_id, &ids).await?;
     if let Some(missing) = ids.iter().find(|id| !live.contains(id)) {
         return Err(OxidGeneError::NotFound {
             entity: "Person",
@@ -429,7 +429,7 @@ async fn branch(
     if spec.include_self {
         ids.push(root);
     }
-    live_only(db, tree_id, ids).await
+    Ok(sorted_unique(ids))
 }
 
 /// The walk depth a branch target asks for: 1 to 30, all of them when absent.
@@ -479,19 +479,8 @@ async fn spouses_of(
         .collect())
 }
 
-/// `ids` less the persons that are not live persons of `tree_id`.
-async fn live_only(
-    db: &impl ConnectionTrait,
-    tree_id: Uuid,
-    ids: Vec<Uuid>,
-) -> Result<Vec<Uuid>, OxidGeneError> {
-    let ids = sorted_unique(ids);
-    let live = live_persons(db, tree_id, &ids).await?;
-    Ok(ids.into_iter().filter(|id| live.contains(id)).collect())
-}
-
-/// The ids among `ids` that are live persons of `tree_id`.
-async fn live_persons(
+/// The ids among `ids` that are persons of `tree_id`.
+async fn persons_of_tree(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
     ids: &[Uuid],
@@ -502,7 +491,6 @@ async fn live_persons(
             .select_only()
             .column(person::Column::Id)
             .filter(person::Column::TreeId.eq(tree_id))
-            .filter(person::Column::DeletedAt.is_null())
             .filter(person::Column::Id.is_in(chunk.to_vec()))
             .into_tuple::<(Uuid,)>()
             .all(db)

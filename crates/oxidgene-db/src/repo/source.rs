@@ -1,8 +1,8 @@
-//! Repository for `Source` entities (CRUD with soft delete).
+//! Repository for `Source` entities (CRUD).
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, RecordKind, Source};
+use oxidgene_core::types::{Connection, KeptEntityKind, RecordKind, Source};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
 use uuid::Uuid;
@@ -10,9 +10,9 @@ use uuid::Uuid;
 use crate::entities::source::{self, ActiveModel, Column, Entity};
 use crate::entities::{citation, media_link, note, source_repository};
 use crate::repo::batch::in_chunks;
-use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::record_tag::RecordTagRepo;
+use crate::repo::{GedcomKeptRepo, db_err};
 
 /// Repository for source CRUD operations.
 pub struct SourceRepo;
@@ -32,7 +32,7 @@ pub struct SourceFilter<'a> {
 }
 
 impl SourceRepo {
-    /// List the live sources of a tree, narrowed by `filter`, with
+    /// List the sources of a tree, narrowed by `filter`, with
     /// pagination.
     pub async fn list_filtered(
         db: &impl ConnectionTrait,
@@ -40,14 +40,11 @@ impl SourceRepo {
         filter: &SourceFilter<'_>,
         params: &PaginationParams,
     ) -> Result<Connection<Source>, OxidGeneError> {
-        let mut query = Entity::find()
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
-            .filter(
-                filter
-                    .unseen
-                    .keeping(oxidgene_core::types::RecordKind::Source, Column::Id),
-            );
+        let mut query = Entity::find().filter(Column::TreeId.eq(tree_id)).filter(
+            filter
+                .unseen
+                .keeping(oxidgene_core::types::RecordKind::Source, Column::Id),
+        );
         if let Some(title) = filter.title {
             query = query.filter(crate::repo::lower_trim_eq(Column::Title, title));
         }
@@ -62,40 +59,38 @@ impl SourceRepo {
         Ok(page)
     }
 
-    /// How many live sources a tree has.
+    /// How many sources a tree has.
     pub async fn count_in_tree(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<u64, OxidGeneError> {
         Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .count(db)
             .await
             .map_err(db_err)
     }
 
-    /// List all sources in a tree without pagination (excludes soft-deleted).
+    /// List all sources in a tree without pagination.
     pub async fn list_all(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Source>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
         hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
-    /// Get a single source by ID (excludes soft-deleted).
+    /// Get a single source by ID.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Source, OxidGeneError> {
-        let source = find_live(db, id).await.map(into_domain)?;
+        let source = find_row(db, id).await.map(into_domain)?;
         hydrate_one(db, source).await
     }
 
-    /// Get multiple sources from one tree (excludes soft-deleted).
+    /// Get multiple sources from one tree.
     pub async fn get_many(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -105,7 +100,6 @@ impl SourceRepo {
             let models = Entity::find()
                 .filter(Column::TreeId.eq(tree_id))
                 .filter(Column::Id.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?;
@@ -115,9 +109,8 @@ impl SourceRepo {
         hydrate(db, sources).await
     }
 
-    /// Get multiple sources by ID, whatever their tree (excludes
-    /// soft-deleted): for ids read from records of one tree already, such as
-    /// a repository's links.
+    /// Get multiple sources by ID, whatever their tree: for ids read from
+    /// records of one tree already, such as a repository's links.
     pub async fn get_many_by_id(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
@@ -125,7 +118,6 @@ impl SourceRepo {
         let sources = in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::Id.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?;
@@ -161,7 +153,6 @@ impl SourceRepo {
             agency: Set(agency),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
         hydrate_one(db, into_domain(result)).await
@@ -177,7 +168,7 @@ impl SourceRepo {
         abbreviation: Option<Option<String>>,
         agency: Option<Option<String>>,
     ) -> Result<Source, OxidGeneError> {
-        let existing = find_live(db, id).await?;
+        let existing = find_row(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(title) = title {
@@ -201,18 +192,19 @@ impl SourceRepo {
         hydrate_one(db, into_domain(result)).await
     }
 
-    /// Soft-delete a source.
+    /// Delete a source, and with it every row that is its alone
+    /// (docs/data-model.md, Deletion): the schema's cascades take the
+    /// citations of it, its notes, media links, repository links and tags,
+    /// and its kept GEDCOM goes first, in the same transaction.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = find_live(db, id).await?;
-
-        let mut active: ActiveModel = existing.into_active_model();
-        active.deleted_at = Set(Some(Utc::now()));
-        active.update(db).await.map_err(db_err)?;
+        find_row(db, id).await?;
+        GedcomKeptRepo::delete_for(db, KeptEntityKind::Source, &[id]).await?;
+        Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         Ok(())
     }
 
-    /// Soft-deletes a source only if nothing points at it any more, and
-    /// reports whether it did.
+    /// Deletes a source only if nothing points at it any more, and reports
+    /// whether it did.
     ///
     /// Free-text source entry mints a `Source` per distinct title, so a typo
     /// corrected on the next save would otherwise leave its row in the tree —
@@ -242,7 +234,6 @@ impl SourceRepo {
         // that actually name it count.
         let noted = note::Entity::find()
             .filter(note::Column::SourceId.eq(id))
-            .filter(note::Column::DeletedAt.is_null())
             .count(db)
             .await
             .map_err(db_err)?;
@@ -288,7 +279,6 @@ fn into_domain(m: source::Model) -> Source {
         tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
-        deleted_at: m.deleted_at,
     }
 }
 
@@ -311,10 +301,10 @@ async fn hydrate_one(db: &impl ConnectionTrait, source: Source) -> Result<Source
     Ok(sources.remove(0))
 }
 
-/// Row `id`, unless it is missing or soft-deleted.
-async fn find_live(
+/// Row `id`; `NotFound` when it is missing.
+async fn find_row(
     db: &impl ConnectionTrait,
     id: Uuid,
 ) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
-    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Source").await
+    crate::repo::find_row::<Entity>(db, id, "Source").await
 }

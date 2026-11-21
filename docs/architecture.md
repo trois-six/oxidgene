@@ -3,7 +3,7 @@ type: "Architecture Specification"
 title: "Technical Architecture"
 description: "Technical architecture, crate boundaries, stack choices, and deployment model for OxidGene."
 tags: [oxidgene, specification, architecture, rust]
-generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 
@@ -54,7 +54,7 @@ For full entity definitions, see [Data Model](data-model.md).
 |---|---|---|
 | Primary keys | UUID v7 | Time-ordered, no collision across web/desktop, no sequential ID leakage |
 | Pagination | Cursor-based (Relay-style) | Handles concurrent modifications, natural fit for GraphQL connections |
-| Deletion | Soft delete (`deleted_at`) | Undo capability, audit trail, filtered out by default |
+| Deletion | A record inside a tree is deleted for real, with every row that is its alone, in one transaction; a tree is flagged (`deleted_at`) and purged in the background | The change history keeps a deleted record's last state, from which a restore re-creates it: no read filters deleted rows, and none can name a row that is gone ([Data Model, Deletion](data-model.md#deletion)) |
 | Desktop architecture | Single binary | Embeds Axum on localhost + SQLite + Dioxus WebView |
 | Authentication | Deferred to EPIC G | No auth in MVP; backend access remains local/private and is never directly public. Planned for the web build only: OpenID Connect with a Backend-for-Frontend, authorization owned by OxidGene ([Authentication](authentication.md), [Authorization](authorization.md)) |
 
@@ -522,7 +522,7 @@ its transaction commits; a failure is logged and left to the sweep.
 | A page is deleted, or a document with its pages | Those of the page's vignettes, deleted with them |
 | A page's file is attached or replaced | Those of the page's vignettes, cut from the bytes it held before |
 | A tree is deleted | With everything under its prefix, by the purge |
-| A person is deleted or merged | None: no vignette is removed, and a crop lives exactly as long as its vignette, its rectangle and its page's file |
+| A person or an event is deleted, or a person merged | None: the vignettes showing them only lose that attribution, or follow the person kept, and a crop lives exactly as long as its vignette, its rectangle and its page's file |
 
 The background worker's maintenance ([§6](#6-asynchronous-processing), every six minutes and at its start,
 on the server's worker and on the desktop alike) sweeps the store for what a

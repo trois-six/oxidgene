@@ -25,7 +25,7 @@ const INSERT_BATCH: usize = 500;
 /// Reads and writes of `person_visibility`.
 pub struct PersonVisibilityRepo;
 
-/// One membership of a live person in a live family.
+/// One membership of a person in a family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Membership {
     pub family_id: Uuid,
@@ -268,8 +268,8 @@ impl PersonVisibilityRepo {
         Ok(())
     }
 
-    /// The privacy of each live person of `person_ids`; a deleted or missing
-    /// person is absent.
+    /// The privacy of each person of `person_ids`; a missing person is
+    /// absent.
     pub async fn live_privacy(
         db: &impl ConnectionTrait,
         person_ids: &[Uuid],
@@ -277,7 +277,7 @@ impl PersonVisibilityRepo {
         let backend = db.get_database_backend();
         let rows = in_chunks(person_ids, |chunk| async move {
             let sql = format!(
-                "SELECT id, privacy FROM person WHERE id IN ({}) AND deleted_at IS NULL",
+                "SELECT id, privacy FROM person WHERE id IN ({})",
                 placeholders(backend, 1, chunk.len())
             );
             db.query_all_raw(Statement::from_sql_and_values(
@@ -297,8 +297,8 @@ impl PersonVisibilityRepo {
             .collect()
     }
 
-    /// The memberships of live persons in live families whose person (or
-    /// family, as `of` says) is one of `ids`.
+    /// The memberships whose person (or family, as `of` says) is one of
+    /// `ids`.
     pub async fn memberships(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
@@ -313,13 +313,9 @@ impl PersonVisibilityRepo {
             let n = chunk.len();
             let sql = format!(
                 "SELECT fs.family_id, fs.person_id, 1 AS spouse FROM family_spouse fs \
-                 JOIN family f ON f.id = fs.family_id AND f.deleted_at IS NULL \
-                 JOIN person p ON p.id = fs.person_id AND p.deleted_at IS NULL \
                  WHERE fs.{column} IN ({}) \
                  UNION ALL \
                  SELECT fc.family_id, fc.person_id, 0 AS spouse FROM family_child fc \
-                 JOIN family f ON f.id = fc.family_id AND f.deleted_at IS NULL \
-                 JOIN person p ON p.id = fc.person_id AND p.deleted_at IS NULL \
                  WHERE fc.{column} IN ({})",
                 placeholders(backend, 1, n),
                 placeholders(backend, n + 1, n)

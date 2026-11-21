@@ -346,7 +346,7 @@ async fn delete_removes_the_tag_and_its_links() {
 }
 
 #[tokio::test]
-async fn counts_exclude_soft_deleted_records() {
+async fn counts_leave_out_deleted_records() {
     let (db, tree) = setup().await;
     let tag = tag_named(&db, tree, "Counted").await;
     let live = person(&db, tree).await;
@@ -390,13 +390,13 @@ async fn counts_exclude_soft_deleted_records() {
     let usage = TagRepo::list(&db, tree).await.unwrap();
     assert_eq!(count_of(&usage, tag.id, RecordKind::Person), 1);
     assert_eq!(count_of(&usage, tag.id, RecordKind::Event), 0);
-    // A place is removed outright, so its link is the only count left.
+    // The deletions took their links; the place's is left.
     assert_eq!(count_of(&usage, tag.id, RecordKind::Place), 1);
     assert_eq!(count_of(&usage, tag.id, RecordKind::Media), 0);
 }
 
 #[tokio::test]
-async fn citations_of_a_soft_deleted_source_are_not_counted() {
+async fn citations_of_a_deleted_source_are_not_counted() {
     let (db, tree) = setup().await;
     let tag = tag_named(&db, tree, "Sourced").await;
     let source = Uuid::now_v7();
@@ -439,8 +439,7 @@ async fn citations_of_a_soft_deleted_source_are_not_counted() {
         1
     );
 
-    // The source's soft delete leaves its citation row, and the citation
-    // with it is no longer live.
+    // The source's deletion takes its citations, and their links with them.
     SourceRepo::delete(&db, source).await.unwrap();
     let usage = TagRepo::list(&db, tree).await.unwrap();
     assert_eq!(count_of(&usage, tag.id, RecordKind::Citation), 0);

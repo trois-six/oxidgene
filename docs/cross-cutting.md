@@ -3,7 +3,7 @@ type: "Cross-cutting Specification"
 title: "Cross-cutting Rules — Language, Errors, Logging, and Privacy"
 description: "Rules shared by all OxidGene frontends, backends, APIs, tests, and documentation."
 tags: [oxidgene, specification, i18n, errors, logging, privacy, documentation]
-generated: { by: human:maintainer, at: 2026-11-21T22:15:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 # Cross-cutting Rules — Language, Errors, Logging, and Privacy
@@ -193,7 +193,7 @@ error (a `500`), and names the server log line that records it.
 | 400 | `gedcom_error` | Invalid or unsupported genealogy input. |
 | 401 | `unauthenticated` | The desktop's embedded server received a request without its launch token (§7.1); with EPIC G, a missing, invalid or expired credential ([Authorization §4.3](authorization.md#43-errors-401-403-and-404)). |
 | 403 | `forbidden` | A browser page on another origin attempted a write, or a request named a host the server does not answer under (§7.1); with EPIC G, a viewer who sees the tree but lacks the permission, or a failed CSRF check. |
-| 404 | `not_found` | Missing or soft-deleted resource. |
+| 404 | `not_found` | Missing or deleted resource, or a resource of a tree queued for its purge. |
 | 409 | `conflict` | State conflicts with an invariant or concurrent change, such as starting an import or export while another runs on the tree, or a write a constraint of the schema refuses: a second link where one may exist, a record that is no longer there, a broken invariant ([Data Model, Integrity constraints](data-model.md#integrity-constraints)). |
 | 413 | `payload_too_large` | Request body exceeds the route's limit, or a file, an archive or what it expands to its size limit ([API Contract, Intake limits](api.md#intake-limits)). |
 | 413 | `quota_exceeded` | A file would take a tree's media past its storage quota. |

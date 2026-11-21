@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Authorization and Sharing"
 description: "Authorization of the web deployment, owned by OxidGene rather than the identity provider: the Owner, Editor, Guest and Visitor roles and their permission matrix, tree visibility, the ViewerContext resolved once per request and passed to every service, the 401, 403 and 404 contract shared by REST and GraphQL, sharing with users of the instance, email invitations, share links, subtree scopes and how exclusions override them, API clients over the client credentials grant, MCP over Streamable HTTP, authors in the change history, the access log, and tests."
 tags: [oxidgene, specification, security, authorization, sharing, api, mcp, audit]
-generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 # Authorization and Sharing
@@ -476,8 +476,9 @@ what a share shows (open decision 7).
   limited rather than widening it; the worker's maintenance pass deletes the
   scopes nothing holds any more.
 - **Root changes.** A merge that absorbs a scope's root moves the scope to the
-  person kept; a deleted root leaves the scope empty until it is restored, and
-  the owner's sharing page flags it.
+  person kept; a deleted root, which the scope's definition names by ID
+  alone, leaves the scope empty until a restore from the change history
+  brings it back under that ID, and the owner's sharing page flags it.
 - **Preview.** `POST /trees/{tree_id}/access-scopes/preview` returns the
   number of persons a definition reaches, as the bulk-tagging target does,
   how many of them a Visitor sees — neither excluded, private nor

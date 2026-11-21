@@ -434,7 +434,7 @@ async fn test_tree_crud() {
     .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 
-    // Verify it's gone (soft-deleted)
+    // Verify it's gone (queued for its purge)
     let (status, _) = send(&app, Method::GET, &format!("/api/v1/trees/{tree_id}"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }

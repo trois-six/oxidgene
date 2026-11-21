@@ -24,24 +24,6 @@ async fn setup() -> (DatabaseConnection, Uuid, Uuid) {
     (db, tree, document)
 }
 
-/// Flag medium `id` deleted. Nothing in the application soft-deletes a medium
-/// any more — it is purged — but the `deleted_at` filters still apply to rows
-/// flagged by earlier versions.
-async fn soft_delete_media(db: &DatabaseConnection, id: Uuid) {
-    use oxidgene_db::entities::media;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
-    let flagged = media::Entity::update_many()
-        .col_expr(
-            media::Column::DeletedAt,
-            Expr::value(Some(chrono::Utc::now())),
-        )
-        .filter(media::Column::Id.eq(id))
-        .exec(db)
-        .await
-        .unwrap();
-    assert_eq!(flagged.rows_affected, 1);
-}
-
 /// A page we hold *and* have rasterised — the only stored shape a portrait can
 /// actually be drawn from.
 fn rasterised() -> UploadedMedia {
@@ -135,18 +117,6 @@ async fn pages_require_a_live_same_tree_document_and_update_its_count() {
                 .is_err()
         );
     }
-    soft_delete_media(&db, document).await;
-    assert!(page(&db, tree, Some(document)).await.is_err());
-    assert!(
-        MediaRepo::create_uploaded(&db, Uuid::now_v7(), tree, Some(document), upload(100))
-            .await
-            .is_err()
-    );
-    assert!(
-        MediaRepo::attach_file(&db, first.id, upload(100))
-            .await
-            .is_err()
-    );
 }
 
 #[tokio::test]
@@ -319,12 +289,6 @@ async fn vignette_writes_validate_pages_bounds_and_attribution() {
         );
     }
     assert_eq!(VignetteRepo::get(&db, crop.id).await.unwrap(), crop);
-    soft_delete_media(&db, page.id).await;
-    assert!(
-        VignetteRepo::update(&db, crop.id, VignettePatch::default())
-            .await
-            .is_err()
-    );
 }
 
 #[tokio::test]

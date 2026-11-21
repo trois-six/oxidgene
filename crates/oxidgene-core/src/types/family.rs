@@ -19,7 +19,6 @@ pub struct Family {
     pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 /// A spouse's membership in a family.

@@ -1,4 +1,4 @@
-//! Repository for `Person` entities (CRUD with soft delete).
+//! Repository for `Person` entities (CRUD).
 //!
 //! Free-text person search lives in [`crate::repo::PersonSearchRepo`]
 //! (the `person_search_fts` table) since Sprint E.6.
@@ -6,7 +6,7 @@
 use chrono::Utc;
 use oxidgene_core::enums::{Privacy, Sex};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Person, Portrait, RecordKind};
+use oxidgene_core::types::{Connection, KeptEntityKind, Person, Portrait, RecordKind};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveModelTrait, Condition, ConnectionTrait, FromQueryResult, IntoActiveModel, JoinType,
@@ -15,12 +15,12 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::entities::person::{self, ActiveModel, Column, Entity};
-use crate::entities::person_name;
 use crate::entities::sea_enums;
+use crate::entities::{event, person_name};
 use crate::repo::batch::in_chunks;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::record_tag::RecordTagRepo;
-use crate::repo::{db_err, lower_contains};
+use crate::repo::{GedcomKeptRepo, VignetteRepo, db_err, lower_contains};
 
 /// Repository for person CRUD operations.
 pub struct PersonRepo;
@@ -119,15 +119,13 @@ fn placeholder(backend: sea_orm::DbBackend, n: usize) -> String {
 }
 
 impl PersonRepo {
-    /// List persons in a tree with pagination (excludes soft-deleted).
+    /// List persons in a tree with pagination.
     pub async fn list(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         params: &PaginationParams,
     ) -> Result<Connection<Person>, OxidGeneError> {
-        let query = Entity::find()
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null());
+        let query = Entity::find().filter(Column::TreeId.eq(tree_id));
         let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
         let mut persons: Vec<&mut Person> =
             page.edges.iter_mut().map(|edge| &mut edge.node).collect();
@@ -146,7 +144,6 @@ impl PersonRepo {
     ) -> Result<Connection<Person>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .filter(unseen.condition(Column::Id));
         if let Some(search) = search.map(str::trim).filter(|value| !value.is_empty()) {
             query = query
@@ -169,7 +166,7 @@ impl PersonRepo {
         Ok(page)
     }
 
-    /// How many live persons each of `tree_ids` holds; a tree without any is
+    /// How many persons each of `tree_ids` holds; a tree without any is
     /// absent.
     pub async fn count_by_trees(
         db: &impl ConnectionTrait,
@@ -181,7 +178,6 @@ impl PersonRepo {
                 .column(Column::TreeId)
                 .column_as(Column::Id.count(), "count")
                 .filter(Column::TreeId.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .group_by(Column::TreeId)
                 .into_tuple()
                 .all(db)
@@ -191,7 +187,7 @@ impl PersonRepo {
         .await
     }
 
-    /// How many live persons of `tree_id` remain once `unseen` leaves its
+    /// How many persons of `tree_id` remain once `unseen` leaves its
     /// persons out: the count of a restricted viewer, which
     /// [`Self::list_filtered`]'s `total_count` agrees with.
     pub async fn count_seen(
@@ -201,14 +197,13 @@ impl PersonRepo {
     ) -> Result<u64, OxidGeneError> {
         Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .filter(unseen.condition(Column::Id))
             .count(db)
             .await
             .map_err(db_err)
     }
 
-    /// The ids of every live person of a tree: what a walk over its family
+    /// The ids of every person of a tree: what a walk over its family
     /// links needs, without the persons themselves.
     pub async fn live_ids(
         db: &impl ConnectionTrait,
@@ -218,7 +213,6 @@ impl PersonRepo {
             .select_only()
             .column(Column::Id)
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .into_tuple()
             .all(db)
             .await
@@ -226,14 +220,13 @@ impl PersonRepo {
         Ok(ids.into_iter().collect())
     }
 
-    /// List all persons in a tree without pagination (excludes soft-deleted).
+    /// List all persons in a tree without pagination.
     pub async fn list_all(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Person>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
@@ -242,7 +235,7 @@ impl PersonRepo {
         Ok(persons)
     }
 
-    /// Get multiple persons by ID (excludes soft-deleted).
+    /// Get multiple persons by ID.
     pub async fn get_many(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
@@ -250,7 +243,6 @@ impl PersonRepo {
         in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::Id.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?;
@@ -261,14 +253,14 @@ impl PersonRepo {
         .await
     }
 
-    /// Get a single person by ID (excludes soft-deleted).
+    /// Get a single person by ID.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Person, OxidGeneError> {
-        let mut person = find_live(db, id).await.map(into_domain)?;
+        let mut person = find_row(db, id).await.map(into_domain)?;
         hydrate_tags(db, &mut [&mut person]).await?;
         Ok(person)
     }
 
-    /// The live persons whose chosen portrait is one of `media_ids`, or a
+    /// The persons whose chosen portrait is one of `media_ids`, or a
     /// crop of one of them.
     pub async fn portrayed_by(
         db: &impl ConnectionTrait,
@@ -291,7 +283,6 @@ impl PersonRepo {
             portrayed = portrayed.add(Column::PortraitVignetteId.is_in(crops));
         }
         let models = Entity::find()
-            .filter(Column::DeletedAt.is_null())
             .filter(portrayed)
             .all(db)
             .await
@@ -299,13 +290,12 @@ impl PersonRepo {
         Ok(models.into_iter().map(|model| model.id).collect())
     }
 
-    /// The live persons whose chosen portrait is crop `vignette_id`.
+    /// The persons whose chosen portrait is crop `vignette_id`.
     pub async fn portrayed_by_vignette(
         db: &impl ConnectionTrait,
         vignette_id: Uuid,
     ) -> Result<Vec<Uuid>, OxidGeneError> {
         let models = Entity::find()
-            .filter(Column::DeletedAt.is_null())
             .filter(Column::PortraitVignetteId.eq(vignette_id))
             .all(db)
             .await
@@ -321,7 +311,6 @@ impl PersonRepo {
     ) -> Result<Person, OxidGeneError> {
         let mut person = Entity::find_by_id(id)
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .one(db)
             .await
             .map_err(db_err)?
@@ -351,7 +340,6 @@ impl PersonRepo {
             portrait_vignette_id: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
@@ -364,7 +352,7 @@ impl PersonRepo {
         sex: Option<Sex>,
         privacy: Option<Privacy>,
     ) -> Result<Person, OxidGeneError> {
-        let existing = find_live(db, id).await?;
+        let existing = find_row(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(sex) = sex {
@@ -381,18 +369,36 @@ impl PersonRepo {
         Ok(person)
     }
 
-    /// Soft-delete a person.
+    /// Delete a person, and with them every row that is theirs alone
+    /// (docs/data-model.md, Deletion).
+    ///
+    /// The schema's cascades take their names, their own events with what
+    /// hangs off those, their notes, citations, media links, tags, family
+    /// links, witness rows, distinct confirmations and projections; the tree
+    /// and the memberships naming them as "self" stop doing so. Two things
+    /// are cleared first, in the same transaction: the identification boxes
+    /// showing them, or standing as evidence for one of their events, keep
+    /// their region and lose that attribution, and their kept GEDCOM goes.
+    /// Their families stay, even left with no spouse and no child.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = find_live(db, id).await?;
-
-        let mut active: ActiveModel = existing.into_active_model();
-        active.deleted_at = Set(Some(Utc::now()));
-        active.update(db).await.map_err(db_err)?;
+        find_row(db, id).await?;
+        let events: Vec<Uuid> = event::Entity::find()
+            .select_only()
+            .column(event::Column::Id)
+            .filter(event::Column::PersonId.eq(id))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        VignetteRepo::detach_events(db, &events).await?;
+        VignetteRepo::detach_person(db, id).await?;
+        GedcomKeptRepo::delete_for(db, KeptEntityKind::Person, &[id]).await?;
+        Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         Ok(())
     }
 
-    /// How many of a tree's persons were created at each instant, deleted
-    /// ones included, in no particular order.
+    /// How many of a tree's persons were created at each instant, in no
+    /// particular order.
     ///
     /// Grouped in SQL: an import stamps everyone it brings with the same
     /// time, so it comes back as one row however many persons it holds.
@@ -408,27 +414,6 @@ impl PersonRepo {
             .filter(Column::TreeId.eq(tree_id))
             .filter(unseen.condition(Column::Id))
             .group_by(Column::CreatedAt)
-            .into_tuple()
-            .all(db)
-            .await
-            .map_err(db_err)
-    }
-
-    /// How many of a tree's persons were soft-deleted at each instant (a
-    /// deletion or a merge), in no particular order.
-    pub async fn count_by_deletion(
-        db: &impl ConnectionTrait,
-        tree_id: Uuid,
-        unseen: super::Unseen,
-    ) -> Result<Vec<(chrono::DateTime<Utc>, i64)>, OxidGeneError> {
-        Entity::find()
-            .select_only()
-            .column(Column::DeletedAt)
-            .column_as(Column::Id.count(), "count")
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(unseen.condition(Column::Id))
-            .filter(Column::DeletedAt.is_not_null())
-            .group_by(Column::DeletedAt)
             .into_tuple()
             .all(db)
             .await
@@ -530,7 +515,6 @@ impl PersonRepo {
                                           (SELECT page.id
                                            FROM media page
                                            WHERE page.parent_media_id = mm.id
-                                             AND page.deleted_at IS NULL
                                              AND LOWER(page.mime_type) <> 'application/pdf'
                                              AND (page.thumbnail_key IS NOT NULL
                                                   OR page.file_path LIKE 'http%')
@@ -548,7 +532,7 @@ impl PersonRepo {
                                         ml.id AS link_id
                                  FROM media_link ml
                                  INNER JOIN media mm
-                                     ON mm.id = ml.media_id AND mm.deleted_at IS NULL
+                                     ON mm.id = ml.media_id
                                  WHERE ml.person_id = p.id
                                ) AS candidate
                                WHERE candidate.drawable IS NOT NULL
@@ -558,7 +542,6 @@ impl PersonRepo {
                            END) AS portrait_media_id
                     FROM person p
                     WHERE p.tree_id = {tree_param}
-                      AND p.deleted_at IS NULL
                                             {person_filter}
                 ),
                 resolved AS (
@@ -568,7 +551,6 @@ impl PersonRepo {
                              (SELECT page.id
                               FROM media page
                               WHERE page.parent_media_id = c.portrait_media_id
-                                AND page.deleted_at IS NULL
                                 AND LOWER(page.mime_type) <> 'application/pdf'
                                 AND (page.thumbnail_key IS NOT NULL
                                      OR page.file_path LIKE 'http%')
@@ -595,9 +577,9 @@ impl PersonRepo {
                                              v.width AS crop_width,
                                              v.height AS crop_height
                 FROM resolved r
-                LEFT JOIN media m ON m.id = r.portrait_media_id AND m.deleted_at IS NULL
+                LEFT JOIN media m ON m.id = r.portrait_media_id
                 LEFT JOIN vignette v ON v.id = r.portrait_vignette_id
-                LEFT JOIN media vm ON vm.id = v.media_id AND vm.deleted_at IS NULL
+                LEFT JOIN media vm ON vm.id = v.media_id
                 WHERE r.portrait_media_id IS NOT NULL
                    OR r.portrait_vignette_id IS NOT NULL
             "#
@@ -649,7 +631,7 @@ impl PersonRepo {
         person_id: Uuid,
         portrait: Portrait,
     ) -> Result<Person, OxidGeneError> {
-        let person = find_live(db, person_id).await?;
+        let person = find_row(db, person_id).await?;
 
         let (media_id, vignette_id) = portrait.to_columns();
         let mut active: person::ActiveModel = person.into();
@@ -697,14 +679,13 @@ fn into_domain(m: person::Model) -> Person {
         tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
-        deleted_at: m.deleted_at,
     }
 }
 
-/// Row `id`, unless it is missing or soft-deleted.
-async fn find_live(
+/// Row `id`; `NotFound` when it is missing.
+async fn find_row(
     db: &impl ConnectionTrait,
     id: Uuid,
 ) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
-    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Person").await
+    crate::repo::find_row::<Entity>(db, id, "Person").await
 }

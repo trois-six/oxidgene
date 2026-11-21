@@ -4,7 +4,7 @@ use oxidgene_core::enums::SpouseRole;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::FamilySpouse;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ConnectionTrait, JoinType, QueryFilter, QuerySelect, Set};
+use sea_orm::{ConnectionTrait, QueryFilter, Set};
 use uuid::Uuid;
 
 use crate::entities::family;
@@ -59,7 +59,7 @@ impl FamilySpouseRepo {
         .await
     }
 
-    /// List spouse links for active families in one tree.
+    /// List the spouse links of these families of one tree.
     pub async fn list_by_families_in_tree(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -67,9 +67,7 @@ impl FamilySpouseRepo {
     ) -> Result<Vec<FamilySpouse>, OxidGeneError> {
         in_chunks(family_ids, |chunk| async move {
             let models = Entity::find()
-                .join(JoinType::InnerJoin, family_spouse::Relation::Family.def())
-                .filter(family::Column::TreeId.eq(tree_id))
-                .filter(family::Column::DeletedAt.is_null())
+                .filter(Column::TreeId.eq(tree_id))
                 .filter(Column::FamilyId.is_in(chunk))
                 .all(db)
                 .await

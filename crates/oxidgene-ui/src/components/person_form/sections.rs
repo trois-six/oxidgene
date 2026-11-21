@@ -1378,7 +1378,6 @@ mod tests {
             tags: Vec::new(),
             created_at: now,
             updated_at: now,
-            deleted_at: None,
         }
     }
 

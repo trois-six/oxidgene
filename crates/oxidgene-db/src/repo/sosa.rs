@@ -31,7 +31,7 @@ pub struct SosaAncestor {
 }
 
 /// One parent of a person, as a SOSA ancestry walks up to them: a spouse of a
-/// live family the person is a child of, themselves live.
+/// family the person is a child of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParentLink {
     pub child_id: Uuid,
@@ -230,8 +230,8 @@ impl SosaRepo {
             .transpose()
     }
 
-    /// The parents of each of `child_ids`: the live spouses of the live
-    /// families they are children of.
+    /// The parents of each of `child_ids`: the spouses of the families they
+    /// are children of.
     pub async fn parent_links(
         db: &impl ConnectionTrait,
         child_ids: &[Uuid],
@@ -241,9 +241,7 @@ impl SosaRepo {
             let sql = format!(
                 "SELECT fc.person_id AS child_id, fs.person_id AS parent_id, fs.role \
                  FROM family_child fc \
-                 JOIN family f ON f.id = fc.family_id AND f.deleted_at IS NULL \
                  JOIN family_spouse fs ON fs.family_id = fc.family_id \
-                 JOIN person p ON p.id = fs.person_id AND p.deleted_at IS NULL \
                  WHERE fc.person_id IN ({})",
                 placeholders(backend, 1, chunk.len())
             );

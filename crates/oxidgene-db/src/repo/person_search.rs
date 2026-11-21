@@ -1033,7 +1033,7 @@ fn push_event_filters(
         let person_id = uuid_as_text(backend, "e.person_id");
         conditions.push(format!(
             "person_search_fts.person_id IN (SELECT {person_id} FROM event e \
-             WHERE e.tree_id = {tree} AND e.deleted_at IS NULL \
+             WHERE e.tree_id = {tree} \
              AND e.event_type = 'occupation' \
              AND LOWER(COALESCE(e.description, '')) LIKE {param} ESCAPE '\\')"
         ));
@@ -1052,10 +1052,7 @@ fn event_branch(
     join: &str,
 ) -> String {
     let tree = push_value(values, backend, tree_id.into());
-    let mut event_conditions = vec![
-        format!("e.tree_id = {tree}"),
-        "e.deleted_at IS NULL".to_string(),
-    ];
+    let mut event_conditions = vec![format!("e.tree_id = {tree}")];
     if let Some(place) = place {
         let param = push_value(values, backend, lowercase_contains(place));
         event_conditions.push(format!("LOWER(p.name) LIKE {param} ESCAPE '\\'"));
@@ -1129,7 +1126,7 @@ fn push_relative_filters(
         conditions.push(format!(
             "person_search_fts.person_id IN (SELECT {media_person_id} FROM media_link ml \
              JOIN media m ON m.id = ml.media_id \
-             WHERE m.tree_id = {tree} AND m.deleted_at IS NULL)"
+             WHERE m.tree_id = {tree})"
         ));
     }
 }
@@ -1378,15 +1375,15 @@ mod tests {
              AND CAST(birth_year AS INTEGER) <= $8 AND CAST(death_year AS INTEGER) <= $9 \
              AND person_search_fts.person_id IN (SELECT CAST(e.person_id AS TEXT) \
              FROM event e LEFT JOIN place p ON p.id = e.place_id WHERE e.tree_id = $10 \
-             AND e.deleted_at IS NULL AND LOWER(p.name) LIKE $11 ESCAPE '\\' AND e.event_type = $12 \
+             AND LOWER(p.name) LIKE $11 ESCAPE '\\' AND e.event_type = $12 \
              AND CAST(e.date_sort AS TEXT) >= $13 AND CAST(e.date_sort AS TEXT) <= $14 \
              UNION SELECT CAST(fs.person_id AS TEXT) FROM event e \
              JOIN family_spouse fs ON fs.family_id = e.family_id \
              LEFT JOIN place p ON p.id = e.place_id WHERE e.tree_id = $15 \
-             AND e.deleted_at IS NULL AND LOWER(p.name) LIKE $16 ESCAPE '\\' AND e.event_type = $17 \
+             AND LOWER(p.name) LIKE $16 ESCAPE '\\' AND e.event_type = $17 \
              AND CAST(e.date_sort AS TEXT) >= $18 AND CAST(e.date_sort AS TEXT) <= $19) \
              AND person_search_fts.person_id IN (SELECT CAST(e.person_id AS TEXT) FROM event e \
-             WHERE e.tree_id = $20 AND e.deleted_at IS NULL AND e.event_type = 'occupation' \
+             WHERE e.tree_id = $20 AND e.event_type = 'occupation' \
              AND LOWER(COALESCE(e.description, '')) LIKE $21 ESCAPE '\\') \
              AND COALESCE(spouse_surnames, '') LIKE $22 \
              AND COALESCE(father_surname, '') LIKE $23 \
@@ -1394,7 +1391,7 @@ mod tests {
              AND COALESCE(mother_given_names, '') LIKE $25 \
              AND person_search_fts.person_id IN (SELECT CAST(ml.person_id AS TEXT) \
              FROM media_link ml JOIN media m ON m.id = ml.media_id \
-             WHERE m.tree_id = $26 AND m.deleted_at IS NULL) \
+             WHERE m.tree_id = $26) \
              AND person_search_fts.person_id IN (SELECT CAST(rt.person_id AS TEXT) \
              FROM record_tag rt WHERE rt.tree_id = $27 AND rt.tag_id = $28 \
              AND rt.person_id IS NOT NULL) \

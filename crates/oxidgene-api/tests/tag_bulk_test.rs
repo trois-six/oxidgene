@@ -408,9 +408,9 @@ async fn ancestors_and_descendants_count_a_person_once() {
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
 }
 
-/// A soft-deleted family cuts the walks through it, on both sides: its
-/// children are not descendants and the parents it holds are not ancestors,
-/// as the live family links say.
+/// A deleted family cuts the walks through it, on both sides: its children
+/// are not descendants and the parents it held are not ancestors, its links
+/// gone with it.
 #[tokio::test]
 async fn branches_do_not_walk_through_a_deleted_family() {
     let f = Fixture::new("Deleted Family").await;

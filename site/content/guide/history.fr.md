@@ -63,7 +63,7 @@ La fiche d'une personne supprimée n'existe plus, mais son historique reste acce
 3. La page affiche un badge **Supprimé** à côté du titre. La version actuelle est l'état supprimé ; elle ne peut pas être restaurée elle-même.
 4. Sélectionnez la version juste avant la suppression et cliquez sur **Restaurer cette version**.
 
-La personne revient telle qu'elle était avant la suppression, et son nom dans la barre du haut redevient un lien vers sa fiche.
+La personne revient telle qu'elle était avant la suppression — noms, événements, notes, sources, parents et unions — et son nom dans la barre du haut redevient un lien vers sa fiche. Ce qu'une version ne contient pas ne revient pas : ses étiquettes, ses liens vers des médias et ses identifications sur des photos.
 
 ## Consulter le journal des modifications de l'arbre
 

@@ -1066,6 +1066,7 @@ impl OxidGeneMcp {
             let deleted = source::delete_source(
                 &self.viewer(),
                 &self.db,
+                &self.profiles,
                 p.tree_id,
                 p.source_id,
                 p.query.only_if_unused,

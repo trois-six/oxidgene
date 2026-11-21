@@ -86,7 +86,6 @@ fn document_at(tree_id: Uuid, place_id: Uuid) -> (Media, Media) {
         place_id: Some(place_id),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let page = Media {
         id: Uuid::now_v7(),
@@ -126,7 +125,6 @@ fn birth_at(tree_id: Uuid, person: &Person, place_id: Uuid) -> Event {
         tags: Vec::new(),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     }
 }
 
@@ -143,7 +141,6 @@ fn person(tree_id: Uuid) -> Person {
         tags: Vec::new(),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     }
 }
 

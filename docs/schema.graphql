@@ -4500,7 +4500,9 @@ type MutationRoot {
 	"""
 	updatePerson(treeId: ID!, id: ID!, input: UpdatePersonInput!): GqlPerson!
 	"""
-	Delete a person (soft delete).
+	Delete a person, and every row that is theirs alone: names, own
+	events, notes, citations, media links, tags, family links. The change
+	history keeps their last state, which a restore brings back.
 	"""
 	deletePerson(treeId: ID!, id: ID!): Boolean!
 	"""
@@ -4510,7 +4512,7 @@ type MutationRoot {
 	markPersonsDistinct(treeId: ID!, personId: ID!, otherPersonIds: [ID!]!): Boolean!
 	"""
 	Merge `duplicateId` into `personId`, which is kept; the duplicate is
-	soft-deleted. `choices` carries what the comparison chose. Returns the
+	deleted. `choices` carries what the comparison chose. Returns the
 	kept person.
 	"""
 	mergePersons(treeId: ID!, personId: ID!, duplicateId: ID!, choices: MergeChoicesInput! = {leftOutEvents: [], leftOutMediaLinks: [], surnameFromDuplicate: false, givenNamesFromDuplicate: false, sexFromDuplicate: false}): GqlPerson!
@@ -4536,7 +4538,9 @@ type MutationRoot {
 	"""
 	updateFamily(treeId: ID!, id: ID!, input: UpdateFamilyInput!): GqlFamily!
 	"""
-	Delete a family (soft delete).
+	Delete a family, and every row that is its alone: spouse and child
+	links, own events, notes, citations, media links, tags. Its members
+	stay.
 	"""
 	deleteFamily(treeId: ID!, id: ID!): Boolean!
 	"""
@@ -4566,7 +4570,8 @@ type MutationRoot {
 	"""
 	updateEvent(treeId: ID!, id: ID!, input: UpdateEventInput!): GqlEvent!
 	"""
-	Delete an event (soft delete).
+	Delete an event, and every row that is its alone: witnesses, spouses'
+	ages, notes, citations, media links, tags.
 	"""
 	deleteEvent(treeId: ID!, id: ID!): Boolean!
 	"""
@@ -4606,7 +4611,8 @@ type MutationRoot {
 	"""
 	updateSource(treeId: ID!, id: ID!, input: UpdateSourceInput!): GqlSource!
 	"""
-	Delete a source (soft delete).
+	Delete a source, and every row that is its alone: the citations of it,
+	notes, media links, repository links, tags.
 	With `onlyIfUnused`, the source is kept if any citation, note, media link or repository
 	link still points at it; the return value says whether it was deleted.
 	"""
@@ -4627,8 +4633,9 @@ type MutationRoot {
 	"""
 	mergeRepository(treeId: ID!, id: ID!, input: MergeRepositoryInput!): GqlRepository!
 	"""
-	Delete a repository (soft delete). With `onlyIfUnused`, a repository
-	still holding a live source or the subject of a note is kept; the
+	Delete a repository, and every row that is its alone: the links of the
+	sources held there, notes, tags. With `onlyIfUnused`, a repository
+	still holding a source or the subject of a note is kept; the
 	return value says whether it was deleted.
 	"""
 	deleteRepository(treeId: ID!, id: ID!, onlyIfUnused: Boolean! = false): Boolean!
@@ -4737,7 +4744,7 @@ type MutationRoot {
 	"""
 	updateNote(treeId: ID!, id: ID!, input: UpdateNoteInput!): GqlNote!
 	"""
-	Delete a note (soft delete).
+	Delete a note, and its tags.
 	"""
 	deleteNote(treeId: ID!, id: ID!): Boolean!
 	"""

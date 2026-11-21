@@ -58,7 +58,8 @@ impl EventWitnessRepo {
             })
     }
 
-    /// Every witness link of a tree's live events, in one query.
+    /// Every witness link of a tree's events, in one query: the tree's
+    /// events by their `(tree_id, id)` index, then their witnesses by theirs.
     pub async fn list_by_tree(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -67,7 +68,6 @@ impl EventWitnessRepo {
         let models = Entity::find()
             .inner_join(event::Entity)
             .filter(event::Column::TreeId.eq(tree_id))
-            .filter(event::Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;

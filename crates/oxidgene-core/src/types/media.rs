@@ -107,7 +107,6 @@ pub struct Media {
     pub privacy: Privacy,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl Media {
@@ -619,7 +618,6 @@ mod crop_tests {
             privacy: Privacy::default(),
             created_at: DateTime::<Utc>::MIN_UTC,
             updated_at: DateTime::<Utc>::MIN_UTC,
-            deleted_at: None,
         }
     }
 

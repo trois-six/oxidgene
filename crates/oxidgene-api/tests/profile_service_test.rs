@@ -412,9 +412,12 @@ async fn person_delete_removes_projection_and_search_row() {
         1
     );
 
+    let affected = oxidgene_api::profile::invalidation::affected_persons(&db, mother)
+        .await
+        .unwrap();
     PersonRepo::delete(&db, mother).await.unwrap();
     service
-        .invalidate_for_person_delete(&db, tree_id, mother)
+        .invalidate_for_person_delete(&db, tree_id, mother, &affected)
         .await
         .unwrap();
 

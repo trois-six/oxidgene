@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person History"
 description: "Every state the history kept of a person, and their current one, compared field by field side by side, with the restore of an earlier one."
 tags: [oxidgene, specification, ui, ux, history]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 
@@ -104,8 +104,8 @@ A card holding a toolbar and a [VersionDiff](ui-common.md#410-versiondiff):
 
 A deleted state — the person deleted, now or between two earlier versions — is
 shown under the deletion banner, without content, and cannot be restored: the
-version before it is the state to go back to, and restoring it undeletes the
-person.
+version before it, the last state the deletion took, is the state to go back
+to, and restoring it re-creates the person under their ID.
 
 ---
 
@@ -118,8 +118,10 @@ undone. Confirming calls the revert operation of the [API](api.md).
 
 On success the list reloads, the restore appears as the current version with
 *Restored* and *version N restored*, and the page selects it. Restoring a
-deleted person undeletes them: the topbar name becomes a link to their profile
-again. A failure keeps the dialog open with the error.
+deleted person re-creates them: the topbar name becomes a link to their profile
+again. What a version does not hold — their tags, media links and
+identifications on photos — went with the deletion and does not come back. A
+failure keeps the dialog open with the error.
 
 What a restore writes, and what it deliberately leaves alone — another person
 who no longer exists is never brought back — is defined in

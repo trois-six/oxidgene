@@ -183,11 +183,10 @@ async fn stored(db: &DatabaseConnection) -> (i64, i64) {
 
 /// The history's invariants, read from the database:
 ///
-/// - the latest stored state of a record that is live and not deleted is
-///   never a copy of it, and never a deletion marker;
-/// - a deletion marker is only ever a record's latest state, and the record
-///   is then soft-deleted;
-/// - a deleted state stores no snapshot.
+/// - a stored state holds a snapshot, a deleted state none;
+/// - the latest stored state of a live record is never a copy of it;
+/// - the latest stored state of a record that is gone is the one its
+///   deletion took, never a deleted state.
 async fn assert_no_duplicated_state(db: &DatabaseConnection) {
     let rows = db
         .query_all_raw(Statement::from_string(
@@ -212,13 +211,11 @@ async fn assert_no_duplicated_state(db: &DatabaseConnection) {
         let deleted: bool = row.try_get("", "deleted").unwrap();
         let snapshot: Option<String> = row.try_get("", "snapshot").unwrap();
         let latest: bool = row.try_get("", "latest").unwrap();
-        if deleted {
-            assert!(snapshot.is_none(), "a deleted state stores no snapshot");
-            continue;
-        }
-        if !latest && snapshot.is_none() {
-            panic!("a deletion marker of {record_id} is not its latest state");
-        }
+        assert_eq!(
+            deleted,
+            snapshot.is_none(),
+            "{record_id}: a deleted state stores no snapshot, a state one"
+        );
         if !latest {
             continue;
         }
@@ -227,17 +224,11 @@ async fn assert_no_duplicated_state(db: &DatabaseConnection) {
             .unwrap()
             .pop();
         match (live, snapshot) {
-            (Some(live), Some(stored)) if !live.deleted => {
+            (Some(live), Some(stored)) => {
                 let stored: RecordSnapshot = serde_json::from_str(&stored).unwrap();
                 assert_ne!(stored, live.snapshot, "{record_id}'s latest state is live");
             }
-            (Some(live), None) => {
-                assert!(
-                    live.deleted,
-                    "a marker of {record_id}, which is not deleted"
-                );
-            }
-            (None, None) => panic!("a marker of {record_id}, which is gone"),
+            (None, None) => panic!("{record_id} is gone, its last state with it"),
             _ => {}
         }
     }
@@ -543,11 +534,11 @@ async fn a_family_edit_stores_the_prior_states_of_the_persons_it_links() {
     assert_no_duplicated_state(&db).await;
 }
 
-/// A deletion stores a marker reading the soft-deleted rows; restoring the
-/// state before it undeletes the person, and the deleted state stays
-/// readable between them.
+/// A deletion stores the person's last state; restoring it re-creates the
+/// person under their id, and the deleted state stays readable between
+/// them.
 #[tokio::test]
-async fn a_deletion_stores_a_marker_and_a_restore_undeletes() {
+async fn a_deletion_stores_the_last_state_and_a_restore_re_creates() {
     let (db, app) = setup().await;
     let tree = create_tree(&app).await;
     let person = create_person(&app, &tree, "Zeta", "Fixture").await;
@@ -560,22 +551,22 @@ async fn a_deletion_stores_a_marker_and_a_restore_undeletes() {
     )
     .await;
 
-    // Stored: the unnamed state, then the marker — no snapshot, no labels.
+    // Stored: the unnamed state, then the named one the deletion took.
     let entry = audit(&app, &tree, "").await[0].clone();
     assert_eq!(entry["action"], "delete");
     assert_eq!(entry["version_count"], 1);
-    let marker = scalar_of(
+    let last = scalar_of(
         &db,
         "SELECT COUNT(*) AS n FROM record_version WHERE record_id = $1 \
-         AND version = 2 AND NOT deleted AND snapshot IS NULL AND labels IS NULL",
+         AND version = 2 AND NOT deleted AND snapshot IS NOT NULL AND labels IS NOT NULL",
         vec![person_id.into()],
     )
     .await;
-    assert_eq!(marker, 1);
+    assert_eq!(last, 1);
     assert_no_duplicated_state(&db).await;
 
-    // Presented, the marker reads as the named state the rows still hold,
-    // and the current version is the deletion, without content.
+    // Presented, the last state is the named one, and the current version
+    // is the deletion, without content.
     let history = versions(&app, &tree, "person", &person).await;
     assert_eq!(history.len(), 3);
     assert_eq!(history[0]["current"], true);
@@ -609,7 +600,7 @@ async fn a_deletion_stores_a_marker_and_a_restore_undeletes() {
     .await;
     assert!(response.get("errors").is_some(), "{response}");
 
-    // Restoring the state the deletion replaced undeletes the person.
+    // Restoring the state the deletion took re-creates the person.
     let data = graphql(
         &app,
         "mutation($t: ID!, $p: ID!) {
@@ -632,16 +623,7 @@ async fn a_deletion_stores_a_marker_and_a_restore_undeletes() {
     .await;
     assert_eq!(profile["primary_name"]["given_names"], "Zeta");
 
-    // The marker now holds its state, and the deleted state sits between it
-    // and the live record.
-    let filled = scalar_of(
-        &db,
-        "SELECT COUNT(*) AS n FROM record_version WHERE record_id = $1 \
-         AND version = 2 AND snapshot IS NOT NULL",
-        vec![person_id.into()],
-    )
-    .await;
-    assert_eq!(filled, 1);
+    // The deleted state sits between the last state and the live record.
     let history = versions(&app, &tree, "person", &person).await;
     assert_eq!(history.len(), 4);
     assert_eq!(history[0]["current"], true);
@@ -654,7 +636,7 @@ async fn a_deletion_stores_a_marker_and_a_restore_undeletes() {
     assert_no_duplicated_state(&db).await;
 
     // Deleted again then restored to the first, unnamed state: across the
-    // deletion and the undelete, every earlier state still reads.
+    // deletions and the restores, every earlier state still reads.
     ok(
         &app,
         Method::DELETE,

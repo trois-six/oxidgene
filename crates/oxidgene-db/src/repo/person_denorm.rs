@@ -179,21 +179,6 @@ impl PersonDenormRepo {
         Ok(())
     }
 
-    /// Drop one person's projection.
-    ///
-    /// The `ON DELETE CASCADE` on `person_id` already covers a hard person
-    /// delete; this is for soft deletes, where the `person` row survives.
-    pub async fn delete_person(
-        db: &impl ConnectionTrait,
-        person_id: Uuid,
-    ) -> Result<(), OxidGeneError> {
-        Entity::delete_by_id(person_id)
-            .exec(db)
-            .await
-            .map_err(db_err)?;
-        Ok(())
-    }
-
     /// Drop every projection of a tree.
     pub async fn delete_tree(
         db: &impl ConnectionTrait,

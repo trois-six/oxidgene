@@ -128,22 +128,27 @@ pub use tree::{TreeChanges, TreeRepo};
 pub use vignette::{VignetteInput, VignettePatch, VignetteRepo};
 pub use write::{begin_tree_write, begin_write};
 
-/// Row `id` of entity `E` unless it is missing or soft-deleted (its
-/// `deleted_at` column set); `NotFound` naming `entity` otherwise. What every
-/// repository's own `find_live` reads through.
-pub(crate) async fn find_live<E>(
+/// The instant UUID v7 `id` was minted, which the record it names was
+/// created at to the millisecond; `None` for another version of UUID. What a
+/// record a deletion took is known to have been created at, and what a
+/// restore re-creating it keeps as its creation time.
+pub(crate) fn minted_at(id: uuid::Uuid) -> Option<chrono::DateTime<chrono::Utc>> {
+    let (seconds, nanos) = id.get_timestamp()?.to_unix();
+    chrono::DateTime::from_timestamp(i64::try_from(seconds).ok()?, nanos)
+}
+
+/// Row `id` of entity `E`; `NotFound` naming `entity` when it is missing.
+/// What every repository's own `find_row` reads through.
+pub(crate) async fn find_row<E>(
     db: &impl sea_orm::ConnectionTrait,
     id: uuid::Uuid,
-    deleted_at: E::Column,
     entity: &'static str,
 ) -> Result<E::Model, oxidgene_core::OxidGeneError>
 where
     E: sea_orm::EntityTrait,
     E::PrimaryKey: sea_orm::PrimaryKeyTrait<ValueType = uuid::Uuid>,
 {
-    use sea_orm::{ColumnTrait, QueryFilter};
     E::find_by_id(id)
-        .filter(deleted_at.is_null())
         .one(db)
         .await
         .map_err(db_err)?

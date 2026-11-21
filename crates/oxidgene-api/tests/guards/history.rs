@@ -3,9 +3,9 @@
 //!
 //! Drift it prevents: a write that stores the state it just wrote — a copy
 //! of the live row, which the record itself already is — an import that
-//! versions every record it brought, and a deletion marker that repeats the
-//! state the soft-deleted row still holds. Each multiplies the database by
-//! data it holds anyway.
+//! versions every record it brought, and a deleted state that stores a
+//! snapshot, the state before it holding the record's last one already. Each
+//! multiplies the database by data it holds anyway.
 //!
 //! Fixing a failure: the write must go through `history::Change`'s two
 //! phases — `prepare` before the write stores the pre-image, `record` after
@@ -56,7 +56,7 @@ async fn no_stored_version_repeats_the_live_state() {
     let app = app_on(db.clone());
     let tree = populated_tree(&app, &db, "Edited", 1).await;
     let t = |path: &str| format!("/api/v1/trees/{}{path}", tree.tree_id);
-    // A deletion, so the history holds a marker.
+    // A deletion, so the history holds a deleted record's last state.
     ok(
         &app,
         Method::DELETE,
@@ -66,13 +66,13 @@ async fn no_stored_version_repeats_the_live_state() {
     .await;
     let tree_id: Uuid = tree.tree_id.parse().unwrap();
 
-    let markers_with_state = count(
+    let deleted_with_state = count(
         &db,
         "SELECT COUNT(*) AS n FROM record_version WHERE tree_id = $1 AND deleted AND snapshot IS NOT NULL",
         tree_id,
     )
     .await;
-    assert_eq!(markers_with_state, 0, "deletion markers carry a snapshot");
+    assert_eq!(deleted_with_state, 0, "deleted states carry a snapshot");
 
     let records = db
         .query_all_raw(Statement::from_sql_and_values(

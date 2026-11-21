@@ -4,15 +4,12 @@
 //! hold, is decided by the API's history service and [`super::SnapshotRepo`].
 //!
 //! `record_version` stores the states writes replaced, never the live one: a
-//! record's current state is its live rows. A stored row is one of three
-//! kinds:
+//! record's current state is its live rows. A stored row is one of two kinds:
 //!
-//! - a past state with its snapshot;
-//! - a *deletion marker* — not deleted, no snapshot — the state a soft
-//!   deletion replaced, which the soft-deleted rows still hold: it reads from
-//!   them;
-//! - a *deleted state* — deleted, no snapshot — the record as it was while
-//!   deleted, which a restore replaced.
+//! - a past state with its snapshot — the state a deletion took among them,
+//!   so that a deleted record's last state is read from the history alone;
+//! - a *deleted state* — deleted, no snapshot — the record's absence between
+//!   a deletion and the restore that ended it.
 //!
 //! Presented, a record's versions are its stored states, oldest first from
 //! 1, and the live record as the last one; each carries the write that
@@ -62,8 +59,7 @@ pub struct NewRecordVersion {
     pub version: i32,
     /// The record was deleted in this state.
     pub deleted: bool,
-    /// The state and the labels of what it names; `None` for a deleted state
-    /// and for a deletion marker.
+    /// The state and the labels of what it names; `None` for a deleted state.
     pub content: Option<(RecordSnapshot, Vec<RecordLabel>)>,
 }
 
@@ -73,17 +69,9 @@ pub struct VersionHead {
     pub id: Uuid,
     pub record_id: Uuid,
     pub version: i32,
+    /// A deleted state, which stores no snapshot.
     pub deleted: bool,
-    /// No snapshot is stored.
-    pub empty: bool,
     pub audit_entry_id: Uuid,
-}
-
-impl VersionHead {
-    /// The state a soft deletion replaced, read from the soft-deleted rows.
-    pub fn is_marker(&self) -> bool {
-        !self.deleted && self.empty
-    }
 }
 
 /// Repository for `audit_entry` and `record_version`.
@@ -162,25 +150,6 @@ impl HistoryRepo {
         Ok(())
     }
 
-    /// Give a deletion marker the state it stands for, before a write changes
-    /// the soft-deleted rows it reads from.
-    pub async fn fill_marker(
-        db: &impl ConnectionTrait,
-        version_id: Uuid,
-        snapshot: &RecordSnapshot,
-        labels: &[RecordLabel],
-    ) -> Result<(), OxidGeneError> {
-        let (snapshot, labels) = encode_content(Some(&(snapshot.clone(), labels.to_vec())))?;
-        record_version::Entity::update_many()
-            .col_expr(record_version::Column::Snapshot, Expr::value(snapshot))
-            .col_expr(record_version::Column::Labels, Expr::value(labels))
-            .filter(record_version::Column::Id.eq(version_id))
-            .exec(db)
-            .await
-            .map_err(db_err)?;
-        Ok(())
-    }
-
     /// The latest stored version of each of `record_ids` that has one.
     pub async fn latest_heads(
         db: &impl ConnectionTrait,
@@ -253,7 +222,7 @@ impl HistoryRepo {
     /// counts. Persons deleted since are left out.
     ///
     /// Read from the audit log's `(tree_id, subject_id, id)` index alone, and
-    /// one live-person lookup per subject — which is also what keeps only
+    /// one person lookup per subject — which is also what keeps only
     /// persons, IDs being unique across tables: the history's stored states
     /// are never touched.
     pub async fn recently_modified_persons(
@@ -274,8 +243,7 @@ impl HistoryRepo {
             .filter(audit_entry::Column::SubjectId.is_not_null())
             .filter(Expr::cust(
                 "EXISTS (SELECT 1 FROM person \
-                 WHERE person.id = audit_entry.subject_id \
-                 AND person.deleted_at IS NULL)",
+                 WHERE person.id = audit_entry.subject_id)",
             ))
             .group_by(audit_entry::Column::SubjectId)
             .order_by(latest, Order::Desc)
@@ -313,11 +281,11 @@ impl HistoryRepo {
     /// The spells a tree's persons spent deleted before a restore brought
     /// them back, as `(deleted, restored)` times.
     ///
-    /// A restore clears `person.deleted_at`, so the person table alone would
-    /// read as if a restored person had never been deleted. Only a person
-    /// restore can bring a deleted person back, so the read starts from the
-    /// tree's `revert` entries on persons — few — and reads those persons'
-    /// version flags, never their snapshots: a deleted state is stored by the
+    /// A restored person is back in the person table, under their creation
+    /// time, as if they had never been deleted. Only a person restore can
+    /// bring a deleted person back, so the read starts from the tree's
+    /// `revert` entries on persons — few — and reads those persons' version
+    /// flags, never their snapshots: a deleted state is stored by the
     /// restore that ended it, and the version before it by the deletion.
     pub async fn person_restores(
         db: &impl ConnectionTrait,
@@ -361,6 +329,42 @@ impl HistoryRepo {
             .windows(2)
             .filter(|pair| pair[0].0 == pair[1].0 && pair[1].2)
             .map(|pair| (pair[0].3, pair[1].3))
+            .collect())
+    }
+
+    /// The tree's persons a deletion or a merge took and nothing brought
+    /// back, as `(created, removed)` times: when their ID was minted, and the
+    /// write that stored their last version. A deletion always stores the
+    /// state it took, so a person with versions and no row is one a deletion
+    /// took, and that version is their last. Read from the version flags,
+    /// never the snapshots.
+    pub async fn person_removals(
+        db: &impl ConnectionTrait,
+        tree_id: Uuid,
+    ) -> Result<Vec<(DateTime<Utc>, DateTime<Utc>)>, OxidGeneError> {
+        let removed: Vec<(Uuid, DateTime<Utc>)> = record_version::Entity::find()
+            .select_only()
+            .column(record_version::Column::RecordId)
+            .column(audit_entry::Column::OccurredAt)
+            .inner_join(audit_entry::Entity)
+            .filter(record_version::Column::TreeId.eq(tree_id))
+            .filter(record_version::Column::RecordType.eq(RecordType::Person.as_str()))
+            .filter(Expr::cust(
+                "record_version.version = (SELECT MAX(latest.version) \
+                 FROM record_version latest \
+                 WHERE latest.record_type = record_version.record_type \
+                 AND latest.record_id = record_version.record_id)",
+            ))
+            .filter(Expr::cust(
+                "NOT EXISTS (SELECT 1 FROM person WHERE person.id = record_version.record_id)",
+            ))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(removed
+            .into_iter()
+            .filter_map(|(id, at)| Some((super::minted_at(id)?, at)))
             .collect())
     }
 
@@ -678,7 +682,6 @@ fn heads_query() -> sea_orm::Select<record_version::Entity> {
         .column(record_version::Column::RecordId)
         .column(record_version::Column::Version)
         .column(record_version::Column::Deleted)
-        .column_as(record_version::Column::Snapshot.is_null(), "empty")
         .column(record_version::Column::AuditEntryId)
 }
 
@@ -737,8 +740,8 @@ impl Heads {
 /// How one presented version is assembled.
 #[derive(Clone, Copy)]
 enum Source {
-    /// From the live rows: the current state, or a deletion marker.
-    Live { current: bool },
+    /// From the live rows: the current state.
+    Live,
     /// From a stored snapshot.
     Stored,
     /// A deleted state: no content.
@@ -767,9 +770,8 @@ fn plan(heads: &Heads, wanted: &[(RecordType, Uuid, i32)]) -> Vec<Planned> {
     for &(record_type, record_id, number) in wanted {
         let key = (record_type, record_id);
         let (source, head) = match heads.head(key, number) {
-            _ if number == heads.current_number(key) => (Source::Live { current: true }, None),
+            _ if number == heads.current_number(key) => (Source::Live, None),
             Some(head) if head.deleted => (Source::Deleted, Some(*head)),
-            Some(head) if head.empty => (Source::Live { current: false }, Some(*head)),
             Some(head) => (Source::Stored, Some(*head)),
             None => continue,
         };
@@ -796,16 +798,15 @@ fn state_of(
 ) -> Option<State> {
     let record = planned.record();
     Some(match planned.source {
-        Source::Live { current } => match live.get(&record) {
-            Some(built) if !(current && built.deleted) => (
-                current,
+        Source::Live => match live.get(&record) {
+            Some(built) => (
+                true,
                 false,
                 Some((built.snapshot.clone(), built.labels.clone())),
             ),
-            // A live state is deleted when its rows are, or gone.
-            Some(_) => (true, true, None),
-            None if current && heads.stored(record).is_empty() => return None,
-            None => (current, true, None),
+            // The current state of a record a deletion took is deleted.
+            None if heads.stored(record).is_empty() => return None,
+            None => (true, true, None),
         },
         Source::Stored => (
             false,
@@ -837,7 +838,7 @@ async fn present(
         db,
         tree_id,
         plan.iter()
-            .filter(|p| matches!(p.source, Source::Live { .. }))
+            .filter(|p| matches!(p.source, Source::Live))
             .map(Planned::record),
     )
     .await?;
@@ -914,7 +915,7 @@ async fn live_states(
     Ok(live)
 }
 
-/// Whether a record has rows in the tree, deleted or not.
+/// Whether a record has rows in the tree.
 async fn record_exists(
     db: &impl ConnectionTrait,
     tree_id: Uuid,
@@ -1008,6 +1009,26 @@ async fn created_at(
     Ok(rows.into_iter().collect())
 }
 
+/// When each of these records was created: from its row, or for a record
+/// a deletion took, which has no row, from its ID, a UUID v7, which carries
+/// the instant it was minted.
+async fn creation_times(
+    db: &impl ConnectionTrait,
+    tree_id: Uuid,
+    record_type: RecordType,
+    ids: &[Uuid],
+) -> Result<HashMap<Uuid, DateTime<Utc>>, OxidGeneError> {
+    let mut created = created_at(db, tree_id, record_type, ids).await?;
+    for id in ids {
+        if !created.contains_key(id)
+            && let Some(minted) = super::minted_at(*id)
+        {
+            created.insert(*id, minted);
+        }
+    }
+    Ok(created)
+}
+
 /// The write each of these records' first state came from: the write that
 /// created it, or else the first import completed once it existed. Records
 /// neither of which was recorded are absent.
@@ -1055,7 +1076,7 @@ async fn origins(
             .await
             .map_err(db_err)?;
         for (record_type, ids) in by_type(imported) {
-            for (id, created) in created_at(db, tree_id, record_type, &ids).await? {
+            for (id, created) in creation_times(db, tree_id, record_type, &ids).await? {
                 if let Some(import) = imports.iter().find(|row| row.occurred_at >= created) {
                     by_record.insert(id, import.clone());
                 }

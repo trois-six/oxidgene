@@ -3,7 +3,7 @@ type: "Security Specification"
 title: "Privacy and Contemporary Persons"
 description: "Enforcement of privacy for the viewers of a shared tree, in the web build: how a record's privacy resolves, the precise contemporary-person rule with its inference from relatives, what a Visitor sees of a hidden person in each display mode, the owner's exclusions of persons and subtrees from every share, the server-side redaction points from projections and search to statistics, exports, MCP and messaging, the tree's privacy settings, GDPR context and prior art, and tests."
 tags: [oxidgene, specification, privacy, security, gdpr, export]
-generated: { by: human:maintainer, at: 2026-11-21T20:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 # Privacy and Contemporary Persons
@@ -354,9 +354,10 @@ like an access scope when the tree's ancestry generation moves
 ([Authorization §6.5](authorization.md#65-access-scopes)): a child added under
 an excluded root is excluded at the next read, and a person linked as a new
 ancestor of an excluded root is excluded too. A merge keeps a person excluded
-when either record was; a deleted root keeps its exclusion, which applies again
-if it is restored, and stays excluded itself meanwhile, so that its records,
-which outlive it, stay hidden (§3.2).
+when either record was. A deleted root keeps its exclusion, which names it by
+ID alone: it covers nobody while the root is gone — the root's records went
+with it — and applies again if a restore from the change history brings the
+root back under its ID.
 
 ---
 

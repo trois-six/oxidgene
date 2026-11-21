@@ -615,44 +615,31 @@ async fn media_downloads_reject_cross_tree_storage_keys_and_page_rows() {
 }
 
 #[tokio::test]
-async fn media_downloads_reject_soft_deleted_trees_and_parent_documents_before_purge() {
-    use oxidgene_db::entities::{media, tree};
+async fn media_downloads_reject_deleted_trees_before_purge() {
+    use oxidgene_db::entities::tree;
     use sea_orm::{ActiveModelTrait, ActiveValue::Set};
 
-    for delete_tree in [false, true] {
-        let h = setup().await;
-        let doc = document(&h, "Example document").await;
-        let page = add_page(&h, &doc, "page.png").await;
-        // Keep the bytes and child rows in place to test the pre-purge window.
-        if delete_tree {
-            tree::ActiveModel {
-                id: Set(h.tree_id),
-                deleted_at: Set(Some(chrono::Utc::now())),
-                ..Default::default()
-            }
-            .update(&h.db)
-            .await
-            .unwrap();
-        } else {
-            media::ActiveModel {
-                id: Set(Uuid::parse_str(&doc).unwrap()),
-                deleted_at: Set(Some(chrono::Utc::now())),
-                ..Default::default()
-            }
-            .update(&h.db)
-            .await
-            .unwrap();
-        }
-        download_access(&h, h.tree_id, &page, false, StatusCode::NOT_FOUND).await;
-        download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
-        let (status, _, _) = raw(
-            &h.app,
-            &format!("/api/v1/trees/{}/media/{page}/file", h.tree_id),
-            &[],
-        )
-        .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
+    let h = setup().await;
+    let doc = document(&h, "Example document").await;
+    let page = add_page(&h, &doc, "page.png").await;
+    // Keep the bytes and child rows in place to test the pre-purge window.
+    tree::ActiveModel {
+        id: Set(h.tree_id),
+        deleted_at: Set(Some(chrono::Utc::now())),
+        ..Default::default()
     }
+    .update(&h.db)
+    .await
+    .unwrap();
+    download_access(&h, h.tree_id, &page, false, StatusCode::NOT_FOUND).await;
+    download_access(&h, h.tree_id, &doc, true, StatusCode::NOT_FOUND).await;
+    let (status, _, _) = raw(
+        &h.app,
+        &format!("/api/v1/trees/{}/media/{page}/file", h.tree_id),
+        &[],
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 // ── Upload ──────────────────────────────────────────────────────────
@@ -1540,7 +1527,7 @@ async fn a_gallery_does_not_show_another_persons_photos() {
 }
 
 #[tokio::test]
-async fn a_soft_deleted_media_leaves_the_gallery() {
+async fn a_deleted_media_leaves_the_gallery() {
     let h = setup().await;
     let person_id = person(&h).await;
     let (media_id, _page, _) = attach_photo(&h, &person_id, "photo.png").await;
@@ -1566,7 +1553,7 @@ async fn a_soft_deleted_media_leaves_the_gallery() {
     .await;
     assert!(
         listed.as_array().unwrap().is_empty(),
-        "the link survives the soft delete; the tile must not: {listed}"
+        "the link goes with the medium, and so does the tile: {listed}"
     );
 }
 
@@ -4059,7 +4046,6 @@ async fn stored_media_counts(
 
     let rows = media::Entity::find()
         .filter(media::Column::TreeId.eq(Uuid::parse_str(tree_id).unwrap()))
-        .filter(media::Column::DeletedAt.is_null())
         .all(db)
         .await
         .expect("lists the stored media");

@@ -325,7 +325,6 @@ mod tests {
             tags: Vec::new(),
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            deleted_at: None,
         }
     }
 
@@ -361,7 +360,6 @@ mod tests {
             confidential: false,
             created_at: Utc::now(),
             updated_at: Utc::now(),
-            deleted_at: None,
         }
     }
 
@@ -440,7 +438,6 @@ mod tests {
                 placeholder: None,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
-                deleted_at: None,
             }],
             person_names: vec![
                 name(person, false, 0),

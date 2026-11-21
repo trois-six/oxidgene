@@ -711,7 +711,6 @@ pub fn import_gedcom_data(data: &mut Dataset, tree_id: Uuid) -> ImportResult {
             tags: Vec::new(),
             created_at: now,
             updated_at: now,
-            deleted_at: None,
         });
         id
     };
@@ -995,7 +994,6 @@ impl NoteOwner {
             confidential: false,
             created_at: now,
             updated_at: now,
-            deleted_at: None,
         };
         match self {
             Self::Person(id) => note.person_id = Some(id),
@@ -1116,7 +1114,6 @@ fn import_repositories(
             website: first_non_blank(repo.websites()),
             created_at: ctx.now,
             updated_at: ctx.now,
-            deleted_at: None,
         });
     }
     index
@@ -1252,7 +1249,6 @@ fn text_repository(
         website: None,
         created_at: ctx.now,
         updated_at: ctx.now,
-        deleted_at: None,
     });
     id
 }
@@ -1283,7 +1279,6 @@ fn import_sources(
             tags,
             created_at: ctx.now,
             updated_at: ctx.now,
-            deleted_at: None,
         });
 
         ctx.import_notes(src.notes(), NoteOwner::Source(id), result);
@@ -1397,7 +1392,6 @@ fn media_page(
         place_id: None,
         created_at: ctx.now,
         updated_at: ctx.now,
-        deleted_at: None,
     }
 }
 
@@ -1499,7 +1493,6 @@ fn import_individual(
         portrait_vignette_id: None,
         created_at: ctx.now,
         updated_at: ctx.now,
-        deleted_at: None,
     });
 
     // Names (GEDCOM allows {0:M} NAME structures per individual; the
@@ -1586,7 +1579,6 @@ fn import_family(
         privacy: privacy_from_restriction(st, fam.restriction().as_ref()),
         created_at: ctx.now,
         updated_at: ctx.now,
-        deleted_at: None,
     });
 
     import_spouses(fam, xref, family_id, ctx, result);
@@ -3029,7 +3021,6 @@ fn import_media_metadata_extensions(data: &Dataset, result: &mut ImportResult) {
                 confidential: false,
                 created_at,
                 updated_at: note.updated_at.unwrap_or(created_at),
-                deleted_at: None,
             });
         }
     }
@@ -3254,7 +3245,6 @@ fn apply_document_metadata(
             confidential: false,
             created_at,
             updated_at: note.updated_at.unwrap_or(created_at),
-            deleted_at: None,
         });
     }
 }
@@ -4135,7 +4125,6 @@ fn import_event_detail(
         tags,
         created_at: ctx.now,
         updated_at: ctx.now,
-        deleted_at: None,
     });
 
     // Associations (witnesses, godparents, ...) attached to this event —
@@ -4303,7 +4292,6 @@ fn import_attribute_detail(
             tags: tags.clone(),
             created_at: ctx.now,
             updated_at: ctx.now,
-            deleted_at: None,
         });
 
         // Its citations, and its media — the trade card behind an OCCU, the

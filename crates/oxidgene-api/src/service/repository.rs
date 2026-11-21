@@ -186,12 +186,14 @@ pub async fn update_repository(
     Ok(repository)
 }
 
-/// Delete repository `id` of `tree_id` (a soft delete); whether it was
-/// deleted.
+/// Delete repository `id` of `tree_id`, and every row that is its alone
+/// (docs/data-model.md, Deletion); whether it was deleted.
+///
+/// The links of the sources held there go with it: the history stores the
+/// prior state of each of those sources.
 ///
 /// With `only_if_unused` the delete is a cleanup: a repository still holding
-/// a live source, or still the subject of a note, is kept, and `false` says
-/// so.
+/// a source, or still the subject of a note, is kept, and `false` says so.
 pub async fn delete_repository(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
@@ -205,10 +207,11 @@ pub async fn delete_repository(
         commit_tx(txn).await?;
         return Ok(false);
     }
-    let pending = Change::delete(viewer, tree_id, AuditEntity::Repository, id)
-        .repository(id)
-        .prepare(&txn)
-        .await?;
+    let mut change = Change::delete(viewer, tree_id, AuditEntity::Repository, id).repository(id);
+    for source_id in RepositoryRepo::linked_sources(&txn, id).await? {
+        change = change.source(source_id);
+    }
+    let pending = change.prepare(&txn).await?;
     RepositoryRepo::delete(&txn, id).await?;
     pending.record(&txn).await?;
     commit_tx(txn).await?;
@@ -256,8 +259,10 @@ pub async fn merge_repository(
         change = change.source(source_id);
     }
     let pending = change.prepare(&txn).await?;
-    RepositoryRepo::absorb(&txn, tree_id, merge.into, id).await?;
+    // What the absorbed repository kept from its GEDCOM file follows it, before
+    // its deletion takes what is left.
     GedcomKeptRepo::repoint(&txn, KeptEntityKind::Repository, id, merge.into).await?;
+    RepositoryRepo::absorb(&txn, tree_id, merge.into, id).await?;
     let repository = RepositoryRepo::update(
         &txn,
         merge.into,
@@ -290,8 +295,8 @@ pub async fn list_source_repositories(
     Ok(links)
 }
 
-/// The live sources repository `repository_id` of `tree_id` holds, one per
-/// call number, each with its link.
+/// The sources repository `repository_id` of `tree_id` holds, one per call
+/// number, each with its link.
 ///
 /// Only the sources the viewer of `records` sees.
 pub async fn held_sources(

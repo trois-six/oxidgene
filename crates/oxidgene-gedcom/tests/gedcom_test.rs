@@ -1803,7 +1803,6 @@ fn test_export_long_utf8_note_does_not_panic() {
         tags: Vec::new(),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let name = PersonName {
         id: Uuid::now_v7(),
@@ -1835,7 +1834,6 @@ fn test_export_long_utf8_note_does_not_panic() {
         confidential: false,
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
 
     let export = export_gedcom(
@@ -3190,7 +3188,6 @@ fn add_event(
         tags: Vec::new(),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     });
     let shape = (
         event_type,

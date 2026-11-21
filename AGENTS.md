@@ -187,7 +187,10 @@ before adding a crate or a dependency between crates.
 - All primary keys use UUID v7.
 - Collection list endpoints use cursor-based pagination; the exceptions,
   such as offset-paged person search, are listed in `api.md` (Pagination).
-- Domain records use soft deletion and are excluded by default.
+- Deleting a record inside a tree deletes it for real, with every row that is
+  its alone, in one transaction (`data-model.md`, Deletion); the change
+  history keeps its last state, from which a restore re-creates it. Only a
+  tree is flagged first (`tree.deleted_at`), the queue of its purge.
 - Persons exist independently; families connect spouses and children.
 - Authentication, per-tree roles, sharing and privacy enforcement exist in
   the web build only: the `auth` feature of `oxidgene-api`, which the server

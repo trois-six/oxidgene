@@ -133,7 +133,7 @@ pub struct MarkPersonsDistinctRequest {
 /// Request body for merging a duplicate into the path's person.
 #[derive(Debug, Deserialize)]
 pub struct MergePersonRequest {
-    /// The record absorbed and soft-deleted; the path's person is kept.
+    /// The record absorbed and deleted; the path's person is kept.
     pub duplicate_id: uuid::Uuid,
     /// What the comparison chose; absent, everything the duplicate carried
     /// moves and the kept person's name and sex stay.

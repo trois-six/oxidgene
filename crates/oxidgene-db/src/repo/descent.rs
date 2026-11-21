@@ -13,14 +13,14 @@ use oxidgene_core::enums::{EventType, Sex};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Event, FamilyChild, FamilySpouse, PersonName};
 use sea_orm::entity::prelude::*;
-use sea_orm::{Condition, ConnectionTrait, JoinType, QueryFilter, QuerySelect};
+use sea_orm::{Condition, ConnectionTrait, QueryFilter, QuerySelect};
 use uuid::Uuid;
 
 use super::DictionaryRepo;
 use super::batch::in_chunks;
 use super::db_err;
 use super::dictionary::{is_spelled, root_candidates};
-use crate::entities::{event, family, family_child, family_spouse, person, person_name, sea_enums};
+use crate::entities::{event, family_child, family_spouse, person, person_name, sea_enums};
 use oxidgene_core::collections::sorted_unique;
 
 /// What [`DictionaryRepo::load_family_name_descent`] reads, every row of a
@@ -56,9 +56,7 @@ impl DictionaryRepo {
     ) -> Result<DescentRows, OxidGeneError> {
         let value = value.trim();
         let carrier_names: Vec<PersonName> = person_name::Entity::find()
-            .join(JoinType::InnerJoin, person_name::Relation::Person.def())
             .filter(person_name::Column::TreeId.eq(tree_id))
-            .filter(person::Column::DeletedAt.is_null())
             .filter(person_name::Column::Surname.is_in(root_candidates(value)))
             .all(db)
             .await
@@ -136,9 +134,7 @@ async fn spouse_rows(
 ) -> Result<Vec<family_spouse::Model>, OxidGeneError> {
     in_chunks(ids, |chunk| async move {
         family_spouse::Entity::find()
-            .join(JoinType::InnerJoin, family_spouse::Relation::Family.def())
             .filter(column.is_in(chunk))
-            .filter(family::Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)
@@ -154,9 +150,7 @@ async fn child_rows(
 ) -> Result<Vec<family_child::Model>, OxidGeneError> {
     in_chunks(ids, |chunk| async move {
         family_child::Entity::find()
-            .join(JoinType::InnerJoin, family_child::Relation::Family.def())
             .filter(column.is_in(chunk))
-            .filter(family::Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)
@@ -175,7 +169,6 @@ async fn live_sexes(
             .column(person::Column::Id)
             .column(person::Column::Sex)
             .filter(person::Column::Id.is_in(chunk))
-            .filter(person::Column::DeletedAt.is_null())
             .into_tuple()
             .all(db)
             .await
@@ -199,7 +192,6 @@ async fn vital_events(
     let rows = in_chunks(persons, |chunk| async move {
         event::Entity::find()
             .filter(event::Column::PersonId.is_in(chunk))
-            .filter(event::Column::DeletedAt.is_null())
             .filter(types.into_iter().fold(Condition::any(), |any, kind| {
                 any.add(event::Column::EventType.eq(sea_enums::EventType::from(kind)))
             }))
@@ -219,7 +211,6 @@ async fn marriages(
     let rows = in_chunks(families, |chunk| async move {
         event::Entity::find()
             .filter(event::Column::FamilyId.is_in(chunk))
-            .filter(event::Column::DeletedAt.is_null())
             .filter(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Marriage)))
             .all(db)
             .await

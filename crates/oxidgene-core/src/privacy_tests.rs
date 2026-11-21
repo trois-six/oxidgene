@@ -34,7 +34,6 @@ fn event(kind: EventType, year: i32, qualifier: DateQualifier) -> Event {
         tags: Vec::new(),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     }
 }
 

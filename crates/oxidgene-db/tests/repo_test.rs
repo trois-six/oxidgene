@@ -602,7 +602,6 @@ async fn tree_crud() {
     assert_eq!(tree.id, id);
     assert_eq!(tree.name, "My Tree");
     assert_eq!(tree.description.as_deref(), Some("desc"));
-    assert!(tree.deleted_at.is_none());
 
     // Get
     let fetched = TreeRepo::get(&db, id).await.unwrap();
@@ -712,10 +711,10 @@ async fn tree_delete_cascades_to_children() {
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 }
 
-/// A purge takes a tree's repositories, their links and their notes with
-/// it; a soft-deleted repository hides its links until it is restored.
+/// Deleting a repository takes its links and its notes with it; the source
+/// it held stays.
 #[tokio::test]
-async fn repositories_follow_their_tree_and_hide_their_links_while_deleted() {
+async fn a_deleted_repository_takes_its_links_and_notes() {
     let db = setup_db().await;
     let tree_id = create_tree(&db).await;
     let source_id = Uuid::now_v7();
@@ -773,13 +772,9 @@ async fn repositories_follow_their_tree_and_hide_their_links_while_deleted() {
             .unwrap()
             .is_empty()
     );
-    assert!(
-        SourceRepositoryRepo::get(&db, link.id).await.is_ok(),
-        "kept"
-    );
-
-    TreeRepo::purge(&db, tree_id).await.unwrap();
     assert!(SourceRepositoryRepo::get(&db, link.id).await.is_err());
+    assert!(SourceRepo::get(&db, source_id).await.is_ok());
+
     let notes = NoteRepo::list_visible(
         &db,
         tree_id,
@@ -1738,8 +1733,8 @@ async fn media_and_media_link_lifecycle() {
     let conn = MediaRepo::list(&db, tree_id, &params).await.unwrap();
     assert_eq!(conn.total_count, 1);
 
-    // Soft-deleted media
-    soft_delete_media(&db, media_id).await;
+    // Deleted media
+    MediaRepo::purge(&db, media_id).await.unwrap();
     let err = MediaRepo::get(&db, media_id).await.unwrap_err();
     assert!(matches!(err, OxidGeneError::NotFound { .. }));
 }
@@ -2047,7 +2042,7 @@ async fn event_media_batch_excludes_other_events_and_deleted_media() {
         .await
         .unwrap();
     }
-    soft_delete_media(&db, media_ids[1]).await;
+    MediaRepo::purge(&db, media_ids[1]).await.unwrap();
 
     let rows =
         MediaLinkRepo::list_with_media_for_many(&db, MediaLinkTarget::Event, &event_ids[..2])
@@ -2057,24 +2052,6 @@ async fn event_media_batch_excludes_other_events_and_deleted_media() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0.event_id, Some(event_ids[0]));
     assert_eq!(rows[0].1.id, media_ids[0]);
-}
-
-/// Flag medium `id` deleted. Nothing in the application soft-deletes a medium
-/// any more — it is purged — but the `deleted_at` filters still apply to rows
-/// flagged by earlier versions.
-async fn soft_delete_media(db: &DatabaseConnection, id: Uuid) {
-    use oxidgene_db::entities::media;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
-    let flagged = media::Entity::update_many()
-        .col_expr(
-            media::Column::DeletedAt,
-            Expr::value(Some(chrono::Utc::now())),
-        )
-        .filter(media::Column::Id.eq(id))
-        .exec(db)
-        .await
-        .unwrap();
-    assert_eq!(flagged.rows_affected, 1);
 }
 
 // ───────────────────────── Note tests ─────────────────────────
@@ -2487,14 +2464,14 @@ async fn sosa_generation_moves_with_every_input_of_the_ancestry() {
     .unwrap();
     assert_eq!(sosa_generation(&db, tree_id).await, last, "a renamed tree");
 
-    PersonRepo::delete(&db, father).await.unwrap();
-    moved(&db, tree_id, &mut last, "deleting a person").await;
-    FamilyRepo::delete(&db, family_id).await.unwrap();
-    moved(&db, tree_id, &mut last, "deleting a family").await;
     FamilyChildRepo::delete(&db, child_link).await.unwrap();
     moved(&db, tree_id, &mut last, "removing a child").await;
     FamilySpouseRepo::delete(&db, spouse_link).await.unwrap();
     moved(&db, tree_id, &mut last, "removing a spouse").await;
+    PersonRepo::delete(&db, father).await.unwrap();
+    moved(&db, tree_id, &mut last, "deleting a person").await;
+    FamilyRepo::delete(&db, family_id).await.unwrap();
+    moved(&db, tree_id, &mut last, "deleting a family").await;
 }
 
 /// Under PostgreSQL a statement moves the generation of each tree whose

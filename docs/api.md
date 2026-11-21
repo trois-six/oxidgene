@@ -3,7 +3,7 @@ type: "API Specification"
 title: "API Contract"
 description: "REST and GraphQL contract for OxidGene, including endpoints, pagination, and payload conventions."
 tags: [oxidgene, specification, api, contract]
-generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 
@@ -93,7 +93,12 @@ desktop session handoffs rather than genealogy import or export artifacts.
   for the whole `/trees/{tree_id}/…` nest; GraphQL at the start of every
   resolver taking a `treeId`.
 - A malformed identifier is a `validation_error`.
-- Soft-deleted records are excluded by default.
+- Deleting a record inside a tree deletes it for real, with every row that
+  is its alone ([Data Model, Deletion](data-model.md#deletion)): a read never
+  meets it again, and no record or field says it was deleted. The change
+  history keeps its last state, from which a restore re-creates it under its
+  ID ([Audit log and versions](#audit-log-and-versions)). A tree alone is
+  queued for a background purge.
 - User and imported content is returned verbatim and never translated.
 - REST and GraphQL responses are gzip-compressed alike for a client that
   accepts it. Pictures other than SVG, archives, PDFs, video, sound and raw
@@ -294,7 +299,7 @@ Base path: `/api/v1`.
 | `GET` | `/trees/{tree_id}` | Get a tree, with `viewer_access` |
 | `PUT` | `/trees/{tree_id}` | Update a tree (incl. `sosa_root_person_id` and `self_person_id`, which must name persons of the tree — another tree's person is `not_found`); a blank `name` is a `validation_error`. In the web build, `visibility` (`private`, `site`, `public`) and `visitor_scope` (a [scope](#sharing), `null` for the whole tree) set who is a Visitor ([Authorization §6.4](authorization.md#64-tree-visibility)); they are recorded in the history under `access`, entity `visibility`, and a server run without authentication refuses them (`validation_error`). Every tree carries `visibility` and `visitor_scope_id`. `trusted_media_hosts` replaces the whole list of hosts whose pictures the tree's readers load without being asked ([Cross-cutting §7.2](cross-cutting.md#72-remote-media)): each entry a host name or an address whose host is taken, stored lowercase, sorted, each once; an entry naming no host, or a private, loopback or local one, is a `validation_error`, and so is a list of more than 256. Every tree carries `trusted_media_hosts` |
 | `POST` | `/trees/{tree_id}/trusted-media-hosts` | `{host}`: add one host to the tree's `trusted_media_hosts`, for whoever may edit the tree — the owner alone replaces the list. Answers the tree; a host already trusted changes nothing, and the refusals are the list's. Recorded in the history as a change of the tree's settings. GraphQL: `trustMediaHost(treeId, host)` |
-| `DELETE` | `/trees/{tree_id}` | Soft-delete a tree |
+| `DELETE` | `/trees/{tree_id}` | Delete a tree: it is flagged and left out of every read at once, and a background purge removes it with everything it holds |
 | `POST` | `/trees/{tree_id}/duplicate` | Duplicate a tree (deep copy); the copy, its projections and both trees' audit entries are written in one transaction, so a copy that fails leaves no tree |
 | `GET` | `/trees/recent-persons?tree_ids=ID,ID&limit=N` | The persons modified most recently in each of up to 100 trees (a page of the tree list), more being a `validation_error`, `[{tree_id, persons}]` in the order asked, `persons` being `SearchEntry` rows as for one tree's `recently-modified`; a missing or deleted tree, or one the viewer may not read, is left out, an id that is not a UUID is a `validation_error`. GraphQL: `recentPersonsOfTrees(treeIds, limit)` |
 
@@ -392,8 +397,9 @@ spouses of the persons the walk reaches (not the root's, as a bulk target
 names them) and `collateral` their siblings and the siblings' spouses, both
 `false` by default. A root that is not a live person of the tree is
 `not_found`. A scope is answered with its `id`, `person_name` (the root's
-display name) and `person_deleted` (a deleted root, which leaves the scope
-empty until it is restored).
+display name) and `person_deleted` (a deleted root, named by its ID alone,
+which leaves the scope empty until a restore from the history brings it
+back).
 
 | Method | Path | Description |
 |---|---|---|
@@ -461,7 +467,7 @@ job's row is gone). GraphQL spells the kinds `TREE_SHARED`… .
 | `GET` | `/trees/{tree_id}/persons/{person_id}` | Get a person (with names, events, families) |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/detail-bundle` | Load the bounded read model for the person profile. Beside the cited `sources`, `source_holdings` (`{source_id, name, call_number, website}`, one per repository link) and `source_links` (`{source_id, url}`, the addresses of the media linked to each source, a linked document's pages included) are what the profile recognizes archive citations from ([Archive Portals §5.1](archives.md#51-citation-recognition)). `event_vignettes` are the regions cut as evidence for one of `events` whose page and document are live, each a vignette with `document_id`, the document grouping its page (`null` for a page of its own); their pictures are in `gallery.vignettes`. GraphQL: `personDetailBundle(treeId, personId)`, with `sourceHoldings`, `sourceLinks` and `eventVignettes { vignette documentId }` |
 | `PUT` | `/trees/{tree_id}/persons/{person_id}` | Update a person |
-| `DELETE` | `/trees/{tree_id}/persons/{person_id}` | Soft-delete a person |
+| `DELETE` | `/trees/{tree_id}/persons/{person_id}` | Delete a person, with every row that is theirs alone ([Data Model, Deletion](data-model.md#deletion)); their last state stays in the history |
 | `GET` | `/trees/{tree_id}/persons/{person_id}/homonyms` | List the other persons bearing the same name, as `SearchEntry` rows (see below) |
 | `POST` | `/trees/{tree_id}/persons/{person_id}/distinct` | Record that the person differs from `{person_ids}`; `204` |
 | `POST` | `/trees/{tree_id}/persons/{person_id}/merge` | Merge `{duplicate_id, choices?}` into the path's person, which is kept; returns the kept `Person` |
@@ -511,7 +517,7 @@ latest such write, newest first. `limit` defaults to 5 and is capped at 50. A
 tree that does not exist is `not_found`. GraphQL:
 `recentlyModifiedPersons(treeId, limit)`.
 
-**Merge.** `POST …/{person_id}/merge` keeps `person_id` and soft-deletes
+**Merge.** `POST …/{person_id}/merge` keeps `person_id` and deletes
 `duplicate_id` after moving everything the duplicate carried onto the kept
 person, following the rules of [Data Model §1 Person merge](data-model.md#person-merge).
 It is refused with `validation_error` when both IDs are the same person, when
@@ -524,7 +530,7 @@ the comparison of the [merge wizard](ui-merge.md) chose:
 
 | Field | Effect |
 |---|---|
-| `left_out_events` | Own events (`person_id`) of either person left out of the merged record, soft-deleted: the duplicate's events not taken, or the kept person's birth when the duplicate's is the one chosen |
+| `left_out_events` | Own events (`person_id`) of either person left out of the merged record, deleted: the duplicate's events not taken, or the kept person's birth when the duplicate's is the one chosen |
 | `left_out_media_links` | The duplicate's direct media links not taken, removed; the media stay in the library |
 | `surname_from_duplicate` | The merged primary name takes the duplicate's surname, particle included |
 | `given_names_from_duplicate` | The merged primary name takes the duplicate's given names |
@@ -587,7 +593,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (pedigree chart) · [Person Edit Moda
 | `POST` | `/trees/{tree_id}/families` | Create a family |
 | `GET` | `/trees/{tree_id}/families/{family_id}` | Get a family record; its spouses and children come from the member endpoints below |
 | `PUT` | `/trees/{tree_id}/families/{family_id}` | Update a family (`{ "privacy": … }`). The body is optional — an empty one only touches `updated_at` — but a body that is there must be a valid update, `validation_error` otherwise |
-| `DELETE` | `/trees/{tree_id}/families/{family_id}` | Soft-delete a family |
+| `DELETE` | `/trees/{tree_id}/families/{family_id}` | Delete a family, with every row that is its alone; its members stay |
 | `GET` | `/trees/{tree_id}/families/{family_id}/detail-bundle` | Everything the couple profile draws, in one answer: `family`, `spouses`, `persons` (each spouse's person detail bundle, in the order of `spouses`), `notes` (the family's, then each spouse's, at most 100 per owner), `media` (the family's own media tiles) and their `gallery`. A family of another tree is `not_found`. GraphQL: `coupleDetailBundle(treeId, familyId)` |
 
 Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](ui-person-edit-modal.md) (couple edit)
@@ -611,7 +617,7 @@ Used by: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](u
 | `POST` | `/trees/{tree_id}/events` | Create an event |
 | `GET` | `/trees/{tree_id}/events/{event_id}` | Get an event |
 | `PUT` | `/trees/{tree_id}/events/{event_id}` | Update an event; a `place_id` of another tree is `not_found` |
-| `DELETE` | `/trees/{tree_id}/events/{event_id}` | Soft-delete an event |
+| `DELETE` | `/trees/{tree_id}/events/{event_id}` | Delete an event, with its witnesses, spouses' ages, notes, citations, media links and tags |
 | `GET` | `/trees/{tree_id}/events/{event_id}/witnesses` | List event witnesses (GEDCOM `ASSO`) |
 | `POST` | `/trees/{tree_id}/events/{event_id}/witnesses` | Add a witness (person + optional relation text); `409 conflict` when the person already witnesses the event in that relation, a missing relation counting as one |
 | `DELETE` | `/trees/{tree_id}/events/{event_id}/witnesses/{witness_id}` | Remove a witness; a witness of another event is `not_found` (GraphQL: the optional `eventId`) |
@@ -678,7 +684,7 @@ on the place rows of `GET /trees/{tree_id}/dictionary/places` and the GraphQL
 | `POST` | `/trees/{tree_id}/sources` | Create a source; a blank `title` is a `validation_error` |
 | `GET` | `/trees/{tree_id}/sources/{source_id}` | Get a source |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}` | Update a source; a blank `title` is a `validation_error` |
-| `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Soft-delete a source. With `?only_if_unused=true` the source is kept if any citation, note, media link or repository link still points at it — `204` deleted, `200` kept |
+| `DELETE` | `/trees/{tree_id}/sources/{source_id}` | Delete a source, with the citations of it, its notes, media links, repository links and tags. With `?only_if_unused=true` the source is kept if any citation, note, media link or repository link still points at it — `204` deleted, `200` kept |
 | `POST` | `/trees/{tree_id}/sources/{source_id}/archive-target` | Where a cited source opens on its archive's portal: a JSON body, `{}` or `{"citation_id": …, "view": …, "parts": …}`, `citation_id` naming a citation of the source whose page, text and event complete what the source and its repositories say ([Archive Portals §5.1](archives.md#51-citation-recognition)), and whose person — the person it is attached to, or its individual event's principal — gives the surname an index of persons searched by name may be sent, read from the tree and never from the body ([Archive Portals §5.3](archives.md#53-api)), `view` one view of the cited register to resolve instead of the cited ones, and `parts`, `{"locality", "act", "year", "view"}` all optional, what the reader completed in the "Find in the archives" dialog, `act` a document kind's code. Answers the `ArchiveTarget` ([Archive Portals §5.2](archives.md#52-result)). GraphQL: `Source.archiveTarget(citationId, view, parts: ArchivePartsInput)` |
 
 Every source read carries `tags`, the labels put on the source as `[{id, label,
@@ -739,9 +745,9 @@ GraphQL, with no `request_id`:
 | `GET` | `/trees/{tree_id}/repositories/{repository_id}` | Get a repository |
 | `PUT` | `/trees/{tree_id}/repositories/{repository_id}` | Update a repository: omitted keeps, `null` clears; a blank `name` is a `validation_error` |
 | `POST` | `/trees/{tree_id}/repositories/{repository_id}/merge` | Fold the repository into another — see below. GraphQL: `mergeRepository(treeId, id, input)` |
-| `DELETE` | `/trees/{tree_id}/repositories/{repository_id}` | Soft-delete a repository. With `?only_if_unused=true` it is kept while a live source is held there or a note is about it — `204` deleted, `200` kept |
-| `GET` | `/trees/{tree_id}/repositories/{repository_id}/sources` | The live sources it holds: each link with its `source` |
-| `GET` | `/trees/{tree_id}/sources/{source_id}/repositories` | A source's links to the live repositories holding it, in order |
+| `DELETE` | `/trees/{tree_id}/repositories/{repository_id}` | Delete a repository, with its links to the sources it held, its notes and tags. With `?only_if_unused=true` it is kept while a source is held there or a note is about it — `204` deleted, `200` kept |
+| `GET` | `/trees/{tree_id}/repositories/{repository_id}/sources` | The sources it holds: each link with its `source` |
+| `GET` | `/trees/{tree_id}/sources/{source_id}/repositories` | A source's links to the repositories holding it, in order |
 | `POST` | `/trees/{tree_id}/sources/{source_id}/repositories` | Link a source to a repository of the tree: `repository_id`, optional `call_number`, `media_type` (`SourceMediaType`), `sort_order` (after the others when omitted). One link per call number |
 | `PUT` | `/trees/{tree_id}/sources/{source_id}/repositories/{link_id}` | Update a link (`repository_id`, `call_number`, `media_type`, `sort_order`); a link of another source is `not_found` |
 | `DELETE` | `/trees/{tree_id}/sources/{source_id}/repositories/{link_id}` | Remove a link; a link of another source is `not_found` |
@@ -1084,9 +1090,7 @@ of `{tagId, count}` (`GqlTagTargetCounts`), where REST returns `{total, tags: [{
   one, is `404 not_found`, as for a listed person. The walk takes `depth` (1 to
   30 generations; all of them, up to 30, when absent), `include_self` (default
   `false`) and, for descendants and for both sides, `include_spouses` (default
-  `false`) naming the spouses of the descendants. The walk follows live families
-  and live persons only: a soft-deleted family links no one, and a soft-deleted
-  person is neither named nor walked through;
+  `false`) naming the spouses of the descendants;
   With `ancestors_and_descendants_of` the two sides are one set of persons: a
   person named on both sides is counted once;
 - `search`: `{q, …PersonSearchFilters}`, every person the search returns, not
@@ -1112,7 +1116,7 @@ and `POST /tags/target` write nothing.
 | `POST` | `/trees/{tree_id}/notes` | Create a note about exactly one of `person_id`, `event_id`, `family_id`, `source_id`, `media_id` and `repository_id`; none or several is a `400 validation_error` |
 | `GET` | `/trees/{tree_id}/notes/{note_id}` | Get a note |
 | `PUT` | `/trees/{tree_id}/notes/{note_id}` | Update a note |
-| `DELETE` | `/trees/{tree_id}/notes/{note_id}` | Soft-delete a note |
+| `DELETE` | `/trees/{tree_id}/notes/{note_id}` | Delete a note, with its tags |
 
 Every note read carries `tags`, the labels put on the note as `[{id, label,
 color}]` sorted by folded label (GraphQL `Note.tags { id label color }`), put on
@@ -1270,7 +1274,7 @@ does the same for a repository: body `{ "into": "<id>", "name": "…", "address"
 "…", "phone": "…", "email": "…", "website": "…" }`; the sources it holds become
 held at `into` (a link `into` already has — same source, call number and medium
 — is not doubled), its notes and tags move there, what its GEDCOM file kept
-follows it, and it is soft-deleted. Both answer the kept record. A blank
+follows it, and it is deleted. Both answer the kept record. A blank
 `name` or a record merged into itself is a `validation_error`, an `into` of
 another tree `not_found`. One audit entry is recorded (`action: "merge"`,
 `entity` `place` or `repository`, `details.other_label` the name of the record
@@ -1360,7 +1364,7 @@ out carries no `entry`. The owner's history is unchanged.
 | `GET` | `/trees/{tree_id}/audit/{entry_id}/changes?first=&after=` | The states the write replaced, in the order it stored them, each as `{ previous, version }` — `previous` the state replaced, `version` the one that follows it: the state the write produced, or a later one when the record changed since |
 | `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}?first=&after=` | A record's versions, **latest first**: its live state (`current: true`), then its stored ones. `record_type` is `person`, `place`, `source`, `repository` or `tree` (whose `record_id` is the tree's own ID). A record that does not exist and has no stored state has none |
 | `GET` | `/trees/{tree_id}/history/{record_type}/{record_id}/{version}` | One `RecordVersion`, the current one included; a number past it is `404` |
-| `POST` | `/trees/{tree_id}/history/{record_type}/{record_id}/revert` | Body `{ "version": 3 }`. Puts the record back as that version had it — restoring the state a deletion replaced undeletes it — and returns the restore's own `AuditEntry` (`action: "revert"`, `details.version`). A version whose `deleted` is `true` is refused with `400`: restore the one before it instead |
+| `POST` | `/trees/{tree_id}/history/{record_type}/{record_id}/revert` | Body `{ "version": 3 }`. Puts the record back as that version had it — restoring the state a deletion took re-creates it under its ID — and returns the restore's own `AuditEntry` (`action: "revert"`, `details.version`). A version whose `deleted` is `true` is refused with `400`: restore the one before it instead |
 
 An `AuditEntry` is `{ id, tree_id, occurred_at, category, action, entity,
 entity_id, subject, subject_id, label, details, version_count, author }`,
@@ -1385,7 +1389,9 @@ of the absorbed tag.
 A `RecordVersion` is `{ id, tree_id, record_type, record_id, version,
 current, deleted, entry, snapshot, labels }`. `id` is the stored state's, or
 the record's own for the current version. `current` marks the live record and
-`deleted` a state in which the record was deleted. `entry` is the `AuditEntry`
+`deleted` a state in which the record did not exist: the current version of a
+deleted record, or the absence a restore ended. The version before a deleted
+one is the last state the deletion took, with its snapshot. `entry` is the `AuditEntry`
 of the write that produced the state — for version 1, the write that created
 the record or the import that brought it — and `null` when none was recorded.
 `snapshot` is tagged by `type` and holds the record's state, `null` for a
@@ -1467,9 +1473,10 @@ The response is `{ days, imports }`:
   created, imported or restored that day, `removed` those deleted or merged
   into another; the running total of `added - removed` is the number of
   persons at the end of each day, and its last value the tree's persons now.
-  Computed from the persons' creation and deletion times, deleted persons
-  included, and from the person versions of a restore, which clears a
-  deletion time.
+  Computed from the persons' creation times, and from the history for the
+  persons deleted: the version their deletion stored dates it, their ID
+  their creation, and the person versions of a restore the spell it ended.
+  A viewer limited by privacy rules or a scope sees no deleted person.
 - `imports`: `[{ occurred_at, format, file_name, persons }]`, the tree's
   import entries of the audit log, oldest first (`format: duplicate` for a
   duplication), with the persons each brought.
@@ -2456,7 +2463,7 @@ import puts each one back at its position.
 
 A record of its own, for a tagged place that no written event names: a place
 used by no event, by a document alone, or only by events of a person or family
-the export does not write (a soft-deleted one, say), has no `PLAC` to carry its
+the export does not write (one an export scope leaves out, say), has no `PLAC` to carry its
 tags. It is
 `0 @P1@ _OXIDGENE_PLACE`, holding a `PLAC` with the place's name, its `MAP`
 coordinates when it has them, and the `_OXIDGENE_TAG` lines of the place beneath
@@ -2623,8 +2630,8 @@ not permit — a 7.0 `EXID` exported as 5.5.1, a note beneath a `REFN` — is
 converted or kept as an extension structure, and the file stays conformant.
 
 What is kept follows its entity: a duplicated tree carries it; a merge
-keeps the merged record's beneath the record kept; a purged tree leaves
-none. Editing an entity in OxidGene leaves what is kept beneath it.
+keeps the merged record's beneath the record kept; deleting the entity, or
+purging its tree, leaves none. Editing an entity in OxidGene leaves what is kept beneath it.
 
 ### GeneWeb `.gw`
 

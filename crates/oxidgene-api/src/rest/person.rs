@@ -151,7 +151,7 @@ pub async fn mark_persons_distinct(
 /// POST /api/v1/trees/:tree_id/persons/:person_id/merge
 ///
 /// Merge `duplicate_id` into the path's person, which is kept; the duplicate
-/// is soft-deleted. Returns the kept person.
+/// is deleted. Returns the kept person.
 pub async fn merge_persons(
     State(state): State<AppState>,
     viewer: Viewer,

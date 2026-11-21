@@ -3,7 +3,7 @@ type: "API Specification"
 title: "Assistant Access (MCP)"
 description: "Model Context Protocol server built into the desktop binary: tools that each name their tree, read-only by default and writing only when the launch command opts in, stdio transport, consent, history, and its relation to REST and GraphQL."
 tags: [oxidgene, specification, api, mcp, privacy]
-generated: { by: human:maintainer, at: 2026-11-21T15:51:49Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 # Assistant Access (MCP)
@@ -76,7 +76,7 @@ database. It never picks one implicitly: each tool call names its tree.
   segment does in REST. An ID that belongs to another tree returns
   `not_found`, like REST and GraphQL do, so an answer never mixes two trees.
 - The tree is resolved on every call, before any write, as the REST tree
-  guard does. A tree soft-deleted during a session disappears from
+  guard does. A tree deleted during a session disappears from
   `list_trees`, and later calls that name it, writes included, return
   `not_found`.
 
@@ -213,7 +213,8 @@ sent as `null`, as REST does.
 Writes that add or change are annotated `readOnlyHint: false` and
 `destructiveHint: false`; an update keeps the replaced state in the history
 (§7.5), where it can be restored. Writes that delete a record or remove a link
-are annotated `destructiveHint: true`, so a client asks before running them.
+are annotated `destructiveHint: true`, so a client asks before running them: a
+deletion is real, and only the change history keeps the record's last state.
 `idempotentHint` is `true` where repeating the call changes nothing more:
 updates, `create_tag` (which returns the existing tag), putting and taking a
 tag, removals and deletions (a second call answers `not_found`).
@@ -480,7 +481,7 @@ To allow writes (§7.1), the user appends the flag: `… oxidgene-desktop mcp
   external client.
 - Every tool is tested, including a call without `tree_id` failing its input
   schema, an ID from another tree returning `not_found`, and a tree
-  soft-deleted mid-session disappearing from `list_trees` and returning
+  deleted mid-session disappearing from `list_trees` and returning
   `not_found` afterwards.
 - Every write tool is tested in a session that allows writes: its result, a
   validation error or arguments refused by the input schema writing nothing,

@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "DNA Kits"
 description: "Planned import of consumer DNA raw data attached to persons, processed locally only: supported kit formats, haplogroups, matching between the kits of one tree cross-checked with its kinship paths, continental ancestry estimates, storage and encryption, consent and deletion, reference data and licences, API, and delivery phases."
 tags: [oxidgene, specification, dna, genetics, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-09-28T20:16:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 sources:
   - id: snps
     title: "snps — Python library reading every consumer raw-data format (BSD-3-Clause)"
@@ -91,8 +91,9 @@ contract an implementation will follow; [Roadmap](roadmap.md) tracks it.
 - **The tested person consents.** A kit belongs to a living relative more
   often than to the tree's owner; importing it records that person's consent
   (§6).
-- **Deletion is real.** Deleting a kit erases it, unlike every other record,
-  which is soft-deleted (§5.3).
+- **Deletion leaves nothing.** Deleting a kit erases it; unlike the tree's
+  other records, whose last state the change history keeps, nothing of a kit
+  is kept (§5.3).
 - **Within the tree only.** OxidGene compares the kits the user imports with
   each other. It has no database of other testers and will never offer
   matches with strangers (§8).
@@ -165,7 +166,7 @@ Planned, to move into [Data Model](data-model.md) when implemented.
 | `consent` | JSON | §6.1 |
 | `imported_at` | timestamp | |
 
-No `deleted_at`: a kit is erased, not soft-deleted (§5.3).
+A kit is erased, and the change history keeps nothing of it (§5.3).
 
 ### 3.2 `dna_match`
 
@@ -274,8 +275,8 @@ whom, never its content.
 ### 5.3 Deletion
 
 - Deleting a kit removes its row, its blobs, its matches and haplogroups,
-  in one operation. This is an explicit exception to the soft-deletion
-  invariant ([Architecture](architecture.md)).
+  in one operation. Unlike the tree's other records, the change history
+  keeps no state of it ([Data Model, Deletion](data-model.md#deletion)).
 - Deleting the tested person, or the tree, deletes their kits the same way.
 - Revoking consent (§6.1) deletes the kit.
 - The user can export a kit's original file before deleting it.

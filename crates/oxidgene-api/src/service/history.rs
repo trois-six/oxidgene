@@ -25,8 +25,9 @@
 //! entry, reads the records again, and stores the state of each one the
 //! write changed. A record the write left as it was stores nothing, so
 //! services can name generously; a record the write created had no prior
-//! state and stores nothing either; a record the write soft-deleted stores a
-//! marker, its state being what the soft-deleted rows still hold.
+//! state and stores nothing either; a record the write deleted stores the
+//! state it had, always, so that the history alone holds a deleted record's
+//! last state; a record a restore brought back stores its deleted state.
 //!
 //! Writes that touch no versioned record — media, imports, exports — record
 //! their entry alone with [`Change::record_unversioned`].
@@ -57,7 +58,7 @@ use oxidgene_db::entities::{
 };
 use oxidgene_db::repo::{
     BuiltSnapshot, FamilyNameParticleUpdate, FamilyNameRename, HistoryRepo, NewRecordVersion,
-    OccupationRename, SnapshotRepo, TreeRepo, VersionHead, db_err, display_names,
+    OccupationRename, SnapshotRepo, TreeRepo, db_err, display_names,
 };
 use oxidgene_db::sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect,
@@ -499,19 +500,17 @@ impl PendingChange {
 /// What a write did to one record, judged from its state before and after.
 #[derive(Debug, PartialEq)]
 enum Outcome {
-    /// Nothing to store: unchanged, or created by the write.
+    /// Nothing to store: unchanged, created by the write, or absent before
+    /// and after it.
     Nothing,
-    /// Changed: store the state it had.
+    /// Changed: store the state it had, unless the latest stored state is
+    /// that one already.
     Replaced(RecordSnapshot, Vec<RecordLabel>),
-    /// Soft-deleted with its state intact: store a marker reading it from
-    /// the soft-deleted rows.
-    SoftDeleted,
-    /// Brought back from deletion: store the deleted state, after giving the
-    /// deletion's marker, if any, the state the rows held until now.
-    Undeleted(Option<(RecordSnapshot, Vec<RecordLabel>)>),
-    /// Changed while deleted: the marker, if any, must keep the state the
-    /// rows held until now.
-    ChangedWhileDeleted(RecordSnapshot, Vec<RecordLabel>),
+    /// Deleted: store the state it had, whatever was stored before, so that
+    /// a deletion always ends on the record's last state.
+    Deleted(RecordSnapshot, Vec<RecordLabel>),
+    /// Brought back by a restore after a deletion: store its deleted state.
+    Restored,
 }
 
 /// Judge one record. `before` and `after` are its rows' states, absent when
@@ -521,22 +520,15 @@ fn outcome(
     after: Option<&BuiltSnapshot>,
     has_history: bool,
 ) -> Outcome {
-    let content = |b: &BuiltSnapshot| (b.snapshot.clone(), b.labels.clone());
-    let Some(before) = before else {
-        // Absent before: created by the write, or re-created after a removal.
-        return match after {
-            Some(after) if has_history && !after.deleted => Outcome::Undeleted(None),
-            _ => Outcome::Nothing,
-        };
-    };
-    let unchanged = after.is_some_and(|after| after.snapshot == before.snapshot);
-    match (before.deleted, after.map(|after| after.deleted)) {
-        (false, Some(false)) if unchanged => Outcome::Nothing,
-        (false, Some(true)) if unchanged => Outcome::SoftDeleted,
-        (false, _) => Outcome::Replaced(before.snapshot.clone(), before.labels.clone()),
-        (true, Some(false)) => Outcome::Undeleted(Some(content(before))),
-        (true, _) if unchanged => Outcome::Nothing,
-        (true, _) => Outcome::ChangedWhileDeleted(before.snapshot.clone(), before.labels.clone()),
+    match (before, after) {
+        // Re-created after a deletion, or created by the write.
+        (None, Some(_)) if has_history => Outcome::Restored,
+        (None, _) => Outcome::Nothing,
+        (Some(before), None) => Outcome::Deleted(before.snapshot.clone(), before.labels.clone()),
+        (Some(before), Some(after)) if after.snapshot == before.snapshot => Outcome::Nothing,
+        (Some(before), Some(_)) => {
+            Outcome::Replaced(before.snapshot.clone(), before.labels.clone())
+        }
     }
 }
 
@@ -580,7 +572,7 @@ async fn store_replaced(
         .iter()
         .filter(|(_, outcome)| matches!(outcome, Outcome::Replaced(..)))
         .filter_map(|(id, _)| heads.get(id))
-        .filter(|head| !head.deleted && !head.empty)
+        .filter(|head| !head.deleted)
         .map(|head| head.id)
         .collect();
     let stored = HistoryRepo::stored_snapshots(db, &compared).await?;
@@ -603,16 +595,10 @@ async fn store_replaced(
                     versions.push(new(false, Some((snapshot, labels))));
                 }
             }
-            Outcome::SoftDeleted => versions.push(new(false, None)),
-            Outcome::Undeleted(content) => {
-                fill_marker(db, head, content).await?;
-                if !head.is_some_and(|head| head.deleted) {
-                    versions.push(new(true, None));
-                }
+            Outcome::Deleted(snapshot, labels) => {
+                versions.push(new(false, Some((snapshot, labels))));
             }
-            Outcome::ChangedWhileDeleted(snapshot, labels) => {
-                fill_marker(db, head, Some((snapshot, labels))).await?;
-            }
+            Outcome::Restored => versions.push(new(true, None)),
         }
     }
     let count = versions.len() as i64;
@@ -620,21 +606,6 @@ async fn store_replaced(
         HistoryRepo::insert_versions(db, entry, record_type, versions).await?;
     }
     Ok(count)
-}
-
-/// Give a deletion marker the state its soft-deleted rows held, before the
-/// write changed them. Anything else is left alone.
-async fn fill_marker(
-    db: &impl ConnectionTrait,
-    head: Option<&VersionHead>,
-    content: Option<(RecordSnapshot, Vec<RecordLabel>)>,
-) -> Result<(), OxidGeneError> {
-    match (head, content) {
-        (Some(head), Some((snapshot, labels))) if head.is_marker() => {
-            HistoryRepo::fill_marker(db, head.id, &snapshot, &labels).await
-        }
-        _ => Ok(()),
-    }
 }
 
 /// What a note hangs off.
@@ -954,7 +925,7 @@ pub async fn restore(
 /// Runs on the caller's transaction, refreshes the projections it reaches,
 /// and records the restore as a change of its own: the state it replaces is
 /// stored, so a restore can be undone like any other write. Restoring the
-/// state a deletion replaced undeletes the record.
+/// state a deletion took re-creates the record under its ID.
 pub fn revert<'a, C>(
     viewer: &'a ViewerContext,
     db: &'a C,
@@ -1092,7 +1063,7 @@ async fn revert_place(
 ///
 /// Everyone the restore can change is named before it: the person's
 /// relatives now, the relatives the snapshot links them to, the members of
-/// every family it names — a family it undeletes changes all of them — and
+/// every family it names — a family it re-creates changes all of them — and
 /// the places and sources it may bring back.
 async fn revert_person(
     db: &impl ConnectionTrait,
@@ -1213,10 +1184,9 @@ mod tests {
 
     use super::*;
 
-    fn built(name: &str, deleted: bool) -> BuiltSnapshot {
+    fn built(name: &str) -> BuiltSnapshot {
         BuiltSnapshot {
             record_id: Uuid::from_u128(1),
-            deleted,
             snapshot: RecordSnapshot::Place(PlaceSnapshot {
                 name: name.to_string(),
                 latitude: None,
@@ -1226,71 +1196,39 @@ mod tests {
         }
     }
 
-    fn replaced(name: &str) -> Outcome {
-        let b = built(name, false);
-        Outcome::Replaced(b.snapshot, b.labels)
-    }
-
     #[test]
     fn a_record_the_write_created_or_left_alone_stores_nothing() {
-        let alpha = built("Alpha", false);
+        let alpha = built("Alpha");
         assert_eq!(outcome(None, Some(&alpha), false), Outcome::Nothing);
         assert_eq!(outcome(Some(&alpha), Some(&alpha), true), Outcome::Nothing);
+        // Absent before and after: a write naming a record already deleted.
+        assert_eq!(outcome(None, None, true), Outcome::Nothing);
     }
 
     #[test]
-    fn a_changed_or_removed_record_stores_its_prior_state() {
-        let alpha = built("Alpha", false);
-        let beta = built("Beta", false);
-        assert_eq!(outcome(Some(&alpha), Some(&beta), false), replaced("Alpha"));
-        assert_eq!(outcome(Some(&alpha), None, false), replaced("Alpha"));
-        // Deleted and changed at once — a merged duplicate: the rows no
-        // longer hold the prior state, which is stored.
-        let beta_deleted = built("Beta", true);
+    fn a_changed_record_stores_its_prior_state() {
+        let alpha = built("Alpha");
+        let beta = built("Beta");
+        let b = built("Alpha");
         assert_eq!(
-            outcome(Some(&alpha), Some(&beta_deleted), true),
-            replaced("Alpha")
+            outcome(Some(&alpha), Some(&beta), false),
+            Outcome::Replaced(b.snapshot, b.labels)
         );
     }
 
     #[test]
-    fn a_soft_deletion_stores_a_marker() {
-        let alpha = built("Alpha", false);
-        let deleted = built("Alpha", true);
+    fn a_deletion_stores_the_last_state() {
+        let alpha = built("Alpha");
+        let b = built("Alpha");
         assert_eq!(
-            outcome(Some(&alpha), Some(&deleted), false),
-            Outcome::SoftDeleted
+            outcome(Some(&alpha), None, true),
+            Outcome::Deleted(b.snapshot, b.labels)
         );
     }
 
     #[test]
     fn bringing_a_record_back_stores_its_deleted_state() {
-        let deleted = built("Alpha", true);
-        let alpha = built("Alpha", false);
-        let b = built("Alpha", true);
-        assert_eq!(
-            outcome(Some(&deleted), Some(&alpha), true),
-            Outcome::Undeleted(Some((b.snapshot, b.labels)))
-        );
-        // Re-created after a hard removal.
-        assert_eq!(outcome(None, Some(&alpha), true), Outcome::Undeleted(None));
-    }
-
-    #[test]
-    fn a_deleted_record_that_changes_keeps_its_marker_true() {
-        let deleted = built("Alpha", true);
-        let changed = built("Beta", true);
-        assert!(matches!(
-            outcome(Some(&deleted), Some(&changed), true),
-            Outcome::ChangedWhileDeleted(..)
-        ));
-        assert!(matches!(
-            outcome(Some(&deleted), None, true),
-            Outcome::ChangedWhileDeleted(..)
-        ));
-        assert_eq!(
-            outcome(Some(&deleted), Some(&deleted), true),
-            Outcome::Nothing
-        );
+        let alpha = built("Alpha");
+        assert_eq!(outcome(None, Some(&alpha), true), Outcome::Restored);
     }
 }

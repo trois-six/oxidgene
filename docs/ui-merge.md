@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Person Merge"
 description: "Three-step wizard to find the other record of a person, compare the two, choose the record kept and the events and media taken from the other, and confirm the merge."
 tags: [oxidgene, specification, ui, ux]
-generated: { by: human:maintainer, at: 2026-11-03T22:30:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 
@@ -113,11 +113,11 @@ out of either record (the absorbed record's unticked or unpicked events, and
 the kept record's events replaced by a row picked from the absorbed one), the
 absorbed record's unticked media links, and whether the surname, the given
 names and the sex come from the absorbed record. In one transaction the
-operation drops what was left out (events soft-deleted, media links removed,
+operation drops what was left out (events deleted, media links removed,
 media kept in the library), moves everything else the absorbed record
 carried onto the kept one, applies the picked sex, and gives the kept record
 the primary name composed of the picked surname and given names — the former
-primary name staying as a secondary one — then soft-deletes the absorbed
+primary name staying as a secondary one — then deletes the absorbed
 record, following [Data Model — Person merge](data-model.md#person-merge):
 names, events, family links, witness and media links, notes, citations,
 identification boxes, the tree roots and the distinct-person confirmations.

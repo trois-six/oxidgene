@@ -568,7 +568,6 @@ mod tests {
             privacy: Default::default(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
-            deleted_at: None,
         }
     }
 

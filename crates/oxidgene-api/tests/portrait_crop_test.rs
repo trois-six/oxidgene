@@ -558,32 +558,6 @@ async fn deleting_the_tree_purges_its_crops() {
 }
 
 #[tokio::test]
-async fn a_soft_deleted_page_serves_no_crop() {
-    use oxidgene_db::sea_orm::{ConnectionTrait, DbBackend, Statement};
-    let h = Harness::new().await;
-    let vignette = h.vignette(RECT, None).await;
-    h.warm(&vignette).await;
-
-    // Nothing in the application soft-deletes a medium, but every read
-    // excludes a flagged row, and so must a stored crop.
-    h.db.execute_raw(Statement::from_sql_and_values(
-        h.db.get_database_backend(),
-        match h.db.get_database_backend() {
-            DbBackend::Postgres => "UPDATE media SET deleted_at = $1 WHERE id = $2",
-            _ => "UPDATE media SET deleted_at = ? WHERE id = ?",
-        },
-        [
-            chrono::Utc::now().into(),
-            Uuid::parse_str(&h.page_id).unwrap().into(),
-        ],
-    ))
-    .await
-    .unwrap();
-    assert_eq!(h.view(&vignette, "card").await.0, StatusCode::NOT_FOUND);
-    assert_eq!(h.view(&vignette, "image").await.0, StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
 async fn an_export_never_carries_a_crop() {
     let h = Harness::new().await;
     let vignette = h.vignette(RECT, None).await;

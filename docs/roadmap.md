@@ -3,7 +3,7 @@ type: "Roadmap Specification"
 title: "Roadmap — Delivery Status and Milestones"
 description: "Current delivery status, active priorities, and future milestones for OxidGene."
 tags: [oxidgene, specification, roadmap, planning]
-generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 # Roadmap — Delivery Status and Milestones
@@ -34,7 +34,7 @@ generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
 | G | Security, privacy enforcement, sharing, messaging, deployment (web only) | In progress: identity and sessions, roles, privacy enforcement, notifications and email, sharing and the Rauthy mode delivered; API clients, MCP over HTTP and messaging planned (§8) | [Authentication](authentication.md), [Authorization](authorization.md), [Privacy](privacy.md), [Messaging](messaging.md), [Architecture](architecture.md), [Settings](ui-settings.md) |
 | H | Asynchronous and large-scale processing | Durable import and export jobs delivered; the rest post-MVP (§12) | [Architecture](architecture.md), [API](api.md) |
 | I | Assistant access through MCP | First delivery complete; later phases planned | [Assistant Access](mcp.md), [App Settings](ui-app-settings.md) |
-| J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; every entry names its author — the user and client application in the web build, `local` on the desktop | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#9-section-history), [Homepage](ui-home.md) |
+| J | Change history: audit log of every tree write, person, place, source and settings versions, side-by-side comparison, restore | Complete; a deletion removes the record for real, the history keeping its last state, which a restore re-creates it from; every entry names its author — the user and client application in the web build, `local` on the desktop | [Data](data-model.md#5-change-history), [API](api.md), [Person History](ui-person-history.md), [Settings](ui-settings.md#9-section-history), [Homepage](ui-home.md) |
 
 ## 3. Active: media completion
 
@@ -665,7 +665,6 @@ of the whole application called for and that are not delivered:
   derive their types. GraphQL is kept, by decision, although nothing in the
   repository consumes it yet.
 - [ ] Split `oxidgene-api` into an application crate and a transport crate.
-- [ ] Remove soft deletion in favour of the change history.
 - [ ] One typed person-search table for both database backends.
 - [ ] Gate the API tests that call GraphQL behind the `graphql` feature, so
   that the API's suite passes in the desktop's feature set

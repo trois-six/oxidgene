@@ -1,4 +1,4 @@
-//! Repository for `Place` entities (CRUD, no soft delete, search filter).
+//! Repository for `Place` entities (CRUD, search filter).
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;

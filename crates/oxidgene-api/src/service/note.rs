@@ -177,7 +177,7 @@ pub async fn update_note(
     Ok(note)
 }
 
-/// Delete note `id` of `tree_id` (a soft delete).
+/// Delete note `id` of `tree_id`.
 pub async fn delete_note(
     viewer: &ViewerContext,
     db: &DatabaseConnection,

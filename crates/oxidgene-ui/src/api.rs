@@ -53,7 +53,6 @@ pub struct PersonDetail {
     pub portrait_vignette_id: Option<Uuid>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
     pub sosa_number: Option<u64>,
 }
 
@@ -7279,7 +7278,6 @@ mod tests {
                 tags: Vec::new(),
                 created_at: now,
                 updated_at: now,
-                deleted_at: None,
             }
         };
         let page = |events: &[&Event], end_cursor: Option<&str>| {

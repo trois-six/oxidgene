@@ -3,7 +3,7 @@ type: "Product Specification"
 title: "AI Features (Bring Your Own LLM)"
 description: "Planned AI features on media — transcript, record and photo analysis, enhancement, colorization — run with LLM providers and keys each user brings, never the host's: provider presets and protocols, where keys live, the backend relay, privacy and consent, API contract, and delivery phases."
 tags: [oxidgene, specification, ai, llm, privacy, api, ui]
-generated: { by: human:maintainer, at: 2026-09-28T16:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 # AI Features (Bring Your Own LLM)
@@ -283,9 +283,9 @@ implemented:
 | Media | `derivation` | enum? | `enhanced`, `colorized` (later `animated`) |
 | Media | `derivation_model` | string? | Provider preset and model name, for the label; never a key or a URL with credentials |
 
-- Deleting the original does not delete derived media; `derived_from_id`
-  then points to a soft-deleted record and the viewer says the original was
-  deleted.
+- Deleting the original does not delete derived media; their
+  `derived_from_id` is cleared (`SET NULL`), and the viewer of a derived
+  medium without one says the original was deleted.
 - GEDCOM export writes the derivation through the existing OxidGene media
   extensions, so a re-import keeps the label.
 - The AI connections themselves are client-side settings until EPIC G and

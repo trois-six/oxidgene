@@ -671,7 +671,7 @@ pub fn evidence_of(
 ) -> HashMap<Uuid, LifeEvidence> {
     let mut own: HashMap<Uuid, Vec<&Event>> = HashMap::new();
     let mut by_family: HashMap<Uuid, Vec<&Event>> = HashMap::new();
-    for event in events.iter().filter(|e| e.deleted_at.is_none()) {
+    for event in events {
         match (event.person_id, event.family_id) {
             (Some(person), _) => own.entry(person).or_default().push(event),
             (None, Some(family)) => by_family.entry(family).or_default().push(event),
@@ -708,11 +708,7 @@ pub fn derive_records(
     spouses: &[FamilySpouse],
     children: &[FamilyChild],
 ) -> HashMap<Uuid, PersonVisibility> {
-    let live_persons: Vec<(Uuid, Privacy)> = persons
-        .iter()
-        .filter(|p| p.deleted_at.is_none())
-        .map(|p| (p.id, p.privacy))
-        .collect();
+    let live_persons: Vec<(Uuid, Privacy)> = persons.iter().map(|p| (p.id, p.privacy)).collect();
     let live: HashSet<Uuid> = live_persons.iter().map(|(id, _)| *id).collect();
     let evidence = evidence_of(events, spouses, &live);
     derive_tree(

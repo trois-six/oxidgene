@@ -2,9 +2,8 @@
 //! stored by the write that replaced it.
 //!
 //! `snapshot` is an `oxidgene_core::history::RecordSnapshot` and `labels` a
-//! list of `RecordLabel`, both as JSON. Both are null for a deleted state, and
-//! for the state a soft deletion replaced, which the soft-deleted row still
-//! holds; see `docs/data-model.md` §5.2.
+//! list of `RecordLabel`, both as JSON. Both are null for a deleted state, the
+//! record's absence that a restore replaced; see `docs/data-model.md` §5.2.
 
 use sea_orm::entity::prelude::*;
 

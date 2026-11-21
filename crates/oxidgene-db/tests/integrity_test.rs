@@ -220,7 +220,6 @@ impl Fixture {
             confidential: Set(false),
             created_at: Set(Utc::now()),
             updated_at: Set(Utc::now()),
-            deleted_at: Set(None),
         }
     }
 

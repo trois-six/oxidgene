@@ -431,7 +431,6 @@ async fn live_persons(db: &DatabaseConnection, tree_id: Uuid) -> HashSet<Uuid> {
         .select_only()
         .column(person::Column::Id)
         .filter(person::Column::TreeId.eq(tree_id))
-        .filter(person::Column::DeletedAt.is_null())
         .into_tuple()
         .all(db)
         .await
@@ -447,12 +446,10 @@ async fn count_records(
 ) {
     let families = family::Entity::find()
         .filter(family::Column::TreeId.eq(tree_id))
-        .filter(family::Column::DeletedAt.is_null())
         .count(db);
     counts.insert("families", families.await.unwrap());
     let events = event::Entity::find()
         .filter(event::Column::TreeId.eq(tree_id))
-        .filter(event::Column::DeletedAt.is_null())
         .count(db);
     counts.insert("events", events.await.unwrap());
     let places = place::Entity::find()
@@ -461,14 +458,12 @@ async fn count_records(
     counts.insert("places", places.await.unwrap());
     let notes = note::Entity::find()
         .filter(note::Column::TreeId.eq(tree_id))
-        .filter(note::Column::DeletedAt.is_null())
         .count(db);
     counts.insert("notes", notes.await.unwrap());
     let sources: HashSet<Uuid> = source::Entity::find()
         .select_only()
         .column(source::Column::Id)
         .filter(source::Column::TreeId.eq(tree_id))
-        .filter(source::Column::DeletedAt.is_null())
         .into_tuple()
         .all(db)
         .await
@@ -496,7 +491,6 @@ async fn count_media(
     let db = &backend.db;
     let rows = media::Entity::find()
         .filter(media::Column::TreeId.eq(tree_id))
-        .filter(media::Column::DeletedAt.is_null())
         .all(db)
         .await
         .unwrap();

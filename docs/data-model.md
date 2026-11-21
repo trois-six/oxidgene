@@ -3,7 +3,7 @@ type: "Data Model Specification"
 title: "Data Model"
 description: "Canonical domain entities, enums, and relationship model used by OxidGene services and UI."
 tags: [oxidgene, specification, data-model, domain]
-generated: { by: human:maintainer, at: 2026-11-21T22:10:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 
@@ -52,7 +52,7 @@ Runtime projection versioning remains independent of this schema reset (see
 | `trusted_media_hosts` | Text? | The hosts whose pictures the tree's readers load without being asked ([Cross-cutting §7.2](cross-cutting.md#72-remote-media)), as a JSON array of host names: lowercase, sorted, each once, at most 256. `NULL` for none. Gains the host of an address somebody who may edit the tree adds themselves; never read from an import, a GEDZIP or a duplicated tree, never written to an export. Set in [Settings](ui-settings.md) §8, versioned with the tree's other settings |
 | `created_at` | DateTime | Creation time. Native OxidGene records use the current time; a Geneanet import preserves the deposit's `date_create` when it is valid |
 | `updated_at` | DateTime | Auto |
-| `deleted_at` | DateTime? | Soft delete |
+| `deleted_at` | DateTime? | Set when the tree is deleted: the queue of the background purge, which removes the tree with everything it holds (§4.5). Every read leaves such a tree out. The only record that is not deleted at once |
 
 Displayed in: [Homepage](ui-home.md) (tree cards) · [Settings](ui-settings.md) (tree & roots section)
 
@@ -67,7 +67,8 @@ database sees them; the constraint is what stays true when one does not.
 |---|---|
 | A record attached to other records names the right number of them: an event at most one owner, a note, a citation and a media link exactly one, a person at most one portrait | `CHECK` on `event` (`ck_event_owner`, `ck_event_related_family`), `note` (`ck_note_owner`), `citation` (`ck_citation_owner`), `media_link` (`ck_media_link_target`), `person` (`ck_person_portrait`) and `record_tag`; each table's section says which columns |
 | A row names records of its own tree only | Every table attached to a record carries `tree_id`, and its foreign keys are composite: `(person_id, tree_id)` references `person (id, tree_id)`, and likewise for families, events, sources, repositories, media, places, notes, citations, tags, family memberships and access scopes, each of which is unique on `(tree_id, id)`. It holds for `person_name`, `family_spouse`, `family_child`, `event_witness`, `event_spouse_age`, `citation`, `source_repository`, `media_link`, `vignette`, `access_scope_person`, and for the owner columns of `event`, `note` and `record_tag`. A `NULL` column is not checked, so an optional owner stays optional. The two `SET NULL` references of an event, its place and its related family, stay single-column: SQLite could only null the tree with them |
-| A pointer names a row that exists | Foreign keys on `tree.sosa_root_person_id` and `self_person_id` (`SET NULL`), `tree.visitor_scope_id` (no action), `person.portrait_media_id` and `portrait_vignette_id` (`SET NULL`), `media.parent_media_id` (cascade), `media.place_id` (`SET NULL`) and `note.media_id` (cascade). The first five name a table created after their own: SQLite declares them in `CREATE TABLE`, which accepts a forward reference, and PostgreSQL adds them once every table exists |
+| A pointer names a row that exists | Foreign keys on `tree.sosa_root_person_id` and `self_person_id` (`SET NULL`), `tree.visitor_scope_id` (no action), `person.portrait_media_id` and `portrait_vignette_id` (`SET NULL`), `media.parent_media_id` (cascade), `media.place_id` (`SET NULL`), `note.media_id` (cascade) and `tree_membership.self_person_id` (`SET NULL`). The first five name a table created after their own: SQLite declares them in `CREATE TABLE`, which accepts a forward reference, and PostgreSQL adds them once every table exists |
+| A deletion leaves nothing behind | Every row naming a record is deleted with it or stops naming it, by the foreign keys' actions or by the deletion itself, in its transaction — see [Deletion](#deletion) |
 | A person is a spouse, and a child, of a family once | Unique `(family_id, person_id)` on `family_spouse` and on `family_child` |
 | A person witnesses an event once per relation | Unique `(event_id, person_id, COALESCE(relation, ''))` on `event_witness` |
 | A person has at most one primary name | Unique `(person_id)` on `person_name` where `is_primary` |
@@ -85,6 +86,46 @@ then the person, the family and the others), demotes a second primary name,
 leaves out a row attached to nothing, and reports each correction as one
 import warning with its count ([API Contract §4](api.md#4-gedcom-compatibility-reference)).
 
+### Deletion
+
+A record inside a tree is deleted for real: its row goes, and with it, in
+the same transaction, every row that is its alone, so that no row is left
+naming it — a `PRAGMA foreign_key_check` after any deletion finds nothing.
+What the user may want back is kept by the [change history](#5-change-history)
+instead: the deletion's audit entry stores the record's last state, the
+version a restore re-creates it from under its ID (§5.2, §5.3). A tree is
+the exception: deleting one flags it (`tree.deleted_at`), and a background
+purge removes it with everything it holds (§4.5).
+
+Most dependent rows go through the schema's `ON DELETE CASCADE`, whatever
+code path deletes their owner; the others are written by the deletion itself,
+before the record's row goes. Per record deleted:
+
+| Deleted | Goes with it | Stays, no longer naming it |
+|---|---|---|
+| Person | Their names; their own events, each with what goes with an event; the witness rows naming them on others' events; their spouse and child links, a spouse link with the spouses' ages kept by that membership; the notes and citations about them; their media links and tags; their distinct-person confirmations; their projections — `person_denorm`, `sosa_ancestor`, `person_visibility`, `excluded_person`, `access_scope_person` — by cascade, and their search row and kept GEDCOM, written by the deletion | The identification boxes showing them, or standing as evidence for one of their events: the region stays on its page and loses that attribution, written by the deletion (the foreign keys refuse a deletion that did not). The tree's SOSA root and "self", a member's "Who am I?" (`SET NULL`). Their families: a family left with no spouse and no child stays, with its own events, notes and citations, as the family of nobody a restore may link the person back to. A sharing exclusion or an access scope rooted at them keeps its root by ID and covers nobody until a restore brings the person back ([Privacy §6.5](privacy.md#65-kept-in-sync), [Authorization §6.5](authorization.md#65-access-scopes)) |
+| Family | Its spouse and child links, with the spouses' ages; its own events, each with what goes with an event; the notes and citations about it; its media links and tags; its kept GEDCOM, written by the deletion | Its members. An individual event naming it as its related family (`SET NULL`). The identification boxes standing as evidence for one of its events, as for a person's |
+| Event | Its witnesses, spouses' ages, notes, citations, media links and tags | The identification boxes standing as evidence for it, as for a person's |
+| Source | The citations of it, its notes, media links, repository links and tags; its kept GEDCOM, written by the deletion | — |
+| Repository | Its links to the sources it held, its notes and tags; its kept GEDCOM, written by the deletion | The sources it held |
+| Note, citation | Their tags | — |
+| Place | Its tags | The events and media at it (`SET NULL`) |
+| Media | Its pages, links, identification boxes, notes and tags; its kept GEDCOM, written by the deletion; the stored files no other medium of the tree uses, and the crops of its boxes, once the deletion commits ([Architecture §4.2](architecture.md#42-stored-crops)) | Portraits naming it or one of its boxes (`SET NULL`) |
+
+Three references name a row by ID without a foreign key, by design, and are
+read knowing it may be gone: the change history's (`audit_entry.entity_id`
+and `subject_id`, `record_version.record_id`), which has to outlive what it
+records; the root of a sharing exclusion (`privacy_exclusion.person_id`); and
+the root an access scope's definition names. A notification names its
+subject by ID likewise (§6.11).
+
+A deletion versions, beside the record deleted, every record whose state it
+changes (§5.2): a person's relatives, whose unions and parent families no
+longer list them, and the owners of the events they witnessed; a family's
+members and the owners of the events naming it; the records citing a source;
+the sources held at a repository; the tree's settings when the person
+deleted was its SOSA root or its "self".
+
 ### Person
 
 | Column | Type | Notes |
@@ -97,7 +138,6 @@ import warning with its count ([API Contract §4](api.md#4-gedcom-compatibility-
 | `portrait_vignette_id` | UUID v7? | FK → Vignette (`SET NULL`) — the vignette representing the person, when their portrait is a crop; never set together with `portrait_media_id` (`CHECK`) |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
-| `deleted_at` | DateTime? | Soft delete |
 
 Displayed in: [Tree View](ui-genealogy-tree.md) (person cards) · [Person Edit Modal](ui-person-edit-modal.md) (edit form)
 
@@ -127,8 +167,8 @@ either half of that name has none.
 
 ### Person merge
 
-Merging keeps one person and soft-deletes the other, the duplicate, after
-moving everything it carried onto the kept person:
+Merging keeps one person and deletes the other, the duplicate, after moving
+everything it carried onto the kept person:
 
 | Data | Rule |
 |---|---|
@@ -136,12 +176,12 @@ moving everything it carried onto the kept person:
 | Portrait | The kept person's, unless they have none |
 | Privacy | The kept person's |
 | Names | The kept person's primary name stays primary; the duplicate's names become secondary names after theirs, except a name identical in every piece to one the kept person bears — ignoring case, not accents — which is dropped. When the kept person has no name at all, the duplicate's primary stays primary. When the user chose the duplicate's surname, given names or both, the primary name becomes that composition — an existing name promoted, or a new one — and the former primary stays secondary |
-| Events, notes, citations, identification boxes | Re-pointed; the own events of either person the user left out are soft-deleted first. Nothing else is deduplicated |
+| Events, notes, citations, identification boxes | Re-pointed; the own events of either person the user left out are deleted first. Nothing else is deduplicated |
 | Family links | Re-pointed; a link to a family the kept person is already a spouse (or a child) of is dropped instead of doubled |
 | Witness links | Re-pointed; dropped when the kept person already witnesses that event or the event is now their own |
 | Media links | Re-pointed; dropped when the kept person is already linked to that media |
 | Tags | The duplicate's tags move to the kept person; a tag both carry stays once |
-| Tree SOSA root and "self" person | Follow the duplicate onto the kept person |
+| Tree SOSA root, "self" person, and members' "Who am I?" | Follow the duplicate onto the kept person |
 | Distinct confirmations | The duplicate's move to the kept person — whoever differs from one differs from the other — and the pair joining the two is dropped |
 | Kept GEDCOM | The duplicate's rows move to the kept person (see [GedcomKept](#gedcomkept)) |
 
@@ -203,7 +243,6 @@ a per-viewer preference ([App Settings](ui-app-settings.md), route `/settings`, 
 | `privacy` | Privacy | Per-family privacy (default `Default`), enforced by [Privacy §3](privacy.md#3-record-privacy) |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
-| `deleted_at` | DateTime? | Soft delete |
 
 Displayed in: [Tree View](ui-genealogy-tree.md) (connectors) · [Person Edit Modal](ui-person-edit-modal.md) (couple edit)
 
@@ -254,11 +293,10 @@ adding them again is a `conflict`.
 | `place_id` | UUID v7? | FK → Place |
 | `person_id` | UUID v7? | FK → Person (individual event) — never set together with `family_id` (`CHECK`); an event may have no owner |
 | `family_id` | UUID v7? | FK → Family (family event) — never set together with `person_id` |
-| `related_family_id` | UUID v7? | FK → Family, `SET NULL` when the family row is removed (a family's soft delete keeps it). For an individual event, a family it names without belonging to it, GEDCOM's `FAMC` beneath the event: the adoptive family of an adoption (`ADOP.FAMC`), the family of a birth or a christening (`BIRT.FAMC`, `CHR.FAMC`), the family a child is sealed to (`SLGC.FAMC`). Never set together with `family_id`, which makes an event a family's own; refused on a family event, and on an event with no individual owner (`CHECK`) |
+| `related_family_id` | UUID v7? | FK → Family, `SET NULL` when the family is deleted. For an individual event, a family it names without belonging to it, GEDCOM's `FAMC` beneath the event: the adoptive family of an adoption (`ADOP.FAMC`), the family of a birth or a christening (`BIRT.FAMC`, `CHR.FAMC`), the family a child is sealed to (`SLGC.FAMC`). Never set together with `family_id`, which makes an event a family's own; refused on a family event, and on an event with no individual owner (`CHECK`) |
 | `description` | String? | Free text; also holds occupation title for `Occupation` events |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
-| `deleted_at` | DateTime? | Soft delete |
 
 An age is read leniently — `1y6m`, `34 Y`, a bare `34` for years, keywords in
 any case — and stored canonically; anything else is refused. `AgeAtEvent::bounds`
@@ -332,8 +370,8 @@ text is valid.
 
 **Tags.** A place's labels are [RecordTag](#recordtag) links to the tree's
 [Tag](#tag) vocabulary, returned as its `tags` list (`{id, label, color}`) sorted
-by folded label. A place has no soft delete, so its links go with it when it is
-deleted. A tag change on a place refreshes no profile: profiles carry a place's
+by folded label. Its links go with it when it is deleted, as every record's
+do. A tag change on a place refreshes no profile: profiles carry a place's
 name, not its tags.
 
 ### Source
@@ -349,7 +387,6 @@ name, not its tags.
 | `agency` | String? | The organisation responsible for the source's data (GEDCOM `SOUR.DATA.AGNC`) |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
-| `deleted_at` | DateTime? | Soft delete |
 
 The repositories holding a source are `SourceRepository` links, not a field
 of the source. A cleanup delete (`only_if_unused`) keeps a source a citation,
@@ -375,7 +412,6 @@ An archive, library or registry office holding sources (GEDCOM `REPO`).
 | `website` | String? | |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
-| `deleted_at` | DateTime? | Soft delete |
 
 Notes about a repository are `Note` rows carrying `repository_id`.
 
@@ -399,8 +435,9 @@ at one repository has one row per call number.
 | `media_type` | SourceMediaType? | The medium the source is kept on there |
 | `sort_order` | i32 | Order among the source's links |
 
-A soft-deleted repository keeps its links, unread while it is deleted:
-restoring it brings them back.
+Deleting the source or the repository deletes the link. A link is part of
+its source's state (§5.2): restoring a version of the source brings it back
+while the repository exists.
 
 ### Citation
 
@@ -459,7 +496,6 @@ by folded label. They are the citation's own, not its event's or its source's.
 | `privacy` | Privacy | Enum — per-media privacy override (default `Default`), see **Privacy** below |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
-| `deleted_at` | DateTime? | Soft delete. Deleting a medium purges it instead — its rows, and the stored files no other medium of the tree uses — so nothing sets it, but every read still excludes a flagged row |
 
 Displayed in: [Person Edit Modal](ui-person-edit-modal.md) (media section)
 
@@ -580,8 +616,8 @@ all nine kinds, so a further kind needs no schema change.
 
 These rules hold for every kind:
 
-- A soft-deleted record keeps its tag links while it is deleted, unread, and
-  they return with it when it is restored.
+- A record's links go with it when it is deleted. Tags are not part of a
+  version (§5.2), so a restore from the history does not bring them back.
 - A tree duplication copies the tag links of each record it copies, with their
   tags, so the copy's records carry the same tags as the original's.
 
@@ -610,7 +646,10 @@ changes or goes ([Architecture §4.2](architecture.md#42-stored-crops)).
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
 
-No soft delete: a vignette is a coordinate annotation, not a record anyone cites.
+A vignette is a coordinate annotation, not a record anyone cites, and the
+history does not version it. It belongs to its page and goes with it; the
+person it shows and the event it is evidence for are attributions, which
+their deletion clears (see [Deletion](#deletion)), the region staying.
 Creation and updates require a live page of a live document in the same tree;
 document shells cannot be cropped. Person and event attributions must be live
 records in that tree. Coordinates must be nonnegative, dimensions positive, and
@@ -706,7 +745,6 @@ page number of its own: the page it belongs to is the media it points at.
 | `confidential` | Boolean | Default `false`. Withheld from every viewer without `read_confidential` — Guests and Visitors — and from the exports made for them ([Privacy §3.2](privacy.md#32-records)); recorded in the note's history snapshot |
 | `created_at` | DateTime | Auto |
 | `updated_at` | DateTime | Auto |
-| `deleted_at` | DateTime? | Soft delete |
 
 Exactly one of `person_id`, `event_id`, `family_id`, `source_id`, `media_id`
 and `repository_id` is set (`CHECK`): a note is about one record.
@@ -750,7 +788,9 @@ Lifecycle:
   they name.
 - **Tree duplication** carries them to the copy.
 - **Person merge** moves the duplicate's rows onto the kept person, in the
-  merge's transaction.
+  merge's transaction, and a repository merge the absorbed repository's.
+- **Deletion** of a person, a family, a source, a repository or a medium
+  removes its rows, in the deletion's transaction: no foreign key does.
 - **Purge** removes them with their tree (cascade).
 
 Editing an entity leaves its rows in place.
@@ -1229,11 +1269,6 @@ name and no count, so rebuilding the two spouses is enough. Deleting a family
 also removes its children's parent link, so the set covers every member. Either
 way the set stays one hop wide, which is exactly as far as a projection reaches.
 
-Because deletion is soft, a family's `family_spouse` and `family_child` rows
-outlive it. Anything that reaches a family *through* a membership row must
-therefore exclude deleted families explicitly, or a targeted rebuild would
-restore a family a whole-tree rebuild correctly omits.
-
 **A refresh reads what its persons need, whatever their number.** An
 affected set is 2 to 10 persons for an ordinary mutation and thousands for
 a place, a tag, a source or a surname many persons carry. It is refreshed
@@ -1324,7 +1359,9 @@ pages at every start instead.
 On PostgreSQL deleted rows' space is reused by autovacuum over time; nothing
 rewrites it at once.
 
-- Soft-deleted people are excluded from projections and search.
+- A deleted person's `person_denorm`, `sosa_ancestor` and `person_visibility`
+    rows go with them (cascade), and their search row in the deletion's
+    transaction; their relatives' are rewritten there too.
 - Dropping projections does not remove domain data; rows rebuild lazily.
 - A failed or rolled-back mutation leaves neither normalized changes nor new
     projection payloads.
@@ -1399,23 +1436,22 @@ real tree, once per request).
 | | `generation` | Moved by every change to an input of the ancestry. |
 | | `built_generation` | The generation the stored rows were built from; `NULL` before the first build. |
 
-**What is stored.** The root, when it is a live person of the tree, and every
-person reached from it upwards — a person's parents are the live spouses of
-the live families they are a child of — at most 64 generations up, since the
+**What is stored.** The root, when it is a person of the tree, and every
+person reached from it upwards — a person's parents are the spouses of the
+families they are a child of — at most 64 generations up, since the
 schema does not prevent a cycle. The root is 1; a husband is `2n` and a wife
 `2n + 1` of the child numbered `n`. Through pedigree implex a person is reached
 by several paths: the shortest wins, then the lowest number. A spouse who is a
 family's partner, neither husband nor wife, is an ancestor without a number, and
 so is every ancestor reached only through one; so is any ancestor beyond
 generation 62, whose number would not fit the signed 64-bit integers both
-backends share. Deleted families and persons take no part, unlike in the
-plain ancestry traversal (§1), which reads the membership rows as they are.
+backends share.
 
 **Keeping it current.** Database triggers move the tree's `generation` on
 every write that can change the ancestry, whatever code path makes it —
 mutations, imports, merges, restores and purges alike: a `family_child` or
 `family_spouse` row inserted or deleted, or updated in its family, its person or
-(a spouse's) role; a family or a person deleted, restored, or removed; the tree's
+(a spouse's) role; a family or a person deleted; the tree's
 `sosa_root_person_id` changed. The rows are current while `built_generation`
 equals `generation`. The first read that finds them stale rebuilds them in one
 transaction on the writer, one query per generation, reading the generation
@@ -1531,20 +1567,23 @@ and ends with `id`, so a page of the log is an index range in its own order.
 | `record_type` | String | `person`, `place`, `source`, `repository`, `tree` |
 | `record_id` | UUID v7 | The record; the tree's own ID for `tree` |
 | `version` | i32 | 1 for the oldest state stored, then one more per state; unique with `(record_type, record_id)` |
-| `deleted` | bool | The record was deleted in this state |
-| `snapshot` | JSON? | `RecordSnapshot`, tagged by `type`; null for a deletion marker and a deleted state |
+| `deleted` | bool | The record did not exist in this state: a *deleted state*, the record's absence between a deletion and the restore that ended it |
+| `snapshot` | JSON? | `RecordSnapshot`, tagged by `type`; null for a deleted state |
 | `labels` | JSON? | `[{ id, label }]` for everything the snapshot names by ID; null with the snapshot |
 
-Neither table references the records it describes: a history must outlive them.
+Neither table references the records it describes: a history must outlive
+them. A deleted record's history is all that is left of it.
 
 **What a snapshot holds.** A person's snapshot is everything their profile shows
 except media and tags: sex, privacy, every name, their own events with each event's
 witnesses, notes and citations, their own notes and citations, the families
 they are a child of, and the families they are a spouse in — each with its
 privacy, all its spouses and children, and its events, notes and citations.
-Portraits, media links and notes about a media are left out: media are audited,
-never versioned. Tags are left out too: a tag put on or taken off a record is
-audited but does not version it, and a restore leaves the tags as they are. A place's snapshot is its name and coordinates; a source's,
+Portraits, media links, identification boxes and notes about a media are left
+out: media are audited, never versioned. Tags are left out too: a tag put on or
+taken off a record is audited but does not version it, and a restore leaves the
+tags as they are. So are distinct-person confirmations and kept GEDCOM: what a
+deletion took of these does not come back with a restore. A place's snapshot is its name and coordinates; a source's,
 its fields and notes; the tree's, its name, description, default privacy, SOSA
 root, "self" person and submitter. A source's snapshot also lists its repository links —
 repository, call number, medium, order — with the repositories' names in
@@ -1568,17 +1607,17 @@ it:
 - a record the write created had no prior state and stores nothing;
 - a changed record stores the state it had, unless that state equals the
   latest one already stored;
-- a record removed for good (a place) stores the state it had, as a snapshot;
-- a record soft-deleted with its state intact (a person, a source, the tree)
-  stores a **deletion marker**: not deleted, no snapshot, its state being what
-  the soft-deleted rows still hold. A deletion that also changes the record — a
-  merged duplicate whose links moved to the kept person — stores the snapshot
-  instead;
+- a record the write deleted — a deletion, a merged duplicate, a place or a
+  repository merged into another — stores the state it had, always, so that
+  a deleted record's history ends on its last state, which is all a restore
+  needs;
 - a deleted record brought back by a restore stores a **deleted state**:
-  deleted, no snapshot. If its latest stored state is a marker, the marker is
-  given the snapshot first, since the rows it read from are about to change;
-  the same holds for any write changing the rows of a record that stays
-  deleted.
+  deleted, no snapshot, the record's absence the restore ended.
+
+A deletion is therefore one shape in the history: a stored state, which the
+write that deleted the record produced the version after, and that version
+deleted — the current one while the record stays deleted, a stored deleted
+state once a restore brought it back.
 
 Adding a child to a family therefore stores the prior state of both spouses
 and of the child; renaming the father stores only his. Imports store nothing —
@@ -1588,12 +1627,13 @@ nor do exports and media writes. Everything happens in the write's transaction.
 **Reading versions.** A record's versions are its stored states, numbered from
 1, followed by its live state, numbered one past the last stored one and marked
 `current`. A record with no stored state has a single version, its live one.
-The current version is deleted when the record is soft-deleted or gone. A
-deletion marker reads its snapshot from the soft-deleted rows; a deleted state,
+The current version is deleted when the record is gone; a deleted state,
 stored or current, has no snapshot. Each version carries the write that
 produced it: the one that stored the version before it, or for version 1, the
 write that created the record — its `create` entry — or else the first import
-completed once the record existed, or nothing when neither was recorded. The
+completed once the record existed, or nothing when neither was recorded. A
+record a deletion took has no row to tell when it was created: its ID, a UUID
+v7, carries the instant it was minted, which is when. The
 changes of one audit entry are the states it stored, each beside the version
 that follows it.
 
@@ -1607,24 +1647,28 @@ ID, in one transaction with the projection refresh of everyone it reaches. It
 is a write of its own: it records a `revert` entry naming the restored version
 and stores the states it replaces, so a restore can itself be undone; the state
 it restores becomes the record's current version. Restoring the version a
-deletion replaced — a marker — undeletes the record as the soft-deleted rows
-hold it. Before writing, the restore names everyone it can change: the
+deletion stored re-creates the record under its ID, with the creation time its
+ID carries. Before writing, the restore names everyone it can change: the
 person's relatives now, the relatives and families the snapshot names with
 their members, and the places and sources it may bring back.
 
 | Record | What a restore does |
 |---|---|
-| Person | Undeletes the person and sets sex and privacy. Names are replaced by the snapshot's. Own events, notes and citations absent from the snapshot are removed — soft-deleted where the table allows it — and the snapshot's come back, undeleted or re-inserted, with their witnesses, notes and citations. Parent links to families that still exist are restored and others dropped. For each union, the family is undeleted or re-created with its privacy, spouses, children, events, notes and citations; the person leaves the families the snapshot does not list |
+| Person | Re-creates the person if a deletion took them, and sets sex and privacy. Names are replaced by the snapshot's. Own events, notes and citations absent from the snapshot are deleted, and the snapshot's come back, updated or re-inserted, with their witnesses, notes and citations. Parent links to families that still exist are restored and others dropped. For each union, the family is updated or re-created with its privacy, spouses, children, events, notes and citations; the person leaves the families the snapshot does not list |
 | Place | Updates the place, or re-creates it with its ID if it was deleted |
-| Source | Undeletes and updates the source, and restores its notes |
+| Source | Updates the source, or re-creates it with its ID if it was deleted, and restores its notes and its links to the repositories that still exist |
+| Repository | Updates the repository, or re-creates it with its ID if it was deleted, and restores its notes |
 | Tree | Restores the settings; a SOSA root or "self" person who no longer exists is cleared |
 
 References to persons that no longer exist — a witness, a spouse, a child — are
 dropped rather than resurrected: restoring one person never brings back
 another. A deleted place an event needs is re-created from the last snapshot
 its history stored, or from the label recorded with the snapshot; a deleted
-source a citation needs is undeleted. A deleted state cannot itself be
-restored: the version before it is the state to go back to.
+source a citation needs likewise, from its last stored state or its title. A
+deleted state cannot itself be restored: the version before it is the state to
+go back to. What a version does not hold — tags, media links, identification
+boxes, kept GEDCOM, distinct-person confirmations — is not brought back with
+it.
 
 ---
 
@@ -1681,7 +1725,7 @@ Sessions are not stored here: they live in the session store
 | `user_id` | UUID v7 | FK → `app_user`; unique with `tree_id` |
 | `role` | String | `owner`, `editor`, `guest`; a unique partial index allows one `owner` per tree |
 | `scope_id` | UUID v7? | FK → `access_scope` (cascade: removing a scope ends the membership it limited, never widens it) |
-| `self_person_id` | UUID v7? | The member's "Who am I?" person |
+| `self_person_id` | UUID v7? | FK → Person (`SET NULL`): the member's "Who am I?" person. A merge moves it to the person kept |
 | `expires_at` | DateTime? | Past it the membership grants nothing; the worker's maintenance pass deletes it |
 | `created_by` | UUID v7? | The user who shared |
 | `created_at`, `updated_at` | DateTime | |
@@ -1760,8 +1804,10 @@ every write that changes them. Built: written by the web build only.
 ### 6.9 `privacy_exclusion` and `excluded_person`
 
 `privacy_exclusion`: `id`, `tree_id` (cascade), `kind` (`person`,
-`ancestors`, `descendants`), `person_id` (cascade: a purged root takes its
-exclusions, a soft-deleted one keeps them), `depth?`, `include_root`,
+`ancestors`, `descendants`), `person_id` (the root, by ID alone, as an access
+scope's definition names its root: deleting the root keeps the exclusion,
+which covers nobody until a restore brings the root back under its ID; a
+merge moves it to the person kept; the tree's purge takes it), `depth?`, `include_root`,
 `include_spouses`, `created_by?`, `created_at`; indexed by `tree_id` and
 `person_id`. `excluded_person`: `tree_id`, `person_id` (both cascade),
 primary key on both, indexed by `person_id`, the union of the tree's

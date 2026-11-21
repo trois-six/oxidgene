@@ -64,7 +64,6 @@ pub struct Event {
     pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 /// The age a family event's record gives for one of the family's spouses.
@@ -277,7 +276,6 @@ mod tests {
             tags: Vec::new(),
             created_at: now,
             updated_at: now,
-            deleted_at: None,
         }
     }
 

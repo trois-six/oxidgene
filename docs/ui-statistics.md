@@ -3,7 +3,7 @@ type: "UI Specification"
 title: "Visual & Functional Specifications — Statistics"
 description: "Tree statistics page in tabs: an overview with completeness and averages, a heat map of places with births by country, region and subdivision, names, demographic charts per period under a year ruler, event and family distributions, the tree's records, notable lists, and the number of persons the tree held over the days it was worked on."
 tags: [oxidgene, specification, ui, statistics]
-generated: { by: human:maintainer, at: 2026-11-21T14:00:00Z }
+generated: { by: human:maintainer, at: 2026-11-21T17:19:04Z }
 ---
 
 # Visual & Functional Specifications — Statistics
@@ -351,16 +351,18 @@ first person was added to today.
 | Persons in the tree at the end of each period, imports marked | Line |
 | Persons added (created, imported or restored) and removed (deleted or merged into another) per period | Lines (2) |
 
-- **Source.** The person table, not the change history: every person keeps
-  the time it was created, and a deletion or a merge only stamps the time
-  it was deleted ([soft deletion](data-model.md)), so the count at any
-  instant is exact, deleted persons included, for trees older than the
-  change history as well. An import stamps everyone it brings with one
-  time, so it is one step of the curve on the import's day; a tree
-  duplication is the new tree's import.
-- **Restores.** Restoring a deleted person clears their deletion time, so
-  the spell they spent deleted is read back from their versions: the
-  deletion and the restore that ended the deleted state
+- **Source.** The person table for the persons there are, each with the
+  time it was created, and the change history for those a deletion or a
+  merge took: the deletion stored the person's last state, which dates it,
+  and the person's ID, a UUID v7, carries when they were created
+  ([Data Model §5.2](data-model.md#52-versions-record_version)). An import
+  stamps everyone it brings with one time, so it is one step of the curve
+  on the import's day; a tree duplication is the new tree's import. A
+  viewer limited by privacy rules or a scope is shown no deleted person:
+  their creation and their deletion, which cancel out, are left out.
+- **Restores.** A restored person is back in the person table under their
+  creation time, so the spell they spent deleted is read back from their
+  versions: the deletion and the restore that ended the deleted state
   ([Data Model §5.2](data-model.md)) count as a removal and an addition on
   their days.
 - **Days** are UTC days; a period holds the days from its first to the day

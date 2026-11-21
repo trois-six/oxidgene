@@ -197,7 +197,6 @@ impl MediaLibraryRepo {
                 .column_as(document_of_row(), "document_id")
                 .column_as(Expr::expr(target()), "uses")
                 .join(JoinType::InnerJoin, media_link::Relation::Media.def())
-                .filter(Column::DeletedAt.is_null())
                 .filter(unseen.keeping_media_link(media_link::Column::Id))
                 .filter(
                     Condition::any()
@@ -291,7 +290,6 @@ impl MediaLibraryRepo {
                 "uses",
             )
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .filter(Column::ParentMediaId.in_subquery(live_documents(tree_id)))
             .filter(unseen.keeping(RecordKind::Media, Column::ParentMediaId))
             // By alias: both backends accept it, and repeating the CASE would
@@ -322,7 +320,6 @@ impl MediaLibraryRepo {
             .column_as(Column::Id.count(), "uses")
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::ParentMediaId.is_null())
-            .filter(Column::DeletedAt.is_null())
             .filter(Column::DocumentCategory.is_not_null())
             .filter(unseen.keeping(RecordKind::Media, Column::Id))
             .group_by(Column::DocumentCategory)
@@ -352,7 +349,6 @@ impl MediaLibraryRepo {
             .column(Column::Id)
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::ParentMediaId.is_null())
-            .filter(Column::DeletedAt.is_null())
             .filter(filter.unseen.keeping(RecordKind::Media, Column::Id));
         for tag_id in &filter.tags {
             query = query.filter(Column::Id.in_subquery(tagged(*tag_id)));
@@ -364,7 +360,6 @@ impl MediaLibraryRepo {
                         .column(Column::ParentMediaId)
                         .from(Entity)
                         .and_where(Column::ParentMediaId.is_not_null())
-                        .and_where(Column::DeletedAt.is_null())
                         .and_where(Expr::cust(kind_predicate(kind)))
                         .to_owned(),
                 ),
@@ -398,7 +393,7 @@ impl MediaLibraryRepo {
         from: Option<i32>,
         to: Option<i32>,
     ) -> Result<HashSet<Uuid>, OxidGeneError> {
-        let mut dated = Condition::all().add(event::Column::DeletedAt.is_null());
+        let mut dated = Condition::all();
         if let Some(year) = from {
             let day = NaiveDate::from_ymd_opt(year, 1, 1)
                 .ok_or_else(|| OxidGeneError::Validation(format!("year out of range: {year}")))?;
@@ -416,7 +411,6 @@ impl MediaLibraryRepo {
             .join(JoinType::InnerJoin, media_link::Relation::Media.def())
             .join(JoinType::InnerJoin, media_link::Relation::Event.def())
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .filter(dated.clone())
             .into_tuple::<Uuid>()
             .all(db)
@@ -432,7 +426,6 @@ impl MediaLibraryRepo {
                 .join(JoinType::InnerJoin, vignette::Relation::Media.def())
                 .join(JoinType::InnerJoin, vignette::Relation::Event.def())
                 .filter(Column::TreeId.eq(tree_id))
-                .filter(Column::DeletedAt.is_null())
                 .filter(dated)
                 .into_tuple::<Uuid>()
                 .all(db)
@@ -462,7 +455,6 @@ impl MediaLibraryRepo {
                 Column::FileName,
             ])
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .into_tuple()
             .all(db)
             .await
@@ -533,7 +525,6 @@ impl MediaLibraryRepo {
                         .distinct()
                         .join(JoinType::InnerJoin, media_link::Relation::Media.def())
                         .filter(Column::TreeId.eq(tree_id))
-                        .filter(Column::DeletedAt.is_null())
                         .filter(column.is_in(chunk))
                         .into_tuple::<Uuid>()
                         .all(db)
@@ -551,7 +542,6 @@ impl MediaLibraryRepo {
                     .distinct()
                     .join(JoinType::InnerJoin, vignette::Relation::Media.def())
                     .filter(Column::TreeId.eq(tree_id))
-                    .filter(Column::DeletedAt.is_null())
                     .filter(vignette::Column::PersonId.is_in(chunk))
                     .into_tuple::<Uuid>()
                     .all(db)
@@ -580,7 +570,6 @@ fn live_documents(tree_id: Uuid) -> sea_orm::sea_query::SelectStatement {
         .from(Entity)
         .and_where(Column::TreeId.eq(tree_id))
         .and_where(Column::ParentMediaId.is_null())
-        .and_where(Column::DeletedAt.is_null())
         .to_owned()
 }
 
@@ -620,7 +609,6 @@ async fn event_ids(
     event::Entity::find()
         .select_only()
         .column(event::Column::Id)
-        .filter(event::Column::DeletedAt.is_null())
         .filter(column.is_in(ids))
         .into_tuple()
         .all(db)

@@ -51,7 +51,6 @@ impl<'a> Sight<'a> {
             .column(event::Column::PersonId)
             .column(event::Column::FamilyId)
             .filter(event::Column::TreeId.eq(tree_id))
-            .filter(event::Column::DeletedAt.is_null())
             .into_tuple()
             .all(db)
             .await
@@ -68,7 +67,6 @@ impl<'a> Sight<'a> {
                 .column(media::Column::Privacy)
                 .column(media::Column::ParentMediaId)
                 .filter(media::Column::TreeId.eq(tree_id))
-                .filter(media::Column::DeletedAt.is_null())
                 .into_tuple()
                 .all(db)
                 .await
@@ -218,7 +216,6 @@ impl<'a> Sight<'a> {
             .column(citation::Column::EventId)
             .join(JoinType::InnerJoin, citation::Relation::Source.def())
             .filter(source::Column::TreeId.eq(tree_id))
-            .filter(source::Column::DeletedAt.is_null())
             .into_tuple()
             .all(db)
             .await
@@ -334,7 +331,6 @@ impl DictionaryRepo {
                 source_repository::Relation::Source.def(),
             )
             .filter(source::Column::TreeId.eq(tree_id))
-            .filter(source::Column::DeletedAt.is_null())
             .into_tuple()
             .all(db)
             .await
@@ -497,7 +493,7 @@ impl DictionaryRepo {
                 families.extend(*family);
             }
         }
-        let found = live_persons_with_spouses(db, persons, families).await?;
+        let found = persons_with_spouses(db, persons, families).await?;
         Ok(found.into_iter().filter(|p| redaction.shows(*p)).collect())
     }
 
@@ -536,7 +532,6 @@ impl DictionaryRepo {
                     .select_only()
                     .column(media::Column::Id)
                     .filter(media::Column::ParentMediaId.is_in(chunk))
-                    .filter(media::Column::DeletedAt.is_null())
                     .into_tuple::<Uuid>()
                     .all(db)
                     .await
@@ -575,7 +570,7 @@ impl DictionaryRepo {
             persons.extend(*person);
             families.extend(*family);
         }
-        let found = live_persons_with_spouses(db, persons, families).await?;
+        let found = persons_with_spouses(db, persons, families).await?;
         Ok(found.into_iter().filter(|p| redaction.shows(*p)).collect())
     }
 }

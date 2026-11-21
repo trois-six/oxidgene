@@ -50,7 +50,6 @@ pub struct Tree {
     pub trusted_media_hosts: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 /// A tree's privacy settings (`docs/privacy.md` §9): what its records show

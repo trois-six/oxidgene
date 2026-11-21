@@ -1,4 +1,4 @@
-//! Repository for `PersonName` entities (CRUD, no soft delete, scoped by person_id).
+//! Repository for `PersonName` entities (CRUD, scoped by person_id).
 
 use chrono::Utc;
 use oxidgene_core::enums::NameType;
@@ -6,10 +6,7 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::PersonName;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ActiveModelTrait, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter, QueryOrder,
-    QuerySelect, Set,
-};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
 use crate::entities::person;
@@ -101,9 +98,7 @@ impl PersonNameRepo {
     ) -> Result<Vec<PersonName>, OxidGeneError> {
         in_chunks(person_ids, |chunk| async move {
             let models = Entity::find()
-                .join(JoinType::InnerJoin, person_name::Relation::Person.def())
-                .filter(person::Column::TreeId.eq(tree_id))
-                .filter(person::Column::DeletedAt.is_null())
+                .filter(Column::TreeId.eq(tree_id))
                 .filter(Column::PersonId.is_in(chunk))
                 .order_by_desc(Column::IsPrimary)
                 .order_by_asc(Column::SortOrder)

@@ -1,8 +1,8 @@
-//! Repository for `Media` entities (CRUD with soft delete).
+//! Repository for `Media` entities (CRUD).
 
 use chrono::{DateTime, Utc};
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Media, RecordKind, last_path_segment};
+use oxidgene_core::types::{Connection, KeptEntityKind, Media, RecordKind, last_path_segment};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, IntoActiveModel,
@@ -16,7 +16,7 @@ use crate::entities::{media_link, person, record_tag, vignette};
 use crate::repo::batch::in_chunks;
 use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
-use crate::repo::{PlaceRepo, RecordTagRepo, VignetteRepo};
+use crate::repo::{GedcomKeptRepo, PlaceRepo, RecordTagRepo, VignetteRepo};
 
 /// A file whose bytes are already in the media store, ready to be recorded.
 #[derive(Debug, Clone)]
@@ -99,7 +99,7 @@ pub struct MediaPurge {
 pub struct MediaRepo;
 
 impl MediaRepo {
-    /// List media in a tree with pagination (excludes soft-deleted).
+    /// List media in a tree with pagination.
     pub async fn list(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -109,8 +109,7 @@ impl MediaRepo {
         // they belong to would show a register nine times.
         let query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::ParentMediaId.is_null())
-            .filter(Column::DeletedAt.is_null());
+            .filter(Column::ParentMediaId.is_null());
         let mut connection =
             paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
         let mut media: Vec<Media> = connection
@@ -125,14 +124,13 @@ impl MediaRepo {
         Ok(connection)
     }
 
-    /// List all media in a tree without pagination (excludes soft-deleted).
+    /// List all media in a tree without pagination.
     pub async fn list_all(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Media>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
@@ -141,7 +139,7 @@ impl MediaRepo {
         Ok(media)
     }
 
-    /// Get multiple media items by ID (excludes soft-deleted).
+    /// Get multiple media items by ID.
     pub async fn get_many(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
@@ -149,7 +147,6 @@ impl MediaRepo {
         let models = in_chunks(ids, |chunk| async move {
             Entity::find()
                 .filter(Column::Id.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)
@@ -160,9 +157,9 @@ impl MediaRepo {
         Ok(media)
     }
 
-    /// Get a single media by ID (excludes soft-deleted).
+    /// Get a single media by ID.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Media, OxidGeneError> {
-        let mut media = find_live(db, id).await.map(into_domain)?;
+        let mut media = find_row(db, id).await.map(into_domain)?;
         hydrate_tags(db, std::slice::from_mut(&mut media)).await?;
         Ok(media)
     }
@@ -223,7 +220,6 @@ impl MediaRepo {
             place_id: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
         Self::refresh_page_count(db, document_id).await?;
@@ -275,7 +271,6 @@ impl MediaRepo {
             place_id: Set(upload.metadata.place_id),
             created_at: Set(upload.created_at),
             updated_at: Set(Utc::now()),
-            deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
         Self::refresh_page_count(db, document_id).await?;
@@ -292,7 +287,7 @@ impl MediaRepo {
         id: Uuid,
         upload: UploadedMedia,
     ) -> Result<Media, OxidGeneError> {
-        let existing = find_live(db, id).await?;
+        let existing = find_row(db, id).await?;
 
         page_document(db, existing.tree_id, existing.parent_media_id).await?;
         let mut page = into_domain(existing.clone());
@@ -371,7 +366,6 @@ impl MediaRepo {
             place_id: Set(None),
             created_at: Set(created_at),
             updated_at: Set(Utc::now()),
-            deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
@@ -384,7 +378,6 @@ impl MediaRepo {
     ) -> Result<Vec<Media>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::ParentMediaId.eq(document_id))
-            .filter(Column::DeletedAt.is_null())
             .order_by_asc(Column::PageIndex)
             // A UUID v7 tie-break keeps two pages added in the same breath in
             // the order they arrived.
@@ -403,7 +396,6 @@ impl MediaRepo {
         in_chunks(document_ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::ParentMediaId.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .order_by_asc(Column::ParentMediaId)
                 .order_by_asc(Column::PageIndex)
                 .order_by_asc(Column::Id)
@@ -465,7 +457,7 @@ impl MediaRepo {
         document_id: Uuid,
         page_id: Uuid,
     ) -> Result<MediaPurge, OxidGeneError> {
-        let page = find_live(db, page_id).await?;
+        let page = find_row(db, page_id).await?;
         if page.parent_media_id != Some(document_id) {
             return Err(OxidGeneError::Validation(
                 "the media is not a page of this document".into(),
@@ -505,7 +497,7 @@ impl MediaRepo {
         id: Uuid,
         patch: MediaPatch,
     ) -> Result<Media, OxidGeneError> {
-        let existing = find_live(db, id).await?;
+        let existing = find_row(db, id).await?;
 
         validate_patch(db, &existing, &patch).await?;
 
@@ -521,15 +513,14 @@ impl MediaRepo {
 
     /// Delete a media record, every page it owns and every associated row.
     ///
-    /// The returned keys are no longer used by another active media row; the
+    /// The returned keys are no longer used by another media row; the
     /// API layer removes those objects from its configured media store after
     /// its transaction commits.
     pub async fn purge(db: &impl ConnectionTrait, id: Uuid) -> Result<MediaPurge, OxidGeneError> {
-        let root = find_live(db, id).await?;
+        let root = find_row(db, id).await?;
         let pages = if root.parent_media_id.is_none() {
             Entity::find()
                 .filter(Column::ParentMediaId.eq(id))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?
@@ -541,7 +532,7 @@ impl MediaRepo {
         media_ids.push(id);
 
         // Content-addressed files can be shared. Preserve a key as long as a
-        // different active media record still points at it.
+        // different media record still points at it.
         let candidate_keys: HashSet<String> = std::iter::once(&root)
             .chain(pages.iter())
             .flat_map(|media| {
@@ -583,13 +574,12 @@ impl MediaRepo {
         id: Uuid,
         allowed_link_id: Uuid,
     ) -> Result<bool, OxidGeneError> {
-        let media = find_live(db, id).await?;
+        let media = find_row(db, id).await?;
         if media.parent_media_id.is_some() {
             return Ok(false);
         }
         let pages = Entity::find()
             .filter(Column::ParentMediaId.eq(id))
-            .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
@@ -636,8 +626,7 @@ impl MediaRepo {
 
 impl MediaRepo {
     /// The bytes of the files tree `tree_id` holds in the media store: the
-    /// sizes of its rows that hold one, deleted or not — a row keeps its
-    /// file until it is purged. What a storage quota counts.
+    /// sizes of its rows that hold one. What a storage quota counts.
     pub async fn stored_bytes(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -658,9 +647,8 @@ impl MediaRepo {
     }
 
     /// Of the store keys `keys`, all under tree `tree_id`, those a media row
-    /// of the tree names as its file, its thumbnail or its card rendition,
-    /// deleted or not. A key
-    /// is scoped to its tree, so no other tree's row can name it.
+    /// of the tree names as its file, its thumbnail or its card rendition. A
+    /// key is scoped to its tree, so no other tree's row can name it.
     pub async fn referenced_keys(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -832,7 +820,7 @@ async fn page_document(
     Ok(id)
 }
 
-/// Which of `candidates` an active medium of `tree_id` other than `excluded`
+/// Which of `candidates` a medium of `tree_id` other than `excluded`
 /// still uses as its storage or thumbnail key: content-addressed files can be
 /// shared, and a key stays while another record points at it.
 ///
@@ -853,7 +841,6 @@ async fn keys_of_other_media(
         .select_only()
         .columns([Column::StorageKey, Column::ThumbnailKey, Column::CardKey])
         .filter(Column::TreeId.eq(tree_id))
-        .filter(Column::DeletedAt.is_null())
         .filter(Column::Id.is_not_in(excluded.iter().copied()))
         .filter(
             Condition::any()
@@ -887,6 +874,7 @@ async fn delete_media_rows(
         .await
         .map_err(db_err)?;
     let vignette_ids = delete_media_relations(db, &media_ids).await?;
+    GedcomKeptRepo::delete_for(db, KeptEntityKind::Media, &media_ids).await?;
     // The notes about these media go with them (`note.media_id` cascades),
     // and so does a page whose document goes; the pages are still deleted
     // first, so that the rows deleted are the ones counted above.
@@ -970,7 +958,6 @@ pub(crate) fn into_domain(m: media::Model) -> Media {
         place_id: m.place_id,
         created_at: m.created_at,
         updated_at: m.updated_at,
-        deleted_at: m.deleted_at,
     }
 }
 
@@ -983,12 +970,12 @@ async fn hydrate_tags(db: &impl ConnectionTrait, media: &mut [Media]) -> Result<
     Ok(())
 }
 
-/// Row `id`, unless it is missing or soft-deleted.
-async fn find_live(
+/// Row `id`; `NotFound` when it is missing.
+async fn find_row(
     db: &impl ConnectionTrait,
     id: Uuid,
 ) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
-    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Media").await
+    crate::repo::find_row::<Entity>(db, id, "Media").await
 }
 
 #[cfg(test)]

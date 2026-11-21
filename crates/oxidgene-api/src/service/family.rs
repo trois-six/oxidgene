@@ -11,7 +11,7 @@ use oxidgene_core::access::ViewerContext;
 use oxidgene_core::enums::{ChildType, Privacy, SpouseRole};
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{Family, FamilyChild, FamilySpouse};
-use oxidgene_db::repo::{FamilyChildRepo, FamilyRepo, FamilySpouseRepo};
+use oxidgene_db::repo::{EventRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo};
 use oxidgene_db::sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -87,8 +87,12 @@ pub async fn update_family(
     Ok(family)
 }
 
-/// Delete family `family_id` of `tree_id` (a soft delete), rewriting the
-/// projections of its members.
+/// Delete family `family_id` of `tree_id`, and every row that is its alone
+/// (docs/data-model.md, Deletion), rewriting the projections of its members.
+///
+/// The history stores the prior state of its members, whose unions and
+/// parent families held it, and of the persons whose events named it as
+/// their related family, which the deletion clears.
 pub async fn delete_family(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
@@ -100,14 +104,17 @@ pub async fn delete_family(
     require_tree_resource(&txn, tree_id, TreeResource::Family, family_id).await?;
     // Read while the links still exist.
     let affected = invalidation::affected_persons_for_family_delete(&txn, family_id).await?;
+    let naming = EventRepo::owners_naming_related_family(&txn, family_id).await?;
     let pending = Change::delete(viewer, tree_id, AuditEntity::Family, family_id)
         .family(family_id)
         .persons(affected.iter().copied())
+        .persons(naming.iter().copied())
         .prepare(&txn)
         .await?;
     FamilyRepo::delete(&txn, family_id).await?;
+    let refreshed: Vec<Uuid> = affected.iter().chain(&naming).copied().collect();
     profiles
-        .invalidate_for_mutation(&txn, tree_id, &affected)
+        .invalidate_for_mutation(&txn, tree_id, &refreshed)
         .await?;
     pending.record(&txn).await?;
     commit_tx(txn).await

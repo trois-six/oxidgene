@@ -5138,8 +5138,7 @@ mod tests {
                 "source_id": null,
                 "media_id": Uuid::from_u128(media),
                 "created_at": "2000-01-01T00:00:00Z",
-                "updated_at": "2000-01-01T00:00:00Z",
-                "deleted_at": null
+                "updated_at": "2000-01-01T00:00:00Z"
             })
         };
         // The bundle describes the first page.

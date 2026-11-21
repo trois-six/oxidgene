@@ -25,10 +25,10 @@ use oxidgene_core::projection::{
 };
 use oxidgene_core::types::{Event, Person, RecordKind, TagRef};
 use oxidgene_db::repo::{
-    AncestryRepo, CitationRepo, Connections, EventRepo, FamilyChildRepo, FamilyRepo,
-    FamilySpouseRepo, MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonDistinctRepo,
-    PersonNameRepo, PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo,
-    RecordTagRepo, SosaRepo, VignetteRepo, begin_tree_write, begin_write, db_err,
+    AncestryRepo, CitationRepo, Connections, EventRepo, FamilyChildRepo, FamilySpouseRepo,
+    MediaLinkRepo, MediaRepo, NoteRepo, PersonDenormRepo, PersonDistinctRepo, PersonNameRepo,
+    PersonRepo, PersonSearchFilters, PersonSearchRepo, PersonSearchSort, PlaceRepo, RecordTagRepo,
+    SosaRepo, VignetteRepo, begin_tree_write, begin_write, db_err,
 };
 use sea_orm::{
     AccessMode, ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbBackend,
@@ -38,7 +38,7 @@ use tracing::{Instrument as _, debug, info, instrument, warn};
 use uuid::Uuid;
 
 use super::builder::{self, TreeData, build_db_search_entry, search_entry_from_db};
-use super::{invalidation, pedigree, sosa};
+use super::{pedigree, sosa};
 use crate::tree_cache::{TreeCache, TreeProfiles};
 
 /// How many persons a projection refresh reads, builds and writes at a
@@ -1020,34 +1020,32 @@ impl ProfileService {
 
     // ── Invalidation ─────────────────────────────────────────────────────
 
-    /// Drop a deleted person's projection and refresh everyone who referenced
-    /// them.
+    /// Drop a deleted person's search row and refresh everyone who
+    /// referenced them: `affected`, the set
+    /// [`affected_persons`](super::invalidation::affected_persons)
+    /// read before the deletion took the family links it is made of.
     ///
-    /// The `person_denorm` row would also go away on its own for a hard
-    /// delete (`ON DELETE CASCADE`), but persons are soft-deleted by default,
-    /// so it has to be removed explicitly.
+    /// Their `person_denorm`, `sosa_ancestor` and `person_visibility` rows
+    /// went with the person (`ON DELETE CASCADE`); the search table has no
+    /// foreign key to cascade through.
     #[instrument(skip_all)]
     pub async fn invalidate_for_person_delete(
         &self,
         conn: &impl ConnectionTrait,
         tree_id: Uuid,
         person_id: Uuid,
+        affected: &[Uuid],
     ) -> Result<(), OxidGeneError> {
-        // Compute the affected set first — it is derived from the family links
-        // that the delete is about to remove.
-        let affected = invalidation::affected_persons(conn, person_id).await?;
-
-        PersonDenormRepo::delete_person(conn, person_id).await?;
         PersonSearchRepo::delete_person(conn, person_id).await?;
 
-        let remaining: Vec<Uuid> = affected.into_iter().filter(|&id| id != person_id).collect();
+        let remaining: Vec<Uuid> = affected
+            .iter()
+            .copied()
+            .filter(|&id| id != person_id)
+            .collect();
         if !remaining.is_empty() {
             self.rebuild_affected(conn, tree_id, &remaining).await?;
         }
-        // The deleted person's row goes; their relatives' were refreshed with
-        // their projections.
-        #[cfg(feature = "auth")]
-        super::visibility::refresh(conn, tree_id, &[person_id]).await?;
 
         debug!(
             count = remaining.len(),
@@ -1093,9 +1091,9 @@ impl ProfileService {
     /// Rewrite the projections and search rows of an affected set,
     /// [`REFRESH_SLICE`] persons at a time, keeping none of them.
     ///
-    /// Persons that no longer exist (soft-deleted, or removed between the
-    /// affected-set computation and this call) are skipped rather than
-    /// failing the whole refresh.
+    /// Persons that no longer exist (deleted between the affected-set
+    /// computation and this call) are skipped rather than failing the whole
+    /// refresh.
     async fn rebuild_affected(
         &self,
         conn: &impl ConnectionTrait,
@@ -1186,12 +1184,6 @@ impl ProfileService {
                 .map(|s| s.family_id)
                 .chain(as_child.iter().map(|c| c.family_id)),
         );
-        // Deleting a family is a soft delete and leaves its membership rows
-        // behind, so reaching families through them would resurrect one:
-        // without this a rebuild would keep naming parents the user has
-        // just removed.
-        let mut family_ids = FamilyRepo::live_ids(conn, &family_ids).await?;
-        family_ids.sort();
 
         // 2. All members of those families, plus attached entities.
         // Four statements at once at most, here as everywhere: what a

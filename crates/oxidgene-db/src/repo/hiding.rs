@@ -29,8 +29,8 @@
 use oxidgene_core::redaction::HidingRules;
 use oxidgene_core::types::RecordKind;
 use sea_orm::sea_query::{
-    Alias, CommonTableExpression, Cond, Condition, Expr, ExprTrait, Func, JoinType, Query,
-    SelectStatement, UnionType, WithClause, WithQuery,
+    Alias, CommonTableExpression, Cond, Condition, Expr, ExprTrait, Func, Query, SelectStatement,
+    UnionType, WithClause, WithQuery,
 };
 use uuid::Uuid;
 
@@ -307,23 +307,12 @@ impl Unseen {
             .to_owned()
     }
 
-    /// The tree's soft-deleted persons.
-    fn deleted_persons(&self) -> SelectStatement {
-        Query::select()
-            .expr_as(col("dp", "id"), t("id"))
-            .from_as(t("person"), t("dp"))
-            .and_where(col("dp", "tree_id").eq(self.tree_id))
-            .and_where(col("dp", "deleted_at").is_not_null())
-            .to_owned()
-    }
-
-    /// The tree's live persons outside the scope.
+    /// The tree's persons outside the scope.
     fn outside_scope(&self, scope: Uuid) -> SelectStatement {
         Query::select()
             .expr_as(col("os", "id"), t("id"))
             .from_as(t("person"), t("os"))
             .and_where(col("os", "tree_id").eq(self.tree_id))
-            .and_where(col("os", "deleted_at").is_null())
             .and_where(col("os", "id").not_in_subquery(scope_persons(scope)))
             .to_owned()
     }
@@ -356,11 +345,9 @@ impl Unseen {
     }
 
     /// Every hidden person, or with `strict` those of [`Self::strict_persons`]:
-    /// excluded, outside the scope, or hidden by the privacy rules; and the
-    /// tree's deleted persons, whose records outlive them — a deletion
-    /// cascades to nothing — and whom no rule reads any more.
+    /// excluded, outside the scope, or hidden by the privacy rules.
     fn person_parts(&self, strict: bool) -> SelectStatement {
-        let mut parts = vec![self.deleted_persons()];
+        let mut parts = Vec::new();
         if self.rules.exclusions {
             parts.push(self.excluded());
         }
@@ -375,20 +362,13 @@ impl Unseen {
 
     // ── Records ──────────────────────────────────────────────────────────
 
-    /// The families whose content is withheld: a live spouse is hidden, or
-    /// the family is private to a viewer without `read_private`.
+    /// The families whose content is withheld: a spouse is hidden, or the
+    /// family is private to a viewer without `read_private`.
     fn family_parts(&self, mode: Mode) -> SelectStatement {
         let mut parts = vec![
             Query::select()
                 .expr_as(col("wfs", "family_id"), t("id"))
                 .from_as(t("family_spouse"), t("wfs"))
-                .join_as(
-                    JoinType::InnerJoin,
-                    t("person"),
-                    t("wp"),
-                    col("wp", "id").equals((t("wfs"), t("person_id"))),
-                )
-                .and_where(col("wp", "deleted_at").is_null())
                 .and_where(col("wfs", "person_id").in_subquery(self.persons(mode)))
                 .to_owned(),
         ];
@@ -406,8 +386,7 @@ impl Unseen {
     }
 
     /// The events of a hidden person or of a withheld family; with
-    /// `tainted`, of a person whose photographs are withheld. A deleted
-    /// event counts: its notes, citations and media links outlive it.
+    /// `tainted`, of a person whose photographs are withheld.
     fn event_set(&self, mode: Mode, tainted: bool) -> SelectStatement {
         let persons = if tainted {
             self.strict_persons(mode)
@@ -442,7 +421,7 @@ impl Unseen {
             .to_owned()
     }
 
-    /// The live media withheld (§3.2): a document, with its pages, when
+    /// The media withheld (§3.2): a document, with its pages, when
     /// it or one of its pages shows — through a link, a crop, or an event
     /// either names — a person whose photographs are withheld or a withheld
     /// family, or when it is private to a viewer without `read_private`.
@@ -477,7 +456,6 @@ impl Unseen {
             .expr_as(document_of("tm"), t("id"))
             .from_as(t("media"), t("tm"))
             .and_where(col("tm", "tree_id").eq(self.tree_id))
-            .and_where(col("tm", "deleted_at").is_null())
             .and_where(col("tm", "id").in_subquery(showing))
             .to_owned();
         let mut withheld = Cond::any().add(document_of("hm").in_subquery(documents));
@@ -500,7 +478,6 @@ impl Unseen {
             .expr_as(col("hm", "id"), t("id"))
             .from_as(t("media"), t("hm"))
             .and_where(col("hm", "tree_id").eq(self.tree_id))
-            .and_where(col("hm", "deleted_at").is_null())
             .cond_where(withheld)
             .to_owned()
     }
@@ -572,14 +549,12 @@ impl Unseen {
             .expr(Expr::val(1))
             .from_as(t("event"), t("p3"))
             .and_where(col("p3", "place_id").equals((t("hp"), t("id"))))
-            .and_where(col("p3", "deleted_at").is_null())
             .and_where(col("p3", "id").not_in_subquery(self.events(mode)))
             .to_owned();
         let shown_medium = Query::select()
             .expr(Expr::val(1))
             .from_as(t("media"), t("p4"))
             .and_where(col("p4", "place_id").equals((t("hp"), t("id"))))
-            .and_where(col("p4", "deleted_at").is_null())
             .and_where(col("p4", "id").not_in_subquery(self.media(mode)))
             .to_owned();
         Query::select()
@@ -592,14 +567,13 @@ impl Unseen {
             .to_owned()
     }
 
-    /// The live notes about a hidden record. Confidential notes are left
+    /// The notes about a hidden record. Confidential notes are left
     /// out by the lists themselves.
     fn note_set(&self, mode: Mode) -> SelectStatement {
         Query::select()
             .expr_as(col("hn", "id"), t("id"))
             .from_as(t("note"), t("hn"))
             .and_where(col("hn", "tree_id").eq(self.tree_id))
-            .and_where(col("hn", "deleted_at").is_null())
             .cond_where(
                 Cond::any()
                     .add(col("hn", "person_id").in_subquery(self.persons(mode)))

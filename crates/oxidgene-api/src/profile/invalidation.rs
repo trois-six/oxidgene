@@ -158,7 +158,6 @@ pub async fn affected_persons_for_place(
 
     let events = event::Entity::find()
         .filter(event::Column::PlaceId.eq(place_id))
-        .filter(event::Column::DeletedAt.is_null())
         .all(db)
         .await
         .map_err(db_err)?;

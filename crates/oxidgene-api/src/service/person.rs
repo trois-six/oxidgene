@@ -10,8 +10,8 @@ use oxidgene_core::enums::{ChildType, Privacy, Sex, SpouseRole};
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::types::{AncestryLink, Person};
 use oxidgene_db::repo::{
-    AncestryRepo, FamilyChildRepo, FamilyRepo, FamilySpouseRepo, MAX_GENERATIONS, PersonRepo,
-    TreeRepo,
+    AncestryRepo, EventRepo, EventWitnessRepo, FamilyChildRepo, FamilySpouseRepo, MAX_GENERATIONS,
+    PersonRepo, TreeRepo,
 };
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::Deserialize;
@@ -95,8 +95,15 @@ pub async fn update_person(
     Ok(person)
 }
 
-/// Delete person `id` of `tree_id` (a soft delete): their projection and
-/// search row go, and the relatives that showed them are rewritten.
+/// Delete person `id` of `tree_id`, and every row that is theirs alone
+/// (docs/data-model.md, Deletion): their projection and search row go, and
+/// the relatives that showed them are rewritten.
+///
+/// The history stores the person's last state, and the prior state of every
+/// person the deletion changes: their relatives, whose unions and parent
+/// families no longer list them, and the owners of the events they
+/// witnessed. The tree's settings are versioned too when the person was its
+/// SOSA root or its "self", which the deletion clears.
 pub async fn delete_person(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
@@ -106,13 +113,30 @@ pub async fn delete_person(
 ) -> Result<(), OxidGeneError> {
     let txn = begin_tree_write(db, tree_id).await?;
     PersonRepo::get_in_tree(&txn, tree_id, id).await?;
-    let pending = Change::delete(viewer, tree_id, AuditEntity::Person, id)
+    // Read while the links still exist.
+    let affected = invalidation::affected_persons(&txn, id).await?;
+    let mut change = Change::delete(viewer, tree_id, AuditEntity::Person, id)
         .person(id)
-        .prepare(&txn)
-        .await?;
+        .persons(affected.iter().copied());
+    let witnessed: Vec<Uuid> = EventWitnessRepo::list_by_person(&txn, id)
+        .await?
+        .into_iter()
+        .map(|witness| witness.event_id)
+        .collect();
+    for event in EventRepo::get_many_untagged(&txn, &witnessed).await? {
+        change = change.persons(event.person_id);
+        if let Some(family_id) = event.family_id {
+            change = change.family(family_id);
+        }
+    }
+    let tree = TreeRepo::get(&txn, tree_id).await?;
+    if tree.sosa_root_person_id == Some(id) || tree.self_person_id == Some(id) {
+        change = change.tree_settings();
+    }
+    let pending = change.prepare(&txn).await?;
     PersonRepo::delete(&txn, id).await?;
     profiles
-        .invalidate_for_person_delete(&txn, tree_id, id)
+        .invalidate_for_person_delete(&txn, tree_id, id, &affected)
         .await?;
     pending.record(&txn).await?;
     commit_tx(txn).await
@@ -222,11 +246,8 @@ async fn parent(
     mother: bool,
 ) -> Result<Option<Uuid>, OxidGeneError> {
     let memberships = FamilyChildRepo::list_by_person(db, person_id).await?;
-    let candidates: Vec<Uuid> = memberships.iter().map(|c| c.family_id).collect();
-    let live = FamilyRepo::live_ids(db, &candidates).await?;
     let Some(family_id) = memberships
         .iter()
-        .filter(|c| live.contains(&c.family_id))
         .min_by_key(|c| c.child_type != ChildType::Biological)
         .map(|c| c.family_id)
     else {

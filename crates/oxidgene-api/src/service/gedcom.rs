@@ -441,7 +441,6 @@ async fn insert_standalone_records(
                 agency: Set(s.agency.clone()),
                 created_at: Set(now),
                 updated_at: Set(now),
-                deleted_at: Set(None),
             })
             .collect();
         batch_insert::<source::Entity, _>(db, models, on_inserted).await?;
@@ -486,7 +485,6 @@ async fn insert_standalone_records(
                 place_id: Set(m.place_id),
                 created_at: Set(now),
                 updated_at: Set(now),
-                deleted_at: Set(None),
             })
             .collect();
         batch_insert::<media::Entity, _>(db, models, on_inserted).await?;
@@ -665,7 +663,6 @@ async fn insert_repositories(
             website: Set(r.website.clone()),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         })
         .collect();
     batch_insert::<repository::Entity, _>(db, models, &mut |_| Ok(())).await?;
@@ -710,7 +707,6 @@ async fn insert_persons_and_families(
                 privacy: Set(sea_enums::Privacy::from(p.privacy)),
                 created_at: Set(now),
                 updated_at: Set(now),
-                deleted_at: Set(None),
             })
             .collect();
         batch_insert::<person::Entity, _>(db, models, on_inserted).await?;
@@ -752,7 +748,6 @@ async fn insert_persons_and_families(
                 privacy: Set(f.privacy.into()),
                 created_at: Set(now),
                 updated_at: Set(now),
-                deleted_at: Set(None),
             })
             .collect();
         batch_insert::<family::Entity, _>(db, models, on_inserted).await?;
@@ -828,7 +823,6 @@ async fn insert_attached_records(
                 description: Set(e.description.clone()),
                 created_at: Set(now),
                 updated_at: Set(now),
-                deleted_at: Set(None),
             })
             .collect();
         batch_insert::<event::Entity, _>(db, models, on_inserted).await?;
@@ -941,7 +935,6 @@ async fn insert_attached_records(
                 confidential: Set(n.confidential),
                 created_at: Set(now),
                 updated_at: Set(now),
-                deleted_at: Set(None),
             })
             .collect();
         batch_insert::<note::Entity, _>(db, models, on_inserted).await?;

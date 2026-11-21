@@ -19,6 +19,7 @@ mod authorization_test;
 mod common;
 mod consistency_test;
 mod database_health_test;
+mod deletion_test;
 mod dictionary_bulk_test;
 mod dictionary_exact_title_test;
 mod entry_lookup_test;

@@ -74,7 +74,7 @@ struct ForwardKey {
 }
 
 const FORWARD_KEYS: &[ForwardKey] = &[
-    // A purged person is no longer the tree's SOSA root nor its "self".
+    // A deleted person is no longer the tree's SOSA root nor its "self".
     ForwardKey {
         name: "fk_tree_sosa_root_person",
         table: "tree",
@@ -533,7 +533,6 @@ enum Person {
     PortraitVignetteId,
     CreatedAt,
     UpdatedAt,
-    DeletedAt,
 }
 
 #[derive(DeriveIden)]
@@ -563,7 +562,6 @@ enum Family {
     Privacy,
     CreatedAt,
     UpdatedAt,
-    DeletedAt,
 }
 
 #[derive(DeriveIden)]
@@ -626,7 +624,6 @@ enum Event {
     Description,
     CreatedAt,
     UpdatedAt,
-    DeletedAt,
 }
 
 #[derive(DeriveIden)]
@@ -662,7 +659,6 @@ enum Source {
     Agency,
     CreatedAt,
     UpdatedAt,
-    DeletedAt,
 }
 
 #[derive(DeriveIden)]
@@ -677,7 +673,6 @@ enum Repository {
     Website,
     CreatedAt,
     UpdatedAt,
-    DeletedAt,
 }
 
 #[derive(DeriveIden)]
@@ -740,7 +735,6 @@ enum Media {
     Privacy,
     CreatedAt,
     UpdatedAt,
-    DeletedAt,
 }
 
 #[derive(DeriveIden)]
@@ -772,7 +766,6 @@ enum Note {
     Confidential,
     CreatedAt,
     UpdatedAt,
-    DeletedAt,
 }
 
 #[derive(DeriveIden)]
@@ -1071,7 +1064,6 @@ async fn create_persons(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(uuid_null(Person::PortraitVignetteId))
                 .col(timestamp_with_time_zone(Person::CreatedAt))
                 .col(timestamp_with_time_zone(Person::UpdatedAt))
-                .col(timestamp_with_time_zone_null(Person::DeletedAt))
                 .check(enum_check::<sea_enums::Sex>("person", "sex"))
                 .check(enum_check::<sea_enums::Privacy>("person", "privacy"))
                 // A portrait is a whole medium or a crop, never both.
@@ -1214,7 +1206,6 @@ async fn create_families(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 )
                 .col(timestamp_with_time_zone(Family::CreatedAt))
                 .col(timestamp_with_time_zone(Family::UpdatedAt))
-                .col(timestamp_with_time_zone_null(Family::DeletedAt))
                 .check(enum_check::<sea_enums::Privacy>("family", "privacy"))
                 .foreign_key(
                     ForeignKey::create()
@@ -1453,7 +1444,6 @@ async fn create_events(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(string_null(Event::Description))
                 .col(timestamp_with_time_zone(Event::CreatedAt))
                 .col(timestamp_with_time_zone(Event::UpdatedAt))
-                .col(timestamp_with_time_zone_null(Event::DeletedAt))
                 .check(enum_check::<sea_enums::EventType>("event", "event_type"))
                 .check(enum_check::<sea_enums::DateQualifier>(
                     "event",
@@ -1687,7 +1677,6 @@ async fn create_sources(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(string_null(Source::Agency))
                 .col(timestamp_with_time_zone(Source::CreatedAt))
                 .col(timestamp_with_time_zone(Source::UpdatedAt))
-                .col(timestamp_with_time_zone_null(Source::DeletedAt))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_source_tree")
@@ -1816,7 +1805,6 @@ async fn create_repositories(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(string_null(Repository::Website))
                 .col(timestamp_with_time_zone(Repository::CreatedAt))
                 .col(timestamp_with_time_zone(Repository::UpdatedAt))
-                .col(timestamp_with_time_zone_null(Repository::DeletedAt))
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_repository_tree")
@@ -1964,7 +1952,6 @@ async fn create_media(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 )
                 .col(timestamp_with_time_zone(Media::CreatedAt))
                 .col(timestamp_with_time_zone(Media::UpdatedAt))
-                .col(timestamp_with_time_zone_null(Media::DeletedAt))
                 .check(enum_check::<sea_enums::DateQualifier>(
                     "media",
                     "date_qualifier",
@@ -2135,7 +2122,6 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                 .col(boolean(Note::Confidential).default(false))
                 .col(timestamp_with_time_zone(Note::CreatedAt))
                 .col(timestamp_with_time_zone(Note::UpdatedAt))
-                .col(timestamp_with_time_zone_null(Note::DeletedAt))
                 // A note is about one record.
                 .check(exactly_one(
                     "note",
@@ -2269,19 +2255,26 @@ async fn create_notes_and_vignettes(manager: &SchemaManager<'_>) -> Result<(), D
                         .to(Media::Table, (Media::Id, Media::TreeId))
                         .on_delete(ForeignKeyAction::Cascade),
                 )
+                // Who the region shows and what it is evidence for are
+                // attributions, not owners: deleting the person or the event
+                // clears them (`VignetteRepo::detach_*`, in the deletion's
+                // transaction) and the region stays on its page. No action
+                // here, so a deletion that forgot to clear them is refused
+                // rather than taking the region with it; a composite key
+                // cannot set only its own column to `NULL` under SQLite.
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_vignette_person")
                         .from(Vignette::Table, (Vignette::PersonId, Vignette::TreeId))
                         .to(Person::Table, (Person::Id, Person::TreeId))
-                        .on_delete(ForeignKeyAction::Cascade),
+                        .on_delete(ForeignKeyAction::NoAction),
                 )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_vignette_event")
                         .from(Vignette::Table, (Vignette::EventId, Vignette::TreeId))
                         .to(Event::Table, (Event::Id, Event::TreeId))
-                        .on_delete(ForeignKeyAction::Cascade),
+                        .on_delete(ForeignKeyAction::NoAction),
                 )
                 .to_owned(),
         )
@@ -3369,14 +3362,8 @@ const SQLITE_SOSA_TRIGGERS: &[&str] = &[
         bump_link_tree!("NEW"),
         " END"
     ),
-    "CREATE TRIGGER sosa_family_deleted AFTER UPDATE OF deleted_at ON family \
-         WHEN OLD.deleted_at IS NOT NEW.deleted_at BEGIN \
-         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.tree_id; END",
     "CREATE TRIGGER sosa_family_delete AFTER DELETE ON family BEGIN \
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; END",
-    "CREATE TRIGGER sosa_person_deleted AFTER UPDATE OF deleted_at ON person \
-         WHEN OLD.deleted_at IS NOT NEW.deleted_at BEGIN \
-         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.tree_id; END",
     "CREATE TRIGGER sosa_person_delete AFTER DELETE ON person BEGIN \
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; END",
 ];
@@ -3455,15 +3442,11 @@ const POSTGRES_SOSA_TRIGGERS: &[&str] = &[
          PERFORM redaction_touch(tree); \
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = tree; \
          END LOOP; RETURN NULL; END $$",
-    // A family or a person, deleted or restored: the tree it belongs to.
+    // A family or a person deleted: the tree it belonged to.
     "CREATE FUNCTION sosa_owner_changed() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN \
-         IF TG_OP = 'DELETE' THEN \
          PERFORM redaction_touch(OLD.tree_id); \
          UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = OLD.tree_id; \
-         ELSE \
-         PERFORM redaction_touch(NEW.tree_id); \
-         UPDATE sosa_state SET generation = generation + 1 WHERE tree_id = NEW.tree_id; \
-         END IF; RETURN NULL; END $$",
+         RETURN NULL; END $$",
     "CREATE TRIGGER sosa_tree_insert AFTER INSERT ON tree \
          FOR EACH ROW EXECUTE FUNCTION sosa_tree_insert()",
     "CREATE TRIGGER sosa_tree_root AFTER UPDATE OF sosa_root_person_id ON tree FOR EACH ROW \
@@ -3519,14 +3502,8 @@ const POSTGRES_SOSA_TRIGGERS: &[&str] = &[
              OR o.person_id IS DISTINCT FROM n.person_id OR o.role IS DISTINCT FROM n.role)"
         )
     ),
-    "CREATE TRIGGER sosa_family_deleted AFTER UPDATE OF deleted_at ON family FOR EACH ROW \
-         WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at) \
-         EXECUTE FUNCTION sosa_owner_changed()",
     "CREATE TRIGGER sosa_family_delete AFTER DELETE ON family \
          FOR EACH ROW EXECUTE FUNCTION sosa_owner_changed()",
-    "CREATE TRIGGER sosa_person_deleted AFTER UPDATE OF deleted_at ON person FOR EACH ROW \
-         WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at) \
-         EXECUTE FUNCTION sosa_owner_changed()",
     "CREATE TRIGGER sosa_person_delete AFTER DELETE ON person \
          FOR EACH ROW EXECUTE FUNCTION sosa_owner_changed()",
 ];
@@ -3609,20 +3586,16 @@ async fn create_exclusions(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                     "kind",
                     &ExclusionKind::ALL.map(ExclusionKind::as_str),
                 ))
+                // `person_id` names the root by id alone, as an access
+                // scope's definition does: an exclusion outlives the
+                // deletion of its root, covers nobody meanwhile, and applies
+                // again once the history restores the root under its id.
+                // The tree's purge takes it.
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_privacy_exclusion_tree")
                         .from(PrivacyExclusion::Table, PrivacyExclusion::TreeId)
                         .to(Tree::Table, Tree::Id)
-                        .on_delete(ForeignKeyAction::Cascade),
-                )
-                // A purged root takes its exclusions; a soft-deleted one
-                // keeps them, and they apply again once it is restored.
-                .foreign_key(
-                    ForeignKey::create()
-                        .name("fk_privacy_exclusion_person")
-                        .from(PrivacyExclusion::Table, PrivacyExclusion::PersonId)
-                        .to(Person::Table, Person::Id)
                         .on_delete(ForeignKeyAction::Cascade),
                 )
                 .to_owned(),
@@ -3710,7 +3683,7 @@ async fn create_exclusions(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 /// row per pair. A pair is stored once, with `person_id < other_person_id`, so
 /// the unique index is what makes recording the same answer twice a no-op.
 /// Both columns cascade from `person`, and `tree_id` from `tree`, so neither a
-/// purged person nor a purged tree leaves a row behind.
+/// deleted person nor a purged tree leaves a row behind.
 async fn create_person_distinct(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .create_table(
@@ -3777,8 +3750,8 @@ async fn create_person_distinct(manager: &SchemaManager<'_>) -> Result<(), DbErr
 /// filtered by category — the two indexes lead with `tree_id` for exactly those
 /// reads. `record_version` holds the states writes replaced — never the live
 /// one — as JSON, numbered per record, its time being its audit entry's; a
-/// deleted state, or one a soft-deleted row still holds, stores no JSON. The
-/// unique index on the record and its number
+/// deletion stores the record's last state, and the deleted state a restore
+/// replaced stores no JSON. The unique index on the record and its number
 /// is both how a record's history is read and what keeps two writers from
 /// numbering the same version twice. Both tables cascade from `tree`, and
 /// versions from their audit entry, so the purge of a tree takes its history
@@ -4316,6 +4289,24 @@ async fn create_memberships(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .to(AccessScope::Table, AccessScope::Id)
                         .on_delete(ForeignKeyAction::Cascade),
                 )
+                // A deleted person is nobody's "Who am I?" any more.
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_tree_membership_self_person")
+                        .from(TreeMembership::Table, TreeMembership::SelfPersonId)
+                        .to(Person::Table, Person::Id)
+                        .on_delete(ForeignKeyAction::SetNull),
+                )
+                .to_owned(),
+        )
+        .await?;
+    // What a person's deletion clears.
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_tree_membership_self_person")
+                .table(TreeMembership::Table)
+                .col(TreeMembership::SelfPersonId)
                 .to_owned(),
         )
         .await?;

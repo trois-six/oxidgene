@@ -144,7 +144,7 @@ After every save, OxidGene looks for other persons of the tree with exactly the 
 2. At the bottom, click **Delete this person**.
 3. Read the warning and click **Confirm deletion**.
 
-The person and their events are removed, along with their links to parents, children and spouses. You can still restore a deleted person from their [history](@/guide/history.md).
+The person and their events are removed, along with their names, notes and sources, their links to parents, children and spouses, their media links and their tags; the photos stay in the library, and the boxes identifying them on a photo stay, without their name. A couple left with nobody stays in the tree. The history keeps the person's last state: you can still restore a deleted person from their [history](@/guide/history.md).
 
 ## Edit a couple
 

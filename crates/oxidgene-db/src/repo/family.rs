@@ -1,31 +1,30 @@
-//! Repository for `Family` entities (CRUD with soft delete).
+//! Repository for `Family` entities (CRUD).
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, Family, RecordKind};
+use oxidgene_core::types::{Connection, Family, KeptEntityKind, RecordKind};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QuerySelect, Set};
 use uuid::Uuid;
 
+use crate::entities::event;
 use crate::entities::family::{self, ActiveModel, Column, Entity};
 use crate::repo::batch::in_chunks;
-use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::record_tag::RecordTagRepo;
+use crate::repo::{GedcomKeptRepo, VignetteRepo, db_err};
 
 /// Repository for family CRUD operations.
 pub struct FamilyRepo;
 
 impl FamilyRepo {
-    /// List families in a tree with pagination (excludes soft-deleted).
+    /// List families in a tree with pagination.
     pub async fn list(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         params: &PaginationParams,
     ) -> Result<Connection<Family>, OxidGeneError> {
-        let query = Entity::find()
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null());
+        let query = Entity::find().filter(Column::TreeId.eq(tree_id));
         let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
         let mut families: Vec<&mut Family> =
             page.edges.iter_mut().map(|edge| &mut edge.node).collect();
@@ -33,7 +32,7 @@ impl FamilyRepo {
         Ok(page)
     }
 
-    /// How many live families each of `tree_ids` holds; a tree without any is
+    /// How many families each of `tree_ids` holds; a tree without any is
     /// absent.
     pub async fn count_by_trees(
         db: &impl ConnectionTrait,
@@ -45,7 +44,6 @@ impl FamilyRepo {
                 .column(Column::TreeId)
                 .column_as(Column::Id.count(), "count")
                 .filter(Column::TreeId.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .group_by(Column::TreeId)
                 .into_tuple()
                 .all(db)
@@ -55,7 +53,7 @@ impl FamilyRepo {
         .await
     }
 
-    /// The live families among `ids`, in no particular order.
+    /// The families among `ids`, in no particular order.
     pub async fn get_many(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
@@ -63,7 +61,6 @@ impl FamilyRepo {
         in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::Id.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?;
@@ -74,14 +71,13 @@ impl FamilyRepo {
         .await
     }
 
-    /// List all families in a tree without pagination (excludes soft-deleted).
+    /// List all families in a tree without pagination.
     pub async fn list_all(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Family>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
@@ -90,31 +86,9 @@ impl FamilyRepo {
         Ok(families)
     }
 
-    /// Narrow a set of family IDs to the ones that still exist.
-    ///
-    /// Deleting a family is a soft delete, and the `family_spouse` /
-    /// `family_child` rows survive it. Anything that reaches families *through*
-    /// those memberships must therefore check here, or it will keep reporting
-    /// a family the user has deleted.
-    pub async fn live_ids(
-        db: &impl ConnectionTrait,
-        ids: &[Uuid],
-    ) -> Result<Vec<Uuid>, OxidGeneError> {
-        in_chunks(ids, |chunk| async move {
-            let models = Entity::find()
-                .filter(Column::Id.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
-                .all(db)
-                .await
-                .map_err(db_err)?;
-            Ok(models.into_iter().map(|m| m.id).collect())
-        })
-        .await
-    }
-
-    /// Get a single family by ID (excludes soft-deleted).
+    /// Get a single family by ID.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Family, OxidGeneError> {
-        let mut family = find_live(db, id).await.map(into_domain)?;
+        let mut family = find_row(db, id).await.map(into_domain)?;
         hydrate_tags(db, &mut [&mut family]).await?;
         Ok(family)
     }
@@ -132,7 +106,6 @@ impl FamilyRepo {
             privacy: Set(oxidgene_core::enums::Privacy::default().into()),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
         Ok(into_domain(result))
@@ -144,7 +117,7 @@ impl FamilyRepo {
         id: Uuid,
         privacy: Option<oxidgene_core::enums::Privacy>,
     ) -> Result<Family, OxidGeneError> {
-        let existing = find_live(db, id).await?;
+        let existing = find_row(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(privacy) = privacy {
@@ -158,13 +131,28 @@ impl FamilyRepo {
         Ok(family)
     }
 
-    /// Soft-delete a family.
+    /// Delete a family, and with it every row that is its alone
+    /// (docs/data-model.md, Deletion).
+    ///
+    /// The schema's cascades take its spouse and child links with the
+    /// spouses' ages, its own events with what hangs off them, its notes,
+    /// citations, media links and tags; an individual event naming it as
+    /// its related family stops doing so. The identification boxes standing
+    /// as evidence for one of its events lose that attribution, and its kept
+    /// GEDCOM goes, first, in the same transaction. Its members stay.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = find_live(db, id).await?;
-
-        let mut active: ActiveModel = existing.into_active_model();
-        active.deleted_at = Set(Some(Utc::now()));
-        active.update(db).await.map_err(db_err)?;
+        find_row(db, id).await?;
+        let events: Vec<Uuid> = event::Entity::find()
+            .select_only()
+            .column(event::Column::Id)
+            .filter(event::Column::FamilyId.eq(id))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        VignetteRepo::detach_events(db, &events).await?;
+        GedcomKeptRepo::delete_for(db, KeptEntityKind::Family, &[id]).await?;
+        Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         Ok(())
     }
 }
@@ -177,16 +165,15 @@ fn into_domain(m: family::Model) -> Family {
         tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
-        deleted_at: m.deleted_at,
     }
 }
 
-/// Row `id`, unless it is missing or soft-deleted.
-async fn find_live(
+/// Row `id`; `NotFound` when it is missing.
+async fn find_row(
     db: &impl ConnectionTrait,
     id: Uuid,
 ) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
-    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Family").await
+    crate::repo::find_row::<Entity>(db, id, "Family").await
 }
 
 /// Fill each couple's tags from one grouped read.

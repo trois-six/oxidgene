@@ -1,21 +1,21 @@
-//! Repository for `Event` entities (CRUD with soft delete, type/person/family filters).
+//! Repository for `Event` entities (CRUD, type/person/family filters).
 
 use chrono::{NaiveDate, Utc};
 use oxidgene_core::enums::{Calendar, DateQualifier, EventType};
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Connection, Event, RecordKind};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QuerySelect, Set};
 use uuid::Uuid;
 
 use crate::entities::event::{self, ActiveModel, Column, Entity};
 use crate::entities::sea_enums;
 use crate::repo::batch::in_chunks;
-use crate::repo::db_err;
 use crate::repo::event_spouse_age::EventSpouseAgeRepo;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::record_tag::RecordTagRepo;
 use crate::repo::redaction::LeaveOut;
+use crate::repo::{VignetteRepo, db_err};
 
 /// Optional filters for listing events.
 #[derive(Debug, Clone, Default)]
@@ -84,7 +84,6 @@ impl EventRepo {
     ) -> Result<Connection<Event>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .filter(leave_out.keeping(oxidgene_core::types::RecordKind::Event, Column::Id));
 
         if let Some(ref et) = filter.event_type {
@@ -105,14 +104,13 @@ impl EventRepo {
         Ok(page)
     }
 
-    /// List all events in a tree without pagination (excludes soft-deleted).
+    /// List all events in a tree without pagination.
     pub async fn list_all(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Event>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
@@ -138,7 +136,6 @@ impl EventRepo {
             .filter(Column::TreeId.eq(tree_id))
             .filter(Column::EventType.is_in(types.iter().map(|t| sea_enums::EventType::from(*t))))
             .filter(Column::PersonId.is_not_null())
-            .filter(Column::DeletedAt.is_null())
             .group_by(Column::PersonId)
             .group_by(Column::EventType)
             .having(Column::Id.count().gt(1))
@@ -160,7 +157,6 @@ impl EventRepo {
         let events = in_chunks(person_ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::PersonId.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?;
@@ -187,7 +183,6 @@ impl EventRepo {
                 in_chunks(ids, |chunk| async move {
                     let models = Entity::find()
                         .filter(column.is_in(chunk))
-                        .filter(Column::DeletedAt.is_null())
                         .all(db)
                         .await
                         .map_err(db_err)?;
@@ -199,7 +194,7 @@ impl EventRepo {
         Ok(events)
     }
 
-    /// List all events attached to any of the given families (excludes soft-deleted).
+    /// List all events attached to any of the given families.
     pub async fn list_by_families(
         db: &impl ConnectionTrait,
         family_ids: &[Uuid],
@@ -207,7 +202,6 @@ impl EventRepo {
         let events = in_chunks(family_ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::FamilyId.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?;
@@ -217,15 +211,15 @@ impl EventRepo {
         hydrate(db, events).await
     }
 
-    /// Get a single event by ID (excludes soft-deleted).
+    /// Get a single event by ID.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Event, OxidGeneError> {
-        let event = find_live(db, id).await.map(into_domain)?;
+        let event = find_row(db, id).await.map(into_domain)?;
         hydrate_one(db, event).await
     }
 
-    /// The live events among `ids`, one read per bounded slice of ids. Their
+    /// The events among `ids`, one read per bounded slice of ids. Their
     /// tags and spouse ages are not filled: this serves the labels and owners
-    /// of many records at once. A missing or soft-deleted id is absent.
+    /// of many records at once. A missing id is absent.
     pub async fn get_many_untagged(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
@@ -233,13 +227,31 @@ impl EventRepo {
         in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::Id.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?;
             Ok(models.into_iter().map(into_domain).collect())
         })
         .await
+    }
+
+    /// The persons whose own events name family `family_id` as their
+    /// related family: whose records its deletion changes.
+    pub async fn owners_naming_related_family(
+        db: &impl ConnectionTrait,
+        family_id: Uuid,
+    ) -> Result<Vec<Uuid>, OxidGeneError> {
+        let owners: Vec<Option<Uuid>> = Entity::find()
+            .select_only()
+            .column(Column::PersonId)
+            .filter(Column::RelatedFamilyId.eq(family_id))
+            .into_tuple()
+            .all(db)
+            .await
+            .map_err(db_err)?;
+        Ok(oxidgene_core::collections::sorted_unique(
+            owners.into_iter().flatten(),
+        ))
     }
 
     /// Create a new event.
@@ -284,7 +296,6 @@ impl EventRepo {
             description: Set(description),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
         hydrate_one(db, into_domain(result)).await
@@ -308,7 +319,7 @@ impl EventRepo {
         calendar: Option<Calendar>,
         details: EventDetailsPatch,
     ) -> Result<Event, OxidGeneError> {
-        let existing = find_live(db, id).await?;
+        let existing = find_row(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(event_type) = event_type {
@@ -342,13 +353,15 @@ impl EventRepo {
         hydrate_one(db, into_domain(result)).await
     }
 
-    /// Soft-delete an event.
+    /// Delete an event, and with it every row that is its alone
+    /// (docs/data-model.md, Deletion): the schema's cascades take its
+    /// witnesses, spouses' ages, notes, citations, media links and tags. The
+    /// identification boxes standing as evidence for it lose that
+    /// attribution first, in the same transaction.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = find_live(db, id).await?;
-
-        let mut active: ActiveModel = existing.into_active_model();
-        active.deleted_at = Set(Some(Utc::now()));
-        active.update(db).await.map_err(db_err)?;
+        find_row(db, id).await?;
+        VignetteRepo::detach_events(db, &[id]).await?;
+        Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         Ok(())
     }
 }
@@ -376,7 +389,6 @@ pub(crate) fn into_domain(m: event::Model) -> Event {
         tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
-        deleted_at: m.deleted_at,
     }
 }
 
@@ -401,10 +413,10 @@ async fn hydrate_one(db: &impl ConnectionTrait, event: Event) -> Result<Event, O
     Ok(events.remove(0))
 }
 
-/// Row `id`, unless it is missing or soft-deleted.
-async fn find_live(
+/// Row `id`; `NotFound` when it is missing.
+async fn find_row(
     db: &impl ConnectionTrait,
     id: Uuid,
 ) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
-    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Event").await
+    crate::repo::find_row::<Entity>(db, id, "Event").await
 }

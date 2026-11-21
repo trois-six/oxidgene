@@ -94,11 +94,7 @@ impl AncestryRepo {
         Self::walk(db, person_ids, max_depth, Step::DOWN).await
     }
 
-    /// Every spouse and child membership of a tree's active families, less
-    /// the persons that were deleted.
-    ///
-    /// Soft-deleting a person keeps their family rows, so the join on
-    /// `person` is what stops a deleted person from still linking two others.
+    /// Every spouse and child membership of a tree's families.
     #[tracing::instrument(name = "pedigree.family_links", skip_all)]
     pub async fn family_links(
         db: &impl ConnectionTrait,
@@ -113,14 +109,12 @@ impl AncestryRepo {
             "SELECT fs.family_id, fs.person_id, fs.role, fs.sort_order \
              FROM family_spouse fs \
              JOIN family f ON f.id = fs.family_id \
-             JOIN person p ON p.id = fs.person_id \
-             WHERE f.tree_id = {tree} AND f.deleted_at IS NULL AND p.deleted_at IS NULL \
+             WHERE f.tree_id = {tree} \
              UNION ALL \
              SELECT fc.family_id, fc.person_id, NULL, fc.sort_order \
              FROM family_child fc \
              JOIN family f ON f.id = fc.family_id \
-             JOIN person p ON p.id = fc.person_id \
-             WHERE f.tree_id = {tree} AND f.deleted_at IS NULL AND p.deleted_at IS NULL"
+             WHERE f.tree_id = {tree}"
         );
         let rows = db
             .query_all_raw(Statement::from_sql_and_values(
@@ -163,16 +157,14 @@ impl AncestryRepo {
                 "SELECT fs.family_id, fs.person_id, fs.role, fs.sort_order \
                  FROM family_spouse fs \
                  JOIN family f ON f.id = fs.family_id \
-                 JOIN person p ON p.id = fs.person_id \
-                 WHERE f.tree_id = {tree} AND f.deleted_at IS NULL AND p.deleted_at IS NULL \
+                 WHERE f.tree_id = {tree} \
                    AND fs.family_id IN \
                        (SELECT family_id FROM family_child WHERE person_id IN ({ids})) \
                  UNION ALL \
                  SELECT fc.family_id, fc.person_id, NULL, fc.sort_order \
                  FROM family_child fc \
                  JOIN family f ON f.id = fc.family_id \
-                 JOIN person p ON p.id = fc.person_id \
-                 WHERE f.tree_id = {tree} AND f.deleted_at IS NULL AND p.deleted_at IS NULL \
+                 WHERE f.tree_id = {tree} \
                    AND fc.person_id IN ({ids})"
             );
             let values =
@@ -186,10 +178,9 @@ impl AncestryRepo {
         .await
     }
 
-    /// Every live family of tree `tree_id` with its privacy and its live
-    /// spouses, in one statement over the tree: what a restricted viewer's
-    /// redaction weighs the families by. A family without a live spouse
-    /// comes with none.
+    /// Every family of tree `tree_id` with its privacy and its spouses, in
+    /// one statement over the tree: what a restricted viewer's redaction
+    /// weighs the families by. A family without a spouse comes with none.
     #[tracing::instrument(name = "redaction.family_spouses", skip_all)]
     pub async fn family_spouses(
         db: &impl ConnectionTrait,
@@ -203,10 +194,8 @@ impl AncestryRepo {
         let sql = format!(
             "SELECT f.id AS family_id, f.privacy, s.person_id \
              FROM family f \
-             LEFT JOIN (SELECT fs.family_id, fs.person_id FROM family_spouse fs \
-                        JOIN person p ON p.id = fs.person_id AND p.deleted_at IS NULL) s \
-               ON s.family_id = f.id \
-             WHERE f.tree_id = {tree} AND f.deleted_at IS NULL \
+             LEFT JOIN family_spouse s ON s.family_id = f.id \
+             WHERE f.tree_id = {tree} \
              ORDER BY f.id"
         );
         let rows = db
@@ -347,24 +336,18 @@ struct Step {
 
 impl Step {
     /// Upwards: from a person, to the families they are a child of, to the
-    /// spouses of those families. Deleted families and deleted spouses are
-    /// not walked through, as in [`AncestryRepo::family_links`].
+    /// spouses of those families.
     const UP: Self = Self {
         joins: "JOIN family_child  fc ON fc.person_id = step.person_id \
-                JOIN family f ON f.id = fc.family_id AND f.deleted_at IS NULL \
-                JOIN family_spouse fs ON fs.family_id = fc.family_id \
-                JOIN person p ON p.id = fs.person_id AND p.deleted_at IS NULL",
+                JOIN family_spouse fs ON fs.family_id = fc.family_id",
         next_person: "fs.person_id",
     };
 
     /// Downwards: from a person, to the families they are a spouse in, to
-    /// the children of those families. Deleted families and deleted children
-    /// are not walked through, as in [`AncestryRepo::family_links`].
+    /// the children of those families.
     const DOWN: Self = Self {
         joins: "JOIN family_spouse fs ON fs.person_id = step.person_id \
-                JOIN family f ON f.id = fs.family_id AND f.deleted_at IS NULL \
-                JOIN family_child  fc ON fc.family_id = fs.family_id \
-                JOIN person p ON p.id = fc.person_id AND p.deleted_at IS NULL",
+                JOIN family_child  fc ON fc.family_id = fs.family_id",
         next_person: "fc.person_id",
     };
 }

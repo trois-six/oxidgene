@@ -2057,7 +2057,7 @@ fn media_extensions(
 }
 
 /// The events that are written: those beneath a person or a family the export
-/// writes. An event of a person or family left out (a soft-deleted one, say) is
+/// writes. An event of a person or family left out (one an export scope leaves out, say) is
 /// not written, and names nothing that a `PLAC` would carry.
 fn written_events(persons: &[Person], families: &[Family], events: &[Event]) -> HashSet<Uuid> {
     let person_ids: HashSet<Uuid> = persons.iter().map(|p| p.id).collect();
@@ -2976,7 +2976,6 @@ mod tests {
             tags: Vec::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
-            deleted_at: None,
         }
     }
 
@@ -3026,7 +3025,6 @@ mod tests {
             place_id: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
-            deleted_at: None,
         }
     }
 
@@ -3041,7 +3039,6 @@ mod tests {
             tags: Vec::new(),
             created_at: now,
             updated_at: now,
-            deleted_at: None,
         };
         let source = Source {
             id: Uuid::now_v7(),
@@ -3054,7 +3051,6 @@ mod tests {
             tags: Vec::new(),
             created_at: now,
             updated_at: now,
-            deleted_at: None,
         };
         let citation = Citation {
             id: Uuid::now_v7(),
@@ -3343,7 +3339,6 @@ mod tests {
             confidential: false,
             created_at: document.created_at,
             updated_at: document.updated_at,
-            deleted_at: None,
         };
         let archive_path = archive_path(&page).expect("stored media has an archive path");
         let media_paths = HashMap::from([(page.id, archive_path.clone())]);
@@ -3608,7 +3603,6 @@ mod tests {
             tags: Vec::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
-            deleted_at: None,
         };
         let (medium, page) = document_with_page("birth-record.jpg", "image/jpeg", true);
         let rows = [medium.clone(), page];
@@ -3681,7 +3675,6 @@ mod tests {
             tags: Vec::new(),
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
-            deleted_at: None,
         };
         let (medium, page) = document_with_page("trade-card.jpg", "image/jpeg", true);
         let rows = [medium.clone(), page];
@@ -3766,7 +3759,6 @@ mod tests {
                 confidential: false,
                 created_at: first_page.created_at,
                 updated_at: first_page.updated_at,
-                deleted_at: None,
             },
             Note {
                 tags: Vec::new(),
@@ -3783,7 +3775,6 @@ mod tests {
                 confidential: false,
                 created_at: second_page.created_at,
                 updated_at: second_page.updated_at,
-                deleted_at: None,
             },
         ];
         let rows = [document, second_page, first_page];

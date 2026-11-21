@@ -65,4 +65,23 @@ impl GedcomKeptRepo {
             .map_err(db_err)?;
         Ok(())
     }
+
+    /// Delete the rows of the entities `ids` of `kind`, in the transaction
+    /// deleting them: no foreign key takes them, one column naming several
+    /// tables.
+    pub async fn delete_for(
+        db: &impl ConnectionTrait,
+        kind: KeptEntityKind,
+        ids: &[Uuid],
+    ) -> Result<(), OxidGeneError> {
+        for chunk in ids.chunks(crate::repo::batch::MAX_BOUND_IDS) {
+            Entity::delete_many()
+                .filter(Column::EntityKind.eq(kind.as_str()))
+                .filter(Column::EntityId.is_in(chunk.iter().copied()))
+                .exec(db)
+                .await
+                .map_err(db_err)?;
+        }
+        Ok(())
+    }
 }

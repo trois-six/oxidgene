@@ -33,7 +33,6 @@ pub struct Person {
     pub placeholder: Option<crate::projection::Placeholder>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 /// A name for a person (a person can have multiple names).

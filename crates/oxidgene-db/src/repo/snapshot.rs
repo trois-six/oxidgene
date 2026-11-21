@@ -11,10 +11,11 @@
 //! with its state after it to decide whether the write changed it at all.
 //!
 //! Restoring writes a snapshot's state over the live rows, keeping every ID.
-//! Rows the snapshot lacks are removed the way the API removes them — soft
-//! deletion where the table has it — and rows it has come back, undeleted or
-//! re-inserted. References to persons that no longer exist are dropped rather
-//! than resurrected: restoring one person must not bring back another.
+//! Rows the snapshot lacks are deleted the way the API deletes them, and rows
+//! it has come back, updated or re-inserted under their IDs — the record
+//! itself too, when a deletion took it. References to persons that no longer
+//! exist are dropped rather than resurrected: restoring one person must not
+//! bring back another.
 
 use std::collections::{HashMap, HashSet};
 
@@ -40,15 +41,12 @@ use crate::entities::{
     person, person_name, place, repository, source, source_repository, tree,
 };
 use crate::html::sanitize_note_html;
-use crate::repo::NoteFilter;
-use crate::repo::db_err;
+use crate::repo::{NoteFilter, VignetteRepo, db_err};
 
 /// A record's state as its rows hold it now, ready to compare and store.
 #[derive(Debug, Clone)]
 pub struct BuiltSnapshot {
     pub record_id: Uuid,
-    /// The record is soft-deleted.
-    pub deleted: bool,
     pub snapshot: RecordSnapshot,
     pub labels: Vec<RecordLabel>,
 }
@@ -57,8 +55,9 @@ pub struct BuiltSnapshot {
 pub struct SnapshotRepo;
 
 impl SnapshotRepo {
-    /// Snapshot records of one type of the tree, deleted or not. IDs that do
-    /// not exist are skipped; the tree's settings are its own ID's.
+    /// Snapshot records of one type of the tree. IDs that do not exist are
+    /// skipped, and so is a tree queued for its purge; the tree's settings
+    /// are its own ID's.
     pub async fn build(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -121,7 +120,6 @@ impl SnapshotRepo {
             .into_iter()
             .map(|row| BuiltSnapshot {
                 record_id: row.id,
-                deleted: false,
                 snapshot: RecordSnapshot::Place(PlaceSnapshot {
                     name: row.name,
                     latitude: row.latitude,
@@ -150,15 +148,12 @@ impl SnapshotRepo {
         let notes = in_chunks(&ids, |chunk| async move {
             note::Entity::find()
                 .filter(note::Column::SourceId.is_in(chunk))
-                .filter(note::Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)
         })
         .await?;
         let notes_by_source = group(notes, |n| n.source_id.unwrap_or_default());
-        // Every link, the deleted repositories' included: they are the
-        // source's state, read while the repository is deleted.
         let links = in_chunks(&ids, |chunk| async move {
             source_repository::Entity::find()
                 .filter(source_repository::Column::SourceId.is_in(chunk))
@@ -184,7 +179,6 @@ impl SnapshotRepo {
                     .collect();
                 BuiltSnapshot {
                     record_id: row.id,
-                    deleted: row.deleted_at.is_some(),
                     snapshot: RecordSnapshot::Source(SourceSnapshot {
                         notes: sorted(
                             notes_by_source
@@ -239,7 +233,6 @@ impl SnapshotRepo {
         let notes = in_chunks(&ids, |chunk| async move {
             note::Entity::find()
                 .filter(note::Column::RepositoryId.is_in(chunk))
-                .filter(note::Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)
@@ -250,7 +243,6 @@ impl SnapshotRepo {
             .into_iter()
             .map(|row| BuiltSnapshot {
                 record_id: row.id,
-                deleted: row.deleted_at.is_some(),
                 snapshot: RecordSnapshot::Repository(RepositorySnapshot {
                     notes: sorted(
                         notes_by_repository
@@ -277,6 +269,7 @@ impl SnapshotRepo {
         tree_id: Uuid,
     ) -> Result<Vec<BuiltSnapshot>, OxidGeneError> {
         let Some(row) = tree::Entity::find_by_id(tree_id)
+            .filter(tree::Column::DeletedAt.is_null())
             .one(db)
             .await
             .map_err(db_err)?
@@ -292,7 +285,6 @@ impl SnapshotRepo {
         let privacy = crate::repo::tree::privacy_of(&row);
         Ok(vec![BuiltSnapshot {
             record_id: row.id,
-            deleted: row.deleted_at.is_some(),
             snapshot: RecordSnapshot::Tree(TreeSnapshot {
                 name: row.name,
                 description: row.description,
@@ -316,7 +308,8 @@ impl SnapshotRepo {
 
     // ── Restoring ───────────────────────────────────────────────────────
 
-    /// Write a person snapshot over the person's live rows, and return every
+    /// Write a person snapshot over the person's live rows, re-creating the
+    /// person under their ID if a deletion took them, and return every
     /// person whose links the restore may have changed.
     pub async fn restore_person(
         db: &impl ConnectionTrait,
@@ -325,21 +318,36 @@ impl SnapshotRepo {
         snapshot: &PersonSnapshot,
         labels: &[RecordLabel],
     ) -> Result<Vec<Uuid>, OxidGeneError> {
-        let existing = person::Entity::find_by_id(person_id)
+        let now = Utc::now();
+        match person::Entity::find_by_id(person_id)
             .filter(person::Column::TreeId.eq(tree_id))
             .one(db)
             .await
             .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Person",
-                id: person_id,
-            })?;
-        let mut active = existing.into_active_model();
-        active.sex = Set(snapshot.sex.into());
-        active.privacy = Set(snapshot.privacy.into());
-        active.deleted_at = Set(None);
-        active.updated_at = Set(Utc::now());
-        active.update(db).await.map_err(db_err)?;
+        {
+            Some(existing) => {
+                let mut active = existing.into_active_model();
+                active.sex = Set(snapshot.sex.into());
+                active.privacy = Set(snapshot.privacy.into());
+                active.updated_at = Set(now);
+                active.update(db).await.map_err(db_err)?;
+            }
+            None => {
+                person::ActiveModel {
+                    id: Set(person_id),
+                    tree_id: Set(tree_id),
+                    sex: Set(snapshot.sex.into()),
+                    privacy: Set(snapshot.privacy.into()),
+                    portrait_media_id: Set(None),
+                    portrait_vignette_id: Set(None),
+                    created_at: Set(super::minted_at(person_id).unwrap_or(now)),
+                    updated_at: Set(now),
+                }
+                .insert(db)
+                .await
+                .map_err(db_err)?;
+            }
+        }
 
         let mut touched: HashSet<Uuid> = HashSet::from([person_id]);
         let mut restorer = Restorer::new(db, tree_id, labels);
@@ -365,7 +373,8 @@ impl SnapshotRepo {
         Ok(touched)
     }
 
-    /// Write a place snapshot back, re-creating the place if it was deleted.
+    /// Write a place snapshot back, re-creating the place under its ID if a
+    /// deletion took it.
     pub async fn restore_place(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -394,7 +403,7 @@ impl SnapshotRepo {
                     name: Set(snapshot.name.clone()),
                     latitude: Set(snapshot.latitude),
                     longitude: Set(snapshot.longitude),
-                    created_at: Set(now),
+                    created_at: Set(super::minted_at(place_id).unwrap_or(now)),
                     updated_at: Set(now),
                 }
                 .insert(db)
@@ -405,7 +414,8 @@ impl SnapshotRepo {
         Ok(())
     }
 
-    /// Write a source snapshot back, undeleting the source.
+    /// Write a source snapshot back, re-creating the source under its ID if
+    /// a deletion took it.
     pub async fn restore_source(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -413,24 +423,39 @@ impl SnapshotRepo {
         snapshot: &SourceSnapshot,
     ) -> Result<(), OxidGeneError> {
         let now = Utc::now();
-        let existing = source::Entity::find_by_id(source_id)
+        match source::Entity::find_by_id(source_id)
             .filter(source::Column::TreeId.eq(tree_id))
             .one(db)
             .await
             .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Source",
-                id: source_id,
-            })?;
-        let mut active = existing.into_active_model();
-        active.title = Set(snapshot.title.clone());
-        active.author = Set(snapshot.author.clone());
-        active.publisher = Set(snapshot.publisher.clone());
-        active.abbreviation = Set(snapshot.abbreviation.clone());
-        active.agency = Set(snapshot.agency.clone());
-        active.deleted_at = Set(None);
-        active.updated_at = Set(now);
-        active.update(db).await.map_err(db_err)?;
+        {
+            Some(existing) => {
+                let mut active = existing.into_active_model();
+                active.title = Set(snapshot.title.clone());
+                active.author = Set(snapshot.author.clone());
+                active.publisher = Set(snapshot.publisher.clone());
+                active.abbreviation = Set(snapshot.abbreviation.clone());
+                active.agency = Set(snapshot.agency.clone());
+                active.updated_at = Set(now);
+                active.update(db).await.map_err(db_err)?;
+            }
+            None => {
+                source::ActiveModel {
+                    id: Set(source_id),
+                    tree_id: Set(tree_id),
+                    title: Set(snapshot.title.clone()),
+                    author: Set(snapshot.author.clone()),
+                    publisher: Set(snapshot.publisher.clone()),
+                    abbreviation: Set(snapshot.abbreviation.clone()),
+                    agency: Set(snapshot.agency.clone()),
+                    created_at: Set(super::minted_at(source_id).unwrap_or(now)),
+                    updated_at: Set(now),
+                }
+                .insert(db)
+                .await
+                .map_err(db_err)?;
+            }
+        }
         let mut restorer = Restorer::new(db, tree_id, &[]);
         restorer
             .notes(NoteOwner::Source(source_id), &snapshot.notes)
@@ -440,31 +465,48 @@ impl SnapshotRepo {
             .await
     }
 
-    /// Write a repository snapshot back, undeleting the repository.
+    /// Write a repository snapshot back, re-creating the repository under
+    /// its ID if a deletion took it.
     pub async fn restore_repository(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         repository_id: Uuid,
         snapshot: &RepositorySnapshot,
     ) -> Result<(), OxidGeneError> {
-        let existing = repository::Entity::find_by_id(repository_id)
+        let now = Utc::now();
+        match repository::Entity::find_by_id(repository_id)
             .filter(repository::Column::TreeId.eq(tree_id))
             .one(db)
             .await
             .map_err(db_err)?
-            .ok_or(OxidGeneError::NotFound {
-                entity: "Repository",
-                id: repository_id,
-            })?;
-        let mut active = existing.into_active_model();
-        active.name = Set(snapshot.name.clone());
-        active.address = Set(snapshot.address.clone());
-        active.phone = Set(snapshot.phone.clone());
-        active.email = Set(snapshot.email.clone());
-        active.website = Set(snapshot.website.clone());
-        active.deleted_at = Set(None);
-        active.updated_at = Set(Utc::now());
-        active.update(db).await.map_err(db_err)?;
+        {
+            Some(existing) => {
+                let mut active = existing.into_active_model();
+                active.name = Set(snapshot.name.clone());
+                active.address = Set(snapshot.address.clone());
+                active.phone = Set(snapshot.phone.clone());
+                active.email = Set(snapshot.email.clone());
+                active.website = Set(snapshot.website.clone());
+                active.updated_at = Set(now);
+                active.update(db).await.map_err(db_err)?;
+            }
+            None => {
+                repository::ActiveModel {
+                    id: Set(repository_id),
+                    tree_id: Set(tree_id),
+                    name: Set(snapshot.name.clone()),
+                    address: Set(snapshot.address.clone()),
+                    phone: Set(snapshot.phone.clone()),
+                    email: Set(snapshot.email.clone()),
+                    website: Set(snapshot.website.clone()),
+                    created_at: Set(super::minted_at(repository_id).unwrap_or(now)),
+                    updated_at: Set(now),
+                }
+                .insert(db)
+                .await
+                .map_err(db_err)?;
+            }
+        }
         Restorer::new(db, tree_id, &[])
             .notes(NoteOwner::Repository(repository_id), &snapshot.notes)
             .await
@@ -486,7 +528,7 @@ impl SnapshotRepo {
                 entity: "Tree",
                 id: tree_id,
             })?;
-        let live = live_persons(
+        let live = existing_persons(
             db,
             &snapshot
                 .sosa_root_person_id
@@ -551,7 +593,7 @@ struct PersonRows {
 impl PersonRows {
     /// Read the rows the snapshots of these persons are built from.
     async fn load(db: &impl ConnectionTrait, person_ids: &[Uuid]) -> Result<Self, OxidGeneError> {
-        // Memberships, and the live families they lead to.
+        // Memberships, and the families they lead to.
         let (as_child, as_spouse) = memberships(db, person_ids).await?;
         let family_ids = sorted_unique(
             as_child
@@ -559,7 +601,7 @@ impl PersonRows {
                 .map(|c| c.family_id)
                 .chain(as_spouse.iter().map(|s| s.family_id)),
         );
-        let families: HashMap<Uuid, family::Model> = live_families(db, &family_ids)
+        let families: HashMap<Uuid, family::Model> = families(db, &family_ids)
             .await?
             .into_iter()
             .map(|f| (f.id, f))
@@ -577,7 +619,7 @@ impl PersonRows {
                 .map_err(db_err)
         })
         .await?;
-        let (person_events, family_events) = live_events(db, person_ids, &family_ids).await?;
+        let (person_events, family_events) = events(db, person_ids, &family_ids).await?;
         let event_ids: Vec<Uuid> = person_events
             .iter()
             .chain(family_events.iter())
@@ -651,7 +693,6 @@ impl PersonRows {
                 .get(&person.id)
                 .into_iter()
                 .flatten()
-                .filter(|c| self.families.contains_key(&c.family_id))
                 .map(child_snapshot)
                 .collect(),
             |c: &ChildLinkSnapshot| (c.sort_order, c.id),
@@ -688,7 +729,6 @@ impl PersonRows {
         );
         BuiltSnapshot {
             record_id: person.id,
-            deleted: person.deleted_at.is_some(),
             snapshot: RecordSnapshot::Person(snapshot),
             labels: into_labels(labels),
         }
@@ -887,8 +927,8 @@ async fn family_links(
     Ok((spouses, children))
 }
 
-/// The live events of these persons, then those of these families.
-async fn live_events(
+/// The events of these persons, then those of these families.
+async fn events(
     db: &impl ConnectionTrait,
     person_ids: &[Uuid],
     family_ids: &[Uuid],
@@ -896,7 +936,6 @@ async fn live_events(
     let person_events = in_chunks(person_ids, |chunk| async move {
         event::Entity::find()
             .filter(event::Column::PersonId.is_in(chunk))
-            .filter(event::Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)
@@ -905,7 +944,6 @@ async fn live_events(
     let family_events = in_chunks(family_ids, |chunk| async move {
         event::Entity::find()
             .filter(event::Column::FamilyId.is_in(chunk))
-            .filter(event::Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)
@@ -986,7 +1024,6 @@ impl Attached<note::Model> {
                 in_chunks(ids, |chunk| async move {
                     note::Entity::find()
                         .filter(column.is_in(chunk))
-                        .filter(note::Column::DeletedAt.is_null())
                         // A note about a media belongs to the media.
                         .filter(note::Column::MediaId.is_null())
                         .all(db)
@@ -1156,14 +1193,13 @@ fn sorted<T, K: Ord>(mut items: Vec<T>, key: impl Fn(&T) -> K) -> Vec<T> {
     items
 }
 
-async fn live_families(
+async fn families(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
 ) -> Result<Vec<family::Model>, OxidGeneError> {
     in_chunks(ids, |chunk| async move {
         family::Entity::find()
             .filter(family::Column::Id.is_in(chunk))
-            .filter(family::Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)
@@ -1171,7 +1207,7 @@ async fn live_families(
     .await
 }
 
-async fn live_persons(
+async fn existing_persons(
     db: &impl ConnectionTrait,
     ids: &[Uuid],
 ) -> Result<HashSet<Uuid>, OxidGeneError> {
@@ -1180,7 +1216,6 @@ async fn live_persons(
             .select_only()
             .column(person::Column::Id)
             .filter(person::Column::Id.is_in(chunk))
-            .filter(person::Column::DeletedAt.is_null())
             .into_tuple::<Uuid>()
             .all(db)
             .await
@@ -1360,8 +1395,8 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
         }
     }
 
-    /// Replace a person's names with the snapshot's. Names have no soft
-    /// deletion, so the ones it lacks are removed.
+    /// Replace a person's names with the snapshot's: the ones it lacks are
+    /// deleted.
     async fn names(
         &mut self,
         person_id: Uuid,
@@ -1436,15 +1471,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             EventOwner::Family(id) => event::Column::FamilyId.eq(id),
         };
         let wanted: Vec<Uuid> = events.iter().map(|e| e.id).collect();
-        event::Entity::update_many()
-            .col_expr(event::Column::DeletedAt, Expr::value(Some(now)))
-            .col_expr(event::Column::UpdatedAt, Expr::value(now))
-            .filter(owner_filter)
-            .filter(event::Column::DeletedAt.is_null())
-            .filter(event::Column::Id.is_not_in(wanted))
-            .exec(self.db)
-            .await
-            .map_err(db_err)?;
+        self.delete_events_but(owner_filter, wanted).await?;
 
         for snapshot in events {
             let place_id = match snapshot.place_id {
@@ -1452,8 +1479,8 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 _ => None,
             };
             // The family an individual event names is kept only while the
-            // tree still has it, deleted or not: the snapshot's family may
-            // belong to another person's record.
+            // tree still has it: the snapshot's family may belong to another
+            // person's record.
             let related_family_id = match snapshot.related_family_id {
                 Some(family_id) => family::Entity::find_by_id(family_id)
                     .filter(family::Column::TreeId.eq(self.tree_id))
@@ -1489,7 +1516,6 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 description: Set(snapshot.description.clone()),
                 created_at: Set(now),
                 updated_at: Set(now),
-                deleted_at: Set(None),
             };
             upsert(
                 self.db,
@@ -1508,6 +1534,33 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
         Ok(())
     }
 
+    /// Delete the events `owner` names but `wanted`, as the API deletes an
+    /// event: the boxes standing as evidence for them lose that attribution.
+    async fn delete_events_but(
+        &self,
+        owner: sea_orm::sea_query::SimpleExpr,
+        wanted: Vec<Uuid>,
+    ) -> Result<(), OxidGeneError> {
+        let removed: Vec<Uuid> = event::Entity::find()
+            .select_only()
+            .column(event::Column::Id)
+            .filter(owner)
+            .filter(event::Column::Id.is_not_in(wanted))
+            .into_tuple()
+            .all(self.db)
+            .await
+            .map_err(db_err)?;
+        VignetteRepo::detach_events(self.db, &removed).await?;
+        for chunk in removed.chunks(super::batch::MAX_BOUND_IDS) {
+            event::Entity::delete_many()
+                .filter(event::Column::Id.is_in(chunk.iter().copied()))
+                .exec(self.db)
+                .await
+                .map_err(db_err)?;
+        }
+        Ok(())
+    }
+
     async fn witnesses(
         &mut self,
         event_id: Uuid,
@@ -1521,7 +1574,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             .await
             .map_err(db_err)?;
         for witness in witnesses {
-            if !self.person_is_live(witness.person_id).await? {
+            if !self.person_exists(witness.person_id).await? {
                 continue;
             }
             let row = event_witness::ActiveModel {
@@ -1613,12 +1666,9 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             }
         };
         let wanted: Vec<Uuid> = notes.iter().map(|n| n.id).collect();
-        note::Entity::update_many()
-            .col_expr(note::Column::DeletedAt, Expr::value(Some(now)))
-            .col_expr(note::Column::UpdatedAt, Expr::value(now))
+        note::Entity::delete_many()
             .filter(owner_filter)
             .filter(note::Column::MediaId.is_null())
-            .filter(note::Column::DeletedAt.is_null())
             .filter(note::Column::Id.is_not_in(wanted))
             .exec(self.db)
             .await
@@ -1641,7 +1691,6 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 confidential: Set(snapshot.confidential),
                 created_at: Set(now),
                 updated_at: Set(now),
-                deleted_at: Set(None),
             };
             upsert(
                 self.db,
@@ -1784,7 +1833,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                 .map_err(db_err)?;
         }
         for link in parents {
-            if self.family_is_live(link.family_id).await? {
+            if self.family_exists(link.family_id).await? {
                 self.child_link(link).await?;
                 touched.extend(family_members(self.db, link.family_id).await?);
             }
@@ -1836,8 +1885,8 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             .await
     }
 
-    /// Undelete a union's family with the snapshot's privacy, re-creating it
-    /// if it is gone.
+    /// Set a union's family to the snapshot's privacy, re-creating it under
+    /// its ID if it is gone.
     async fn family(&mut self, union: &UnionSnapshot) -> Result<(), OxidGeneError> {
         let now = Utc::now();
         match family::Entity::find_by_id(union.family_id)
@@ -1849,7 +1898,6 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             Some(existing) => {
                 let mut active = existing.into_active_model();
                 active.privacy = Set(union.privacy.into());
-                active.deleted_at = Set(None);
                 active.updated_at = Set(now);
                 active.update(self.db).await.map_err(db_err)?;
             }
@@ -1858,9 +1906,8 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
                     id: Set(union.family_id),
                     tree_id: Set(self.tree_id),
                     privacy: Set(union.privacy.into()),
-                    created_at: Set(now),
+                    created_at: Set(super::minted_at(union.family_id).unwrap_or(now)),
                     updated_at: Set(now),
-                    deleted_at: Set(None),
                 }
                 .insert(self.db)
                 .await
@@ -1885,7 +1932,7 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             .await
             .map_err(db_err)?;
         for spouse in spouses {
-            if !self.person_is_live(spouse.person_id).await? {
+            if !self.person_exists(spouse.person_id).await? {
                 continue;
             }
             let row = family_spouse::ActiveModel {
@@ -1922,26 +1969,26 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
             .await
             .map_err(db_err)?;
         for child in children {
-            if self.person_is_live(child.person_id).await? {
+            if self.person_exists(child.person_id).await? {
                 self.child_link(child).await?;
             }
         }
         Ok(())
     }
 
-    async fn family_is_live(&mut self, family_id: Uuid) -> Result<bool, OxidGeneError> {
-        Ok(!live_families(self.db, &[family_id]).await?.is_empty())
+    async fn family_exists(&mut self, family_id: Uuid) -> Result<bool, OxidGeneError> {
+        Ok(!families(self.db, &[family_id]).await?.is_empty())
     }
 
-    async fn person_is_live(&mut self, person_id: Uuid) -> Result<bool, OxidGeneError> {
-        if let Some(live) = self.persons.get(&person_id) {
-            return Ok(*live);
+    async fn person_exists(&mut self, person_id: Uuid) -> Result<bool, OxidGeneError> {
+        if let Some(exists) = self.persons.get(&person_id) {
+            return Ok(*exists);
         }
-        let live = live_persons(self.db, &[person_id])
+        let exists = existing_persons(self.db, &[person_id])
             .await?
             .contains(&person_id);
-        self.persons.insert(person_id, live);
-        Ok(live)
+        self.persons.insert(person_id, exists);
+        Ok(exists)
     }
 
     /// Make sure an event's place exists, re-creating a deleted one from the
@@ -1987,26 +2034,49 @@ impl<'a, C: ConnectionTrait> Restorer<'a, C> {
         Ok(present)
     }
 
-    /// Make sure a cited source exists, undeleting it if it was deleted.
+    /// Make sure a cited source exists, re-creating a deleted one from the
+    /// last state its history stored, or from the title recorded with the
+    /// snapshot.
     async fn ensure_source(&mut self, source_id: Uuid) -> Result<bool, OxidGeneError> {
         if let Some(present) = self.sources.get(&source_id) {
             return Ok(*present);
         }
-        let present = match source::Entity::find_by_id(source_id)
+        let exists = source::Entity::find_by_id(source_id)
             .filter(source::Column::TreeId.eq(self.tree_id))
             .one(self.db)
             .await
             .map_err(db_err)?
-        {
-            Some(existing) if existing.deleted_at.is_some() => {
-                let mut active = existing.into_active_model();
-                active.deleted_at = Set(None);
-                active.updated_at = Set(Utc::now());
-                active.update(self.db).await.map_err(db_err)?;
-                true
+            .is_some();
+        let present = if exists {
+            true
+        } else {
+            let latest = HistoryRepo::last_stored_snapshot(self.db, RecordType::Source, source_id)
+                .await?
+                .and_then(|latest| match latest {
+                    RecordSnapshot::Source(source) => Some(source),
+                    _ => None,
+                });
+            let restored = latest.or_else(|| {
+                self.labels
+                    .iter()
+                    .find(|label| label.id == source_id)
+                    .map(|label| SourceSnapshot {
+                        title: label.label.clone(),
+                        author: None,
+                        publisher: None,
+                        abbreviation: None,
+                        agency: None,
+                        repositories: Vec::new(),
+                        notes: Vec::new(),
+                    })
+            });
+            match restored {
+                Some(source) => {
+                    SnapshotRepo::restore_source(self.db, self.tree_id, source_id, &source).await?;
+                    true
+                }
+                None => false,
             }
-            Some(_) => true,
-            None => false,
         };
         self.sources.insert(source_id, present);
         Ok(present)

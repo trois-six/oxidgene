@@ -126,7 +126,7 @@ impl Record {
         self.bundle
             .events
             .iter()
-            .filter(|e| e.person_id == Some(self.id()) && e.deleted_at.is_none())
+            .filter(|e| e.person_id == Some(self.id()))
             .collect()
     }
 
@@ -1054,7 +1054,6 @@ mod tests {
             tags: Vec::new(),
             created_at: now,
             updated_at: now,
-            deleted_at: None,
         }
     }
 

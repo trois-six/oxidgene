@@ -63,7 +63,7 @@ A deleted person's profile is gone, but their history stays available.
 3. The page shows a **Deleted** badge beside the title. The current version is the deleted state; it cannot be restored itself.
 4. Select the version just before the deletion and click **Restore this version**.
 
-The person comes back as they were before the deletion, and their name in the top bar links to their profile again.
+The person comes back as they were before the deletion — names, events, notes, sources, parents and unions — and their name in the top bar links to their profile again. What a version does not hold does not come back: their tags, their media links and their identifications on photos.
 
 ## Use the tree's change log
 

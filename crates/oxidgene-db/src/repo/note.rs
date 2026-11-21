@@ -1,4 +1,4 @@
-//! Repository for `Note` entities (CRUD with soft delete).
+//! Repository for `Note` entities (CRUD).
 //!
 //! Note bodies are rendered as HTML, so every write here runs the text through
 //! [`sanitize_note_html`] — this is the choke point both REST and GraphQL go
@@ -47,7 +47,6 @@ impl NoteRepo {
     ) -> Result<Connection<Note>, OxidGeneError> {
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .filter(leave_out.keeping(oxidgene_core::types::RecordKind::Note, Column::Id));
         if leave_out.confidential {
             query = query.filter(Column::Confidential.eq(false));
@@ -83,15 +82,15 @@ impl NoteRepo {
         Ok(page)
     }
 
-    /// Get a single note by ID (excludes soft-deleted).
+    /// Get a single note by ID.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Note, OxidGeneError> {
-        let note = find_live(db, id).await.map(into_domain)?;
+        let note = find_row(db, id).await.map(into_domain)?;
         hydrate_one(db, note).await
     }
 
-    /// The live notes among `ids`, one read per bounded slice of ids. Their tags
+    /// The notes among `ids`, one read per bounded slice of ids. Their tags
     /// are not filled: this serves the labels of many records at once. A
-    /// missing or soft-deleted id is absent.
+    /// missing id is absent.
     pub async fn get_many_untagged(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
@@ -99,7 +98,6 @@ impl NoteRepo {
         in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::Id.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?;
@@ -108,8 +106,8 @@ impl NoteRepo {
         .await
     }
 
-    /// The live notes among `ids`, one read per bounded slice of ids. A
-    /// missing or soft-deleted id is absent.
+    /// The notes among `ids`, one read per bounded slice of ids. A
+    /// missing id is absent.
     pub async fn get_many(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
@@ -118,7 +116,7 @@ impl NoteRepo {
         hydrate(db, notes).await
     }
 
-    /// List all notes in a tree without pagination (excludes soft-deleted).
+    /// List all notes in a tree without pagination.
     pub async fn list_all(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -127,7 +125,7 @@ impl NoteRepo {
         hydrate(db, notes).await
     }
 
-    /// Every live note of a tree, without its tags: the profile projections
+    /// Every note of a tree, without its tags: the profile projections
     /// only count notes per person.
     pub async fn list_all_untagged(
         db: &impl ConnectionTrait,
@@ -135,7 +133,6 @@ impl NoteRepo {
     ) -> Result<Vec<Note>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
@@ -153,9 +150,7 @@ impl NoteRepo {
         source_id: Option<Uuid>,
         media_id: Option<Uuid>,
     ) -> Result<Vec<Note>, OxidGeneError> {
-        let mut query = Entity::find()
-            .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null());
+        let mut query = Entity::find().filter(Column::TreeId.eq(tree_id));
 
         if let Some(pid) = person_id {
             query = query.filter(Column::PersonId.eq(pid));
@@ -177,7 +172,7 @@ impl NoteRepo {
         hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
-    /// List the live notes attached to any of the given persons in a tree.
+    /// List the notes attached to any of the given persons in a tree.
     pub async fn list_by_persons(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -194,10 +189,10 @@ impl NoteRepo {
         tree_id: Uuid,
         person_ids: &[Uuid],
     ) -> Result<Vec<Note>, OxidGeneError> {
-        Self::list_live_by_untagged(db, tree_id, Column::PersonId, person_ids).await
+        Self::list_by_untagged(db, tree_id, Column::PersonId, person_ids).await
     }
 
-    /// How many live notes of a tree are attached to each of the given
+    /// How many notes of a tree are attached to each of the given
     /// persons; a person without any is absent. One grouped read per chunk
     /// of persons, which reads no note text: the profile projections show
     /// the count and never the notes.
@@ -213,7 +208,6 @@ impl NoteRepo {
                 .column(Column::PersonId)
                 .column_as(Column::Id.count(), "notes")
                 .filter(Column::TreeId.eq(tree_id))
-                .filter(Column::DeletedAt.is_null())
                 .filter(Column::PersonId.is_in(chunk))
                 .group_by(Column::PersonId)
                 .into_tuple()
@@ -228,28 +222,28 @@ impl NoteRepo {
             .collect())
     }
 
-    /// List the live notes attached to any of the given events in a tree.
+    /// List the notes attached to any of the given events in a tree.
     pub async fn list_by_events(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         event_ids: &[Uuid],
     ) -> Result<Vec<Note>, OxidGeneError> {
-        let notes = Self::list_live_by_untagged(db, tree_id, Column::EventId, event_ids).await?;
+        let notes = Self::list_by_untagged(db, tree_id, Column::EventId, event_ids).await?;
         hydrate(db, notes).await
     }
 
-    /// List the live notes attached to any of the given media in a tree.
+    /// List the notes attached to any of the given media in a tree.
     pub async fn list_by_medias(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         media_ids: &[Uuid],
     ) -> Result<Vec<Note>, OxidGeneError> {
-        let notes = Self::list_live_by_untagged(db, tree_id, Column::MediaId, media_ids).await?;
+        let notes = Self::list_by_untagged(db, tree_id, Column::MediaId, media_ids).await?;
         hydrate(db, notes).await
     }
 
-    /// The live notes of a tree whose `column` is one of `ids`, without tags.
-    async fn list_live_by_untagged(
+    /// The notes of a tree whose `column` is one of `ids`, without tags.
+    async fn list_by_untagged(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         column: Column,
@@ -258,7 +252,6 @@ impl NoteRepo {
         in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::TreeId.eq(tree_id))
-                .filter(Column::DeletedAt.is_null())
                 .filter(column.is_in(chunk))
                 .all(db)
                 .await
@@ -304,7 +297,6 @@ impl NoteRepo {
             confidential: Set(confidential),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         };
         let result = model.insert(db).await.map_err(db_err)?;
         hydrate_one(db, into_domain(result)).await
@@ -317,7 +309,7 @@ impl NoteRepo {
         text: Option<String>,
         confidential: Option<bool>,
     ) -> Result<Note, OxidGeneError> {
-        let existing = find_live(db, id).await?;
+        let existing = find_row(db, id).await?;
 
         let mut active: ActiveModel = existing.into_active_model();
         if let Some(text) = text {
@@ -332,13 +324,10 @@ impl NoteRepo {
         hydrate_one(db, into_domain(result)).await
     }
 
-    /// Soft-delete a note.
+    /// Delete a note; its tags go with it (cascade).
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let existing = find_live(db, id).await?;
-
-        let mut active: ActiveModel = existing.into_active_model();
-        active.deleted_at = Set(Some(Utc::now()));
-        active.update(db).await.map_err(db_err)?;
+        find_row(db, id).await?;
+        Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         Ok(())
     }
 }
@@ -359,7 +348,6 @@ fn into_domain(m: note::Model) -> Note {
         tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
-        deleted_at: m.deleted_at,
     }
 }
 
@@ -382,10 +370,10 @@ async fn hydrate_one(db: &impl ConnectionTrait, note: Note) -> Result<Note, Oxid
     Ok(notes.remove(0))
 }
 
-/// Row `id`, unless it is missing or soft-deleted.
-async fn find_live(
+/// Row `id`; `NotFound` when it is missing.
+async fn find_row(
     db: &impl ConnectionTrait,
     id: Uuid,
 ) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
-    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Note").await
+    crate::repo::find_row::<Entity>(db, id, "Note").await
 }

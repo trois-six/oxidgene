@@ -1,4 +1,4 @@
-//! Repository for `Citation` entities (CRUD, no soft delete).
+//! Repository for `Citation` entities (CRUD).
 
 use chrono::Utc;
 use oxidgene_core::enums::Confidence;
@@ -6,8 +6,7 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::{Citation, Connection, RecordKind};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ActiveModelTrait, Condition, ConnectionTrait, IntoActiveModel, JoinType, QueryFilter,
-    QuerySelect, Set,
+    ActiveModelTrait, Condition, ConnectionTrait, IntoActiveModel, QueryFilter, QuerySelect, Set,
 };
 use uuid::Uuid;
 
@@ -44,11 +43,9 @@ impl CitationRepo {
     ) -> Result<Connection<Citation>, OxidGeneError> {
         // A citation is of its source's tree (a composite foreign key): its
         // own `tree_id` reads a page of them in id order from
-        // `uq_citation_tree_id`, the join leaving out a deleted source's.
+        // `uq_citation_tree_id`.
         let mut query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .join(JoinType::InnerJoin, citation::Relation::Source.def())
-            .filter(source::Column::DeletedAt.is_null())
             .filter(leave_out.keeping(oxidgene_core::types::RecordKind::Citation, Column::Id));
 
         if let Some(person_id) = filter.person_id {
@@ -81,9 +78,7 @@ impl CitationRepo {
         tree_id: Uuid,
     ) -> Result<Vec<Citation>, OxidGeneError> {
         let models = Entity::find()
-            .join(JoinType::InnerJoin, citation::Relation::Source.def())
-            .filter(source::Column::TreeId.eq(tree_id))
-            .filter(source::Column::DeletedAt.is_null())
+            .filter(Column::TreeId.eq(tree_id))
             .all(db)
             .await
             .map_err(db_err)?;
@@ -103,9 +98,7 @@ impl CitationRepo {
                 .select_only()
                 .column(Column::PersonId)
                 .column_as(Column::Id.count(), "citations")
-                .join(JoinType::InnerJoin, citation::Relation::Source.def())
                 .filter(Column::PersonId.is_in(chunk))
-                .filter(source::Column::DeletedAt.is_null())
                 .group_by(Column::PersonId)
                 .into_tuple()
                 .all(db)
@@ -130,7 +123,7 @@ impl CitationRepo {
         if !event_ids.is_empty() {
             targets = targets.add(Column::EventId.is_in(event_ids.iter().copied()));
         }
-        Self::list_live(db, tree_id, targets).await
+        Self::list_matching(db, tree_id, targets).await
     }
 
     /// Citations of tree `tree_id` attached directly to any of `person_ids`,
@@ -141,7 +134,7 @@ impl CitationRepo {
         person_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
         in_chunks(person_ids, |chunk| {
-            Self::list_live(
+            Self::list_matching(
                 db,
                 tree_id,
                 Condition::all().add(Column::PersonId.is_in(chunk)),
@@ -158,7 +151,7 @@ impl CitationRepo {
         event_ids: &[Uuid],
     ) -> Result<Vec<Citation>, OxidGeneError> {
         in_chunks(event_ids, |chunk| {
-            Self::list_live(
+            Self::list_matching(
                 db,
                 tree_id,
                 Condition::all().add(Column::EventId.is_in(chunk)),
@@ -167,16 +160,14 @@ impl CitationRepo {
         .await
     }
 
-    /// The citations of tree `tree_id` matching `targets` whose source is live.
-    async fn list_live(
+    /// The citations of tree `tree_id` matching `targets`.
+    async fn list_matching(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
         targets: Condition,
     ) -> Result<Vec<Citation>, OxidGeneError> {
         let models = Entity::find()
-            .join(JoinType::InnerJoin, citation::Relation::Source.def())
-            .filter(source::Column::TreeId.eq(tree_id))
-            .filter(source::Column::DeletedAt.is_null())
+            .filter(Column::TreeId.eq(tree_id))
             .filter(targets)
             .all(db)
             .await

@@ -83,8 +83,6 @@ impl MediaLinkRepo {
                 INNER JOIN media m ON m.id = ml.media_id
                 INNER JOIN person p ON p.id = ml.person_id
                 WHERE p.tree_id = {}
-                  AND p.deleted_at IS NULL
-                  AND m.deleted_at IS NULL
                   AND ml.person_id IS NOT NULL
                 UNION ALL
                 SELECT ml.id AS link_id,
@@ -96,8 +94,6 @@ impl MediaLinkRepo {
                 INNER JOIN media m ON m.id = ml.media_id
                 INNER JOIN event e ON e.id = ml.event_id
                 WHERE e.tree_id = {}
-                  AND e.deleted_at IS NULL
-                  AND m.deleted_at IS NULL
                   AND ml.event_id IS NOT NULL
             "#,
             placeholders[0], placeholders[1]
@@ -226,9 +222,6 @@ impl MediaLinkRepo {
     }
 
     /// The links matching `targets`, each with its media, in gallery order.
-    ///
-    /// A soft-deleted media keeps its links; no gallery shows it, and dropping
-    /// it here beats every caller remembering to.
     async fn with_media(
         db: &impl ConnectionTrait,
         targets: Condition,
@@ -244,7 +237,7 @@ impl MediaLinkRepo {
         Ok(rows
             .into_iter()
             .filter_map(|(link, media)| {
-                let media = media.filter(|m| m.deleted_at.is_none())?;
+                let media = media?;
                 Some((into_domain(link), crate::repo::media::into_domain(media)))
             })
             .collect())

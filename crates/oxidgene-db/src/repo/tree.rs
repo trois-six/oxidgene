@@ -379,14 +379,18 @@ fn into_domain(m: tree::Model) -> Tree {
         trusted_media_hosts: trusted_hosts_of(m.trusted_media_hosts.as_deref()),
         created_at: m.created_at,
         updated_at: m.updated_at,
-        deleted_at: m.deleted_at,
     }
 }
 
-/// Row `id`, unless it is missing or soft-deleted.
+/// Row `id`, unless it is missing or queued for its purge.
 async fn find_live(
     db: &impl ConnectionTrait,
     id: Uuid,
 ) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
-    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Tree").await
+    Entity::find_by_id(id)
+        .filter(Column::DeletedAt.is_null())
+        .one(db)
+        .await
+        .map_err(db_err)?
+        .ok_or(OxidGeneError::NotFound { entity: "Tree", id })
 }

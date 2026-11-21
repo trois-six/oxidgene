@@ -507,9 +507,8 @@ async fn nested_graphql_lists_leave_hidden_records_out() {
     }
 }
 
-/// The records of a hidden person outlive their soft deletion: an
-/// excluded person the owner deleted keeps their events, notes and
-/// citations hidden (docs/privacy.md §3.2), in lists and direct reads.
+/// The records of a hidden person the owner deleted are gone with them: no
+/// viewer reads their events, notes or citations, in lists or direct reads.
 #[tokio::test]
 async fn the_records_of_a_deleted_hidden_person_stay_hidden() {
     let f = fixture().await;

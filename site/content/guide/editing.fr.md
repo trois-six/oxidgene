@@ -144,7 +144,7 @@ Après chaque enregistrement, OxidGene cherche dans l’arbre les autres personn
 2. Tout en bas, cliquez sur **Supprimer cette personne**.
 3. Lisez l’avertissement et cliquez sur **Confirmer la suppression**.
 
-La personne et ses événements sont supprimés, ainsi que ses liens avec ses parents, ses enfants et ses conjoints. Une personne supprimée peut encore être restaurée depuis son [historique](@/guide/history.fr.md).
+La personne et ses événements sont supprimés, ainsi que ses noms, notes et sources, ses liens avec ses parents, ses enfants et ses conjoints, ses liens vers des médias et ses étiquettes ; les photos restent dans la médiathèque, et les cadres qui l’identifiaient sur une photo restent, sans son nom. Un couple qui ne compte plus personne reste dans l’arbre. L’historique conserve le dernier état de la personne : une personne supprimée peut encore être restaurée depuis son [historique](@/guide/history.fr.md).
 
 ## Modifier un couple
 

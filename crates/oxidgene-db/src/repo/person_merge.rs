@@ -4,7 +4,7 @@
 //! every row naming the duplicate is re-pointed at the person that is kept,
 //! and rows that would then say the same thing twice are dropped instead.
 //! Deciding *whether* two persons may be merged is the caller's business; so
-//! is soft-deleting the duplicate and refreshing projections afterwards.
+//! is deleting the duplicate and refreshing projections afterwards.
 
 use std::collections::HashSet;
 
@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::entities::sea_enums;
 use crate::entities::{
     citation, event, event_witness, family_child, family_spouse, media_link, note, person,
-    person_name, record_tag, tree, vignette,
+    person_name, record_tag, tree, tree_membership, vignette,
 };
 use crate::repo::db_err;
 use crate::repo::person_distinct::PersonDistinctRepo;
@@ -40,7 +40,8 @@ impl PersonMergeRepo {
     ///   same event, the same media — which is dropped rather than doubled. A
     ///   witness row on the kept person's own event is dropped as well: nobody
     ///   witnesses their own birth.
-    /// - **Tree roots** and **distinct-person confirmations** move with them.
+    /// - **Tree roots**, the **members' "Who am I?"** and **distinct-person
+    ///   confirmations** move with them.
     ///
     /// The duplicate itself is left in place, and is the caller's to delete.
     pub async fn absorb(
@@ -95,6 +96,14 @@ impl PersonMergeRepo {
             db,
             tree::Entity::update_many().filter(tree::Column::SelfPersonId.eq(duplicate)),
             tree::Column::SelfPersonId,
+            kept,
+        )
+        .await?;
+        repoint(
+            db,
+            tree_membership::Entity::update_many()
+                .filter(tree_membership::Column::SelfPersonId.eq(duplicate)),
+            tree_membership::Column::SelfPersonId,
             kept,
         )
         .await?;

@@ -449,7 +449,7 @@ impl<'a> EventIndex<'a> {
             by_person: HashMap::new(),
             by_family: HashMap::new(),
         };
-        for e in events.iter().filter(|e| e.deleted_at.is_none()) {
+        for e in events {
             if let Some(epid) = e.person_id {
                 index.by_person.entry(epid).or_default().push(e);
             }
@@ -2231,7 +2231,7 @@ mod tests {
                 "date_value": null, "date_sort": null, "date_qualifier": "exact",
                 "date_value2": null, "calendar": "gregorian", "cause": null,
                 "place_id": null, "person_id": person, "family_id": family,
-                "description": null, "created_at": at, "updated_at": at, "deleted_at": null
+                "description": null, "created_at": at, "updated_at": at
             })
         };
         let citation = |id: u128, event: Uuid| {
@@ -2262,7 +2262,7 @@ mod tests {
                 "id": source, "tree_id": Uuid::nil(),
                 "title": "AD01 - Exampleville - Registres matricules - 1890", "author": null,
                 "publisher": null, "abbreviation": null, "created_at": at,
-                "updated_at": at, "deleted_at": null
+                "updated_at": at
             }],
             "profile_media": [],
             "profile_vignettes": [],

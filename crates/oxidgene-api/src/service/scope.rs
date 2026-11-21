@@ -24,35 +24,22 @@ pub(crate) enum TreeResource {
 }
 
 impl TreeResource {
-    fn query(self) -> (&'static str, &'static str) {
+    /// The table of the resource: each of them names its tree in its own
+    /// `tree_id`.
+    fn table(self) -> &'static str {
         match self {
-            Self::Person => ("person r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
-            Self::Family => ("family r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
-            Self::Event => ("event r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
-            Self::EventWitness => (
-                "event_witness r JOIN event e ON e.id = r.event_id",
-                "e.tree_id = {tree} AND e.deleted_at IS NULL",
-            ),
-            Self::Place => ("place r", "r.tree_id = {tree}"),
-            Self::Source => ("source r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
-            Self::Repository => (
-                "repository r",
-                "r.tree_id = {tree} AND r.deleted_at IS NULL",
-            ),
-            Self::Citation => (
-                "citation r JOIN source s ON s.id = r.source_id",
-                "s.tree_id = {tree} AND s.deleted_at IS NULL",
-            ),
-            Self::Note => ("note r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
-            Self::Media => ("media r", "r.tree_id = {tree} AND r.deleted_at IS NULL"),
-            Self::MediaLink => (
-                "media_link r JOIN media m ON m.id = r.media_id",
-                "m.tree_id = {tree} AND m.deleted_at IS NULL",
-            ),
-            Self::Vignette => (
-                "vignette r JOIN media m ON m.id = r.media_id",
-                "m.tree_id = {tree} AND m.deleted_at IS NULL",
-            ),
+            Self::Person => "person",
+            Self::Family => "family",
+            Self::Event => "event",
+            Self::EventWitness => "event_witness",
+            Self::Place => "place",
+            Self::Source => "source",
+            Self::Repository => "repository",
+            Self::Citation => "citation",
+            Self::Note => "note",
+            Self::Media => "media",
+            Self::MediaLink => "media_link",
+            Self::Vignette => "vignette",
         }
     }
 
@@ -97,10 +84,10 @@ pub(crate) async fn require_tree_resource(
         DbBackend::Postgres => ("$1", "$2"),
         _ => ("?", "?"),
     };
-    let (from, condition) = resource.query();
-    let condition = condition.replace("{tree}", tree_param);
-    let sql =
-        format!("SELECT 1 AS present FROM {from} WHERE r.id = {id_param} AND {condition} LIMIT 1");
+    let sql = format!(
+        "SELECT 1 AS present FROM {} WHERE id = {id_param} AND tree_id = {tree_param} LIMIT 1",
+        resource.table()
+    );
     let found = db
         .query_one_raw(Statement::from_sql_and_values(
             backend,

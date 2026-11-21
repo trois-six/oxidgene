@@ -31,8 +31,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::entities::{
-    citation, event, family, family_spouse, media, media_link, person, person_name, place,
-    sea_enums, source, vignette,
+    citation, event, family_spouse, media, media_link, person_name, place, sea_enums, source,
+    vignette,
 };
 use crate::repo::batch::{MAX_BOUND_IDS, in_chunks};
 use crate::repo::db_err;
@@ -141,7 +141,7 @@ pub const SOURCE_DRILL_THRESHOLD: i64 = 250;
 
 pub struct DictionaryRepo;
 
-/// Every name of every live person in a tree, read through the tree itself
+/// Every name of every person in a tree, read through the tree itself
 /// rather than a list of its person ids — a list that long cannot be bound
 /// into one query once a tree passes about 32 000 persons.
 async fn tree_names(
@@ -149,9 +149,7 @@ async fn tree_names(
     tree_id: Uuid,
 ) -> Result<Vec<person_name::Model>, OxidGeneError> {
     person_name::Entity::find()
-        .join(JoinType::InnerJoin, person_name::Relation::Person.def())
-        .filter(person::Column::TreeId.eq(tree_id))
-        .filter(person::Column::DeletedAt.is_null())
+        .filter(person_name::Column::TreeId.eq(tree_id))
         .all(db)
         .await
         .map_err(db_err)
@@ -176,9 +174,7 @@ impl DictionaryRepo {
             .column(person_name::Column::Surname)
             .column(person_name::Column::SurnamePrefix)
             .column(person_name::Column::IsPrimary)
-            .join(JoinType::InnerJoin, person_name::Relation::Person.def())
-            .filter(person::Column::TreeId.eq(tree_id))
-            .filter(person::Column::DeletedAt.is_null())
+            .filter(person_name::Column::TreeId.eq(tree_id))
             .filter(person_name::Column::Surname.is_not_null())
             .into_tuple()
             .all(db)
@@ -240,9 +236,7 @@ impl DictionaryRepo {
             .select_only()
             .column(person_name::Column::PersonId)
             .column(person_name::Column::GivenNames)
-            .join(JoinType::InnerJoin, person_name::Relation::Person.def())
-            .filter(person::Column::TreeId.eq(tree_id))
-            .filter(person::Column::DeletedAt.is_null())
+            .filter(person_name::Column::TreeId.eq(tree_id))
             .filter(person_name::Column::GivenNames.is_not_null())
             .into_tuple()
             .all(db)
@@ -281,7 +275,6 @@ impl DictionaryRepo {
             .column(event::Column::Description)
             .column(event::Column::PersonId)
             .filter(event::Column::TreeId.eq(tree_id))
-            .filter(event::Column::DeletedAt.is_null())
             .filter(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Occupation)))
             .filter(event::Column::PersonId.is_not_null())
             .into_tuple()
@@ -328,7 +321,6 @@ impl DictionaryRepo {
     ) -> Result<Vec<(Source, i64)>, OxidGeneError> {
         let sources = source::Entity::find()
             .filter(source::Column::TreeId.eq(tree_id))
-            .filter(source::Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
@@ -509,7 +501,6 @@ impl DictionaryRepo {
                 .column_as(event::Column::Id.count(), "uses")
                 .filter(event::Column::TreeId.eq(tree_id))
                 .filter(event::Column::PlaceId.is_not_null())
-                .filter(event::Column::DeletedAt.is_null())
                 .group_by(event::Column::PlaceId)
                 .into_tuple()
                 .all(db)
@@ -521,7 +512,6 @@ impl DictionaryRepo {
                 .column_as(media::Column::Id.count(), "uses")
                 .filter(media::Column::TreeId.eq(tree_id))
                 .filter(media::Column::PlaceId.is_not_null())
-                .filter(media::Column::DeletedAt.is_null())
                 .group_by(media::Column::PlaceId)
                 .into_tuple()
                 .all(db)
@@ -575,7 +565,6 @@ impl DictionaryRepo {
         let events = in_chunks(&event_ids, |chunk| async move {
             event::Entity::find()
                 .filter(event::Column::Id.is_in(chunk))
-                .filter(event::Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)
@@ -586,7 +575,7 @@ impl DictionaryRepo {
             families.extend(e.family_id);
         }
 
-        live_persons_with_spouses(db, persons, families).await
+        persons_with_spouses(db, persons, families).await
     }
 
     /// Distinct live persons a place concerns: those whose own events take
@@ -605,7 +594,6 @@ impl DictionaryRepo {
 
         let events = event::Entity::find()
             .filter(event::Column::PlaceId.eq(place_id))
-            .filter(event::Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
@@ -620,7 +608,6 @@ impl DictionaryRepo {
             .select_only()
             .column(media::Column::Id)
             .filter(media::Column::PlaceId.eq(place_id))
-            .filter(media::Column::DeletedAt.is_null())
             .into_tuple()
             .all(db)
             .await
@@ -632,7 +619,6 @@ impl DictionaryRepo {
                     .select_only()
                     .column(media::Column::Id)
                     .filter(media::Column::ParentMediaId.is_in(chunk))
-                    .filter(media::Column::DeletedAt.is_null())
                     .into_tuple::<Uuid>()
                     .all(db)
                     .await
@@ -670,7 +656,6 @@ impl DictionaryRepo {
         let linked = in_chunks(&event_ids, |chunk| async move {
             event::Entity::find()
                 .filter(event::Column::Id.is_in(chunk))
-                .filter(event::Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)
@@ -681,7 +666,7 @@ impl DictionaryRepo {
             families.extend(e.family_id);
         }
 
-        live_persons_with_spouses(db, persons, families).await
+        persons_with_spouses(db, persons, families).await
     }
 
     /// Distinct persons holding a given occupation label in a tree.
@@ -713,7 +698,6 @@ impl DictionaryRepo {
             .column(event::Column::PersonId)
             .column(event::Column::Description)
             .filter(event::Column::TreeId.eq(tree_id))
-            .filter(event::Column::DeletedAt.is_null())
             .filter(event::Column::EventType.eq(sea_enums::EventType::from(EventType::Occupation)))
             .filter(event::Column::PersonId.is_not_null())
             .into_tuple()
@@ -817,9 +801,7 @@ impl DictionaryRepo {
         // their own people rather than to each other's.
         let value = value.trim();
         let names = person_name::Entity::find()
-            .join(JoinType::InnerJoin, person_name::Relation::Person.def())
             .filter(person_name::Column::TreeId.eq(tree_id))
-            .filter(person::Column::DeletedAt.is_null())
             .filter(person_name::Column::Surname.is_in(root_candidates(value)))
             .all(db)
             .await
@@ -1027,7 +1009,6 @@ impl DictionaryRepo {
         let events = in_chunks(person_ids, |chunk| async move {
             event::Entity::find()
                 .filter(event::Column::PersonId.is_in(chunk))
-                .filter(event::Column::DeletedAt.is_null())
                 .filter(
                     Condition::any()
                         .add(
@@ -1096,41 +1077,23 @@ impl DictionaryRepo {
     }
 }
 
-/// The live persons among `persons` and the spouses of `families` (a couple
-/// is its spouses, a deleted couple has none), sorted and deduplicated.
-async fn live_persons_with_spouses(
+/// The persons among `persons` and the spouses of `families` (a couple is
+/// its spouses), sorted and deduplicated.
+async fn persons_with_spouses(
     db: &impl ConnectionTrait,
     mut persons: Vec<Uuid>,
     families: Vec<Uuid>,
 ) -> Result<Vec<Uuid>, OxidGeneError> {
     let spouses = in_chunks(&sorted_unique(families), |chunk| async move {
         family_spouse::Entity::find()
-            .join(JoinType::InnerJoin, family_spouse::Relation::Family.def())
             .filter(family_spouse::Column::FamilyId.is_in(chunk))
-            .filter(family::Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)
     })
     .await?;
     persons.extend(spouses.into_iter().map(|s| s.person_id));
-
-    let persons = sorted_unique(persons);
-    let live: HashSet<Uuid> = in_chunks(&persons, |chunk| async move {
-        person::Entity::find()
-            .select_only()
-            .column(person::Column::Id)
-            .filter(person::Column::Id.is_in(chunk))
-            .filter(person::Column::DeletedAt.is_null())
-            .into_tuple::<Uuid>()
-            .all(db)
-            .await
-            .map_err(db_err)
-    })
-    .await?
-    .into_iter()
-    .collect();
-    Ok(persons.into_iter().filter(|id| live.contains(id)).collect())
+    Ok(sorted_unique(persons))
 }
 
 fn trimmed(value: Option<&str>) -> Option<String> {
@@ -1153,7 +1116,6 @@ async fn source_titles(
         .column(source::Column::Id)
         .column(source::Column::Title)
         .filter(source::Column::TreeId.eq(tree_id))
-        .filter(source::Column::DeletedAt.is_null())
         .into_tuple()
         .all(db)
         .await
@@ -1170,9 +1132,7 @@ async fn citation_counts(
         .select_only()
         .column(citation::Column::SourceId)
         .column_as(citation::Column::Id.count(), "uses")
-        .join(JoinType::InnerJoin, citation::Relation::Source.def())
-        .filter(source::Column::TreeId.eq(tree_id))
-        .filter(source::Column::DeletedAt.is_null())
+        .filter(citation::Column::TreeId.eq(tree_id))
         .group_by(citation::Column::SourceId)
         .into_tuple()
         .all(db)
@@ -1395,7 +1355,6 @@ fn into_source(m: source::Model) -> Source {
         tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
-        deleted_at: m.deleted_at,
     }
 }
 

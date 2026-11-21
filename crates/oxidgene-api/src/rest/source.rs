@@ -89,8 +89,15 @@ pub async fn delete_source(
     Path((tree_id, source_id)): Path<(Uuid, Uuid)>,
     Query(query): Query<DeleteSourceQuery>,
 ) -> Result<StatusCode, ApiError> {
-    let deleted =
-        source::delete_source(&viewer, &state.db, tree_id, source_id, query.only_if_unused).await?;
+    let deleted = source::delete_source(
+        &viewer,
+        &state.db,
+        &state.profiles,
+        tree_id,
+        source_id,
+        query.only_if_unused,
+    )
+    .await?;
     Ok(if deleted {
         StatusCode::NO_CONTENT
     } else {

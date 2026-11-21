@@ -1,13 +1,15 @@
 //! Repository for `Vignette` entities — crop rectangles on a media file.
 //!
-//! No soft delete here. A vignette is a coordinate annotation, not a record
-//! anyone cites; deleting one throws away four integers, and keeping tombstones
-//! for it would only make "which crops are on this media" a filtered query.
+//! A vignette is a coordinate annotation, not a record anyone cites, and the
+//! history does not version it. It belongs to its page: deleting the person it
+//! shows or the event it is evidence for only clears that attribution
+//! ([`VignetteRepo::detach_person`], [`VignetteRepo::detach_events`]).
 
 use chrono::Utc;
 use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::types::Vignette;
 use sea_orm::entity::prelude::*;
+use sea_orm::sea_query::Expr;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
@@ -228,6 +230,44 @@ impl VignetteRepo {
 
         let result = active.update(db).await.map_err(db_err)?;
         Ok(into_domain(result))
+    }
+
+    /// Clear the person attribution of every vignette showing `person_id`,
+    /// in the transaction deleting them: the region stays on its page, and a
+    /// crop lives on with its rectangle. The foreign key would refuse the
+    /// deletion otherwise.
+    pub async fn detach_person(
+        db: &impl ConnectionTrait,
+        person_id: Uuid,
+    ) -> Result<(), OxidGeneError> {
+        Entity::update_many()
+            .col_expr(Column::PersonId, Expr::value(Option::<Uuid>::None))
+            .col_expr(Column::UpdatedAt, Expr::value(Utc::now()))
+            .filter(Column::PersonId.eq(person_id))
+            .exec(db)
+            .await
+            .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// Clear the event attribution of every vignette standing as evidence
+    /// for one of `event_ids`, in the transaction deleting them, as
+    /// [`Self::detach_person`] does.
+    pub async fn detach_events(
+        db: &impl ConnectionTrait,
+        event_ids: &[Uuid],
+    ) -> Result<(), OxidGeneError> {
+        let now = Utc::now();
+        for chunk in event_ids.chunks(crate::repo::batch::MAX_BOUND_IDS) {
+            Entity::update_many()
+                .col_expr(Column::EventId, Expr::value(Option::<Uuid>::None))
+                .col_expr(Column::UpdatedAt, Expr::value(now))
+                .filter(Column::EventId.is_in(chunk.iter().copied()))
+                .exec(db)
+                .await
+                .map_err(db_err)?;
+        }
+        Ok(())
     }
 
     /// Delete a vignette outright. A portrait that was this crop is cleared

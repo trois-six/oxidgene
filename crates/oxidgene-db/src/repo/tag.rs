@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::entities::{record_tag, tag};
 use crate::repo::db_err;
-use crate::repo::record_tag::{column_of, live_records};
+use crate::repo::record_tag::column_of;
 use crate::repo::redaction::LeaveOut;
 
 /// A tag of the vocabulary and the number of live records of each kind that
@@ -63,17 +63,13 @@ impl TagRepo {
 
         let mut counts: HashMap<(Uuid, RecordKind), i64> = HashMap::new();
         for kind in RecordKind::ALL {
-            let mut query = record_tag::Entity::find()
+            let rows: Vec<(Uuid, i64)> = record_tag::Entity::find()
                 .select_only()
                 .column(record_tag::Column::TagId)
                 .column_as(record_tag::Column::Id.count(), "uses")
                 .filter(record_tag::Column::TreeId.eq(tree_id))
                 .filter(column_of(kind).is_not_null())
-                .filter(crate::repo::record_tag::visible(kind, leave_out(kind)));
-            if let Some(live) = live_records(kind, tree_id) {
-                query = query.filter(column_of(kind).in_subquery(live));
-            }
-            let rows: Vec<(Uuid, i64)> = query
+                .filter(crate::repo::record_tag::visible(kind, leave_out(kind)))
                 .group_by(record_tag::Column::TagId)
                 .into_tuple()
                 .all(db)

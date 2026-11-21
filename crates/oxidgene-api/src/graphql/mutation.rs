@@ -246,7 +246,9 @@ impl TreeMutation {
         .await
     }
 
-    /// Delete a person (soft delete).
+    /// Delete a person, and every row that is theirs alone: names, own
+    /// events, notes, citations, media links, tags, family links. The change
+    /// history keeps their last state, which a restore brings back.
     async fn delete_person(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
@@ -284,7 +286,7 @@ impl TreeMutation {
     }
 
     /// Merge `duplicateId` into `personId`, which is kept; the duplicate is
-    /// soft-deleted. `choices` carries what the comparison chose. Returns the
+    /// deleted. `choices` carries what the comparison chose. Returns the
     /// kept person.
     async fn merge_persons(
         &self,
@@ -431,7 +433,9 @@ impl TreeMutation {
         .await
     }
 
-    /// Delete a family (soft delete).
+    /// Delete a family, and every row that is its alone: spouse and child
+    /// links, own events, notes, citations, media links, tags. Its members
+    /// stay.
     async fn delete_family(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
@@ -594,7 +598,8 @@ impl TreeMutation {
         .await
     }
 
-    /// Delete an event (soft delete).
+    /// Delete an event, and every row that is its alone: witnesses, spouses'
+    /// ages, notes, citations, media links, tags.
     async fn delete_event(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         boxed(async move {
             let tree_id = live_tree(ctx, &tree_id).await?;
@@ -795,7 +800,8 @@ impl TreeMutation {
         .await
     }
 
-    /// Delete a source (soft delete).
+    /// Delete a source, and every row that is its alone: the citations of it,
+    /// notes, media links, repository links, tags.
     /// With `onlyIfUnused`, the source is kept if any citation, note, media link or repository
     /// link still points at it; the return value says whether it was deleted.
     async fn delete_source(
@@ -810,6 +816,7 @@ impl TreeMutation {
             Ok(source::delete_source(
                 viewer_from_ctx(ctx),
                 db_from_ctx(ctx),
+                profiles_from_ctx(ctx),
                 tree_id,
                 uuid(&id)?,
                 only_if_unused,
@@ -891,8 +898,9 @@ impl TreeMutation {
         .await
     }
 
-    /// Delete a repository (soft delete). With `onlyIfUnused`, a repository
-    /// still holding a live source or the subject of a note is kept; the
+    /// Delete a repository, and every row that is its alone: the links of the
+    /// sources held there, notes, tags. With `onlyIfUnused`, a repository
+    /// still holding a source or the subject of a note is kept; the
     /// return value says whether it was deleted.
     async fn delete_repository(
         &self,
@@ -1488,7 +1496,7 @@ impl TreeMutation {
         .await
     }
 
-    /// Delete a note (soft delete).
+    /// Delete a note, and its tags.
     async fn delete_note(&self, ctx: &Context<'_>, tree_id: ID, id: ID) -> Result<bool> {
         boxed(async move {
             let tid = live_tree(ctx, &tree_id).await?;

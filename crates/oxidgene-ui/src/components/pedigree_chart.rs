@@ -403,7 +403,6 @@ fn profile_event_to_domain(
         tags: pe.tags.clone(),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     }
 }
 
@@ -443,7 +442,6 @@ fn member_event_to_domain(
         tags: event.tags.clone(),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     }
 }
 
@@ -498,7 +496,6 @@ impl SummarisedPeople {
                 tags: summary.tags.clone(),
                 created_at: now,
                 updated_at: now,
-                deleted_at: None,
             },
         );
         let name = PersonName {
@@ -6682,7 +6679,6 @@ mod geometry_golden_tests {
                     tags: Vec::new(),
                     created_at: epoch(),
                     updated_at: epoch(),
-                    deleted_at: None,
                 },
             );
             self.names.insert(
@@ -6743,7 +6739,6 @@ mod geometry_golden_tests {
                         tags: Vec::new(),
                         created_at: epoch(),
                         updated_at: epoch(),
-                        deleted_at: None,
                     });
                 }
             }
@@ -6904,7 +6899,6 @@ mod geometry_golden_tests {
                 tags: Vec::new(),
                 created_at: epoch(),
                 updated_at: epoch(),
-                deleted_at: None,
             }],
         );
         let unions = data.unions_for_person(id(ROOT), &I18n::new(crate::i18n::Language::english()));

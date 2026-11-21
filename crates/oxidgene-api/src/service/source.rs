@@ -5,14 +5,18 @@
 
 use oxidgene_core::OxidGeneError;
 use oxidgene_core::access::ViewerContext;
+use oxidgene_core::collections::sorted_unique;
 use oxidgene_core::history::AuditEntity;
 use oxidgene_core::redaction::Redaction;
-use oxidgene_core::types::Source;
-use oxidgene_db::repo::{DictionaryRepo, SourceRepo, SourceRepositoryRepo};
+use oxidgene_core::types::{Citation, Source};
+use oxidgene_db::repo::{
+    CitationRepo, DictionaryRepo, EventRepo, SourceRepo, SourceRepositoryRepo,
+};
 use oxidgene_db::sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::profile::ProfileService;
 use crate::service::history::Change;
 use crate::service::patch::double_option;
 use crate::service::scope::{TreeResource, begin_tree_write, commit_tx, require_tree_resource};
@@ -108,21 +112,31 @@ pub async fn update_source(
     Ok(source)
 }
 
-/// Delete source `id` of `tree_id` (a soft delete); whether it was deleted.
+/// Delete source `id` of `tree_id`, and every row that is its alone
+/// (docs/data-model.md, Deletion); whether it was deleted.
+///
+/// The citations of it go with it: the history stores the prior state of
+/// every record citing it — a person, an event's owner, a family's spouses —
+/// and the persons citing it are rewritten, their citation count changing.
 ///
 /// With `only_if_unused` the delete is a cleanup: a source still cited by a
 /// citation, note, media link or repository link is kept, and `false` says so.
 pub async fn delete_source(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
+    profiles: &ProfileService,
     tree_id: Uuid,
     id: Uuid,
     only_if_unused: bool,
 ) -> Result<bool, OxidGeneError> {
     let txn = begin_tree_write(db, tree_id).await?;
     require_tree_resource(&txn, tree_id, TreeResource::Source, id).await?;
-    let pending = Change::delete(viewer, tree_id, AuditEntity::Source, id)
-        .source(id)
+    // Read while the citations still exist.
+    let citations = CitationRepo::list_by_sources(&txn, &[id]).await?;
+    let cited = sorted_unique(citations.iter().filter_map(|c| c.person_id));
+    let change = Change::delete(viewer, tree_id, AuditEntity::Source, id).source(id);
+    let pending = naming_citing_records(&txn, change, &citations)
+        .await?
         .prepare(&txn)
         .await?;
     let deleted = if only_if_unused {
@@ -133,10 +147,34 @@ pub async fn delete_source(
     };
     // A source kept as still used was not written: nothing to record.
     if deleted {
+        profiles
+            .invalidate_for_mutation(&txn, tree_id, &cited)
+            .await?;
         pending.record(&txn).await?;
     }
     commit_tx(txn).await?;
     Ok(deleted)
+}
+
+/// `change`, versioning every record one of `citations` hangs off: a person,
+/// an event's owner, a family's spouses.
+async fn naming_citing_records(
+    db: &impl ConnectionTrait,
+    mut change: Change,
+    citations: &[Citation],
+) -> Result<Change, OxidGeneError> {
+    change = change.persons(citations.iter().filter_map(|c| c.person_id));
+    let events = sorted_unique(citations.iter().filter_map(|c| c.event_id));
+    for event in EventRepo::get_many_untagged(db, &events).await? {
+        change = change.persons(event.person_id);
+        if let Some(family_id) = event.family_id {
+            change = change.family(family_id);
+        }
+    }
+    for family_id in sorted_unique(citations.iter().filter_map(|c| c.family_id)) {
+        change = change.family(family_id);
+    }
+    Ok(change)
 }
 
 /// The sources of `tree_id` whose title starts with `prefix`, or, with

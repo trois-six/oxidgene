@@ -48,7 +48,6 @@ async fn hidden_persons(db: &DatabaseConnection, tree: Uuid, source: Uuid) {
             portrait_vignette_id: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         }))
         .exec(db)
         .await
@@ -73,7 +72,6 @@ async fn hidden_persons(db: &DatabaseConnection, tree: Uuid, source: Uuid) {
             description: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         }))
         .exec(db)
         .await
@@ -92,7 +90,6 @@ async fn hidden_persons(db: &DatabaseConnection, tree: Uuid, source: Uuid) {
             confidential: Set(false),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         }))
         .exec(db)
         .await

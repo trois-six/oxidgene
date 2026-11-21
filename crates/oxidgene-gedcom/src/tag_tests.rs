@@ -77,7 +77,6 @@ fn stored_document(tree_id: Uuid, tags: Vec<TagRef>) -> (Media, Media) {
         place_id: None,
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let page = Media {
         id: Uuid::now_v7(),
@@ -116,7 +115,6 @@ fn sample() -> Sample {
         tags: vec![tag("Hérault", 3), tag("To check", 7)],
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let family = Family {
         id: Uuid::now_v7(),
@@ -125,7 +123,6 @@ fn sample() -> Sample {
         tags: vec![tag("Witnessed", 1)],
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let (document, page) = stored_document(tree_id, vec![tag("Parish register", 9)]);
     Sample {
@@ -403,7 +400,6 @@ fn event_sample() -> EventSample {
         tags: vec![tag("Hérault", 3)],
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let birth = Event {
         id: Uuid::now_v7(),
@@ -427,7 +423,6 @@ fn event_sample() -> EventSample {
         tags: vec![tag("Approximate date", 2)],
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let occupation = Event {
         id: Uuid::now_v7(),
@@ -447,7 +442,6 @@ fn event_sample() -> EventSample {
         tags: vec![tag("Fully abstracted", 6)],
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let citation = Citation {
         id: Uuid::now_v7(),
@@ -710,7 +704,6 @@ fn place_sample() -> PlaceSample {
         portrait_vignette_id: None,
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let place = Place {
         id: Uuid::now_v7(),
@@ -744,7 +737,6 @@ fn place_sample() -> PlaceSample {
         tags: Vec::new(),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let occupation = Event {
         id: Uuid::now_v7(),
@@ -763,7 +755,6 @@ fn place_sample() -> PlaceSample {
         tags: vec![tag("Closed", 6)],
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let group = Uuid::now_v7();
     let note = |text: &str, shared_group: Option<Uuid>, tags: Vec<TagRef>| Note {
@@ -781,7 +772,6 @@ fn place_sample() -> PlaceSample {
         tags,
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let notes = [
         note("An inline hypothesis", None, vec![tag("Hypothesis", 2)]),
@@ -1069,7 +1059,6 @@ fn a_tagged_place_named_only_by_an_unwritten_event_survives_a_ged_round_trip() {
         tags: Vec::new(),
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let export = export_gedcom(
         &ExportRecords {
@@ -1116,7 +1105,6 @@ fn transcript_sample() -> (Media, Media, [Note; 2]) {
         tags,
         created_at: now,
         updated_at: now,
-        deleted_at: None,
     };
     let notes = [
         note("Page transcript", page.id, vec![tag("To write", 3)]),

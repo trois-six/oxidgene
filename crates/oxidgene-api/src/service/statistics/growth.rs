@@ -1,14 +1,16 @@
 //! The Growth tab of the Statistics page (`docs/ui-statistics.md` §10): how
 //! many persons the tree held over the calendar days it was worked on.
 //!
-//! The person table answers exactly: every person keeps its `created_at`,
-//! and a deletion or a merge only sets `deleted_at`, so the count at any
-//! instant is the persons created by then less those deleted by then. An
-//! import stamps everyone it brings with one time, so it is one step. Only a
-//! restore rewrites the table — it clears `deleted_at` — and the spells it
-//! erases are read back from the person's versions: the deleted state the
-//! restore stored, and the version before it, stored by the deletion.
-//! The audit log otherwise only marks the imports on the chart.
+//! The person table holds the persons there are, each with its
+//! `created_at`; an import stamps everyone it brings with one time, so it is
+//! one step. What deletions and merges took is read back from the history:
+//! a deletion stores the person's last state, so a person with versions and
+//! no row was deleted when their last version was stored, and created when
+//! their ID, a UUID v7, was minted. A restore brings a person back under
+//! that creation time, and the spell it ends is read from the person's
+//! versions: the deleted state the restore stored, and the version before
+//! it, stored by the deletion. The audit log otherwise only marks the
+//! imports on the chart.
 //!
 //! Both reads are grouped in SQL and bucketed here in one pass: a large
 //! import is a single row, and no version snapshot is ever loaded.
@@ -69,8 +71,17 @@ pub async fn load(
     TreeRepo::get(db, tree_id).await?;
     let hidden: Vec<Uuid> = redaction.hidden_persons().collect();
     let unseen = oxidgene_db::repo::Unseen::new(tree_id, redaction.rules());
-    let created = PersonRepo::count_by_creation(db, tree_id, unseen).await?;
-    let deleted = PersonRepo::count_by_deletion(db, tree_id, unseen).await?;
+    let mut created = PersonRepo::count_by_creation(db, tree_id, unseen).await?;
+    // A person no longer in the tree is nobody a restricted viewer is shown:
+    // their creation and their deletion count for the unrestricted alone,
+    // and cancel out.
+    let mut deleted = Vec::new();
+    if redaction.is_unrestricted() {
+        for (created_at, removed_at) in HistoryRepo::person_removals(db, tree_id).await? {
+            created.push((created_at, 1));
+            deleted.push((removed_at, 1));
+        }
+    }
     let restores = HistoryRepo::person_restores(db, tree_id, &hidden).await?;
     let imports = HistoryRepo::imports(db, tree_id).await?;
     Ok(compute(&created, &deleted, &restores, imports))
@@ -78,9 +89,9 @@ pub async fn load(
 
 /// Files the creations, deletions and restores by day.
 ///
-/// `created` and `deleted` count the persons stamped with each time;
-/// `restores` are the `(deleted, restored)` spells the person table no
-/// longer shows. A spell counts as a removal on its first day and an
+/// `created` and `deleted` count the persons created and deleted at each
+/// time; `restores` are the `(deleted, restored)` spells the person table
+/// does not show. A spell counts as a removal on its first day and an
 /// addition on its last, so the running total stays the true count.
 pub fn compute(
     created: &[(DateTime<Utc>, i64)],
@@ -150,8 +161,8 @@ mod tests {
     fn changes_are_filed_by_day_and_add_up_to_the_count_now() {
         // An import of 500 on the 2nd, two persons created by hand on the
         // 2nd and the 5th, one merged away on the 5th, and one deleted on
-        // the 9th then restored on the 12th — which cleared their
-        // `deleted_at`, so only the spell remembers it.
+        // the 9th then restored on the 12th — back in the person table, so
+        // only the spell remembers it.
         let created = [(at(2, 9), 500), (at(2, 17), 1), (at(5, 8), 1)];
         let deleted = [(at(5, 10), 1)];
         let restores = [(at(9, 12), at(12, 7))];

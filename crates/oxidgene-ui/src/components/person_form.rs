@@ -2883,7 +2883,7 @@ mod information_form_tests {
         let i18n = crate::i18n::I18n::new(crate::i18n::Language::english());
         let (tree, family) = (Uuid::from_u128(1), Uuid::from_u128(2));
         let family_json = format!(
-            r#"{{"id":"{family}","tree_id":"{tree}","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deleted_at":null}}"#
+            r#"{{"id":"{family}","tree_id":"{tree}","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}}"#
         );
         let link = ParentLink {
             child_id: Uuid::from_u128(3),
@@ -2920,7 +2920,7 @@ mod information_form_tests {
         let i18n = crate::i18n::I18n::new(crate::i18n::Language::english());
         let (tree, family) = (Uuid::from_u128(1), Uuid::from_u128(2));
         let family_json = format!(
-            r#"{{"id":"{family}","tree_id":"{tree}","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","deleted_at":null}}"#
+            r#"{{"id":"{family}","tree_id":"{tree}","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}}"#
         );
         let link = ParentLink {
             child_id: Uuid::from_u128(3),
@@ -2953,7 +2953,6 @@ mod information_form_tests {
         serde_json::json!({
             "id": person, "tree_id": tree, "sex": Sex::Female, "privacy": Privacy::Private,
             "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
-            "deleted_at": null,
         })
         .to_string()
     }
@@ -3082,7 +3081,6 @@ mod information_form_tests {
             tags: Vec::new(),
             created_at: now,
             updated_at: now,
-            deleted_at: None,
         })
         .unwrap();
 

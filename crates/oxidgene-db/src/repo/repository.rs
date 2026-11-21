@@ -1,5 +1,5 @@
 //! Repository for `Repository` entities — the archives and libraries holding
-//! sources (CRUD with soft delete) — and for the links saying which sources
+//! sources (CRUD) — and for the links saying which sources
 //! each holds.
 
 use std::collections::HashMap;
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use oxidgene_core::enums::SourceMediaType;
 use oxidgene_core::error::OxidGeneError;
-use oxidgene_core::types::{Connection, RecordKind, Repository, SourceRepository};
+use oxidgene_core::types::{Connection, KeptEntityKind, RecordKind, Repository, SourceRepository};
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set,
@@ -15,12 +15,12 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::entities::repository::{self, ActiveModel, Column, Entity};
-use crate::entities::{note, source, source_repository};
+use crate::entities::{note, source_repository};
 use crate::repo::batch::in_chunks;
-use crate::repo::db_err;
 use crate::repo::pagination::{PaginationParams, paginate};
 use crate::repo::record_tag::RecordTagRepo;
 use crate::repo::redaction::LeaveOut;
+use crate::repo::{GedcomKeptRepo, db_err};
 
 /// A repository's own fields, as a create writes them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -65,7 +65,7 @@ pub struct SourceRepositoryPatch {
 pub struct RepositoryRepo;
 
 impl RepositoryRepo {
-    /// The live repositories of a tree, a page at a time, without those
+    /// The repositories of a tree, a page at a time, without those
     /// `leave_out` names (`LeaveOut::NONE` for the owner).
     pub async fn list_visible(
         db: &impl ConnectionTrait,
@@ -75,7 +75,6 @@ impl RepositoryRepo {
     ) -> Result<Connection<Repository>, OxidGeneError> {
         let query = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .filter(leave_out.keeping(oxidgene_core::types::RecordKind::Repository, Column::Id));
         let mut page = paginate(db, query, Column::Id, params, |m| (m.id, into_domain(m))).await?;
         let repositories = page.edges.iter().map(|edge| edge.node.clone()).collect();
@@ -85,27 +84,26 @@ impl RepositoryRepo {
         Ok(page)
     }
 
-    /// Every live repository of a tree.
+    /// Every repository of a tree.
     pub async fn list_all(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
     ) -> Result<Vec<Repository>, OxidGeneError> {
         let models = Entity::find()
             .filter(Column::TreeId.eq(tree_id))
-            .filter(Column::DeletedAt.is_null())
             .all(db)
             .await
             .map_err(db_err)?;
         hydrate(db, models.into_iter().map(into_domain).collect()).await
     }
 
-    /// A live repository.
+    /// A repository.
     pub async fn get(db: &impl ConnectionTrait, id: Uuid) -> Result<Repository, OxidGeneError> {
-        let repository = find_live(db, id).await.map(into_domain)?;
+        let repository = find_row(db, id).await.map(into_domain)?;
         hydrate_one(db, repository).await
     }
 
-    /// The live repositories among `ids`, one read per bounded slice of ids.
+    /// The repositories among `ids`, one read per bounded slice of ids.
     /// Their tags are not filled: this serves the labels of many records at once.
     pub async fn get_many_untagged(
         db: &impl ConnectionTrait,
@@ -114,7 +112,6 @@ impl RepositoryRepo {
         in_chunks(ids, |chunk| async move {
             let models = Entity::find()
                 .filter(Column::Id.is_in(chunk))
-                .filter(Column::DeletedAt.is_null())
                 .all(db)
                 .await
                 .map_err(db_err)?;
@@ -123,7 +120,7 @@ impl RepositoryRepo {
         .await
     }
 
-    /// Live repositories among `ids`.
+    /// The repositories among `ids`.
     pub async fn get_many(
         db: &impl ConnectionTrait,
         ids: &[Uuid],
@@ -149,7 +146,6 @@ impl RepositoryRepo {
             website: Set(fields.website),
             created_at: Set(now),
             updated_at: Set(now),
-            deleted_at: Set(None),
         };
         let repository = model.insert(db).await.map_err(db_err).map(into_domain)?;
         hydrate_one(db, repository).await
@@ -160,7 +156,7 @@ impl RepositoryRepo {
         id: Uuid,
         patch: RepositoryPatch,
     ) -> Result<Repository, OxidGeneError> {
-        let mut active: ActiveModel = find_live(db, id).await?.into_active_model();
+        let mut active: ActiveModel = find_row(db, id).await?.into_active_model();
         if let Some(name) = patch.name {
             active.name = Set(name);
         }
@@ -181,12 +177,14 @@ impl RepositoryRepo {
         hydrate_one(db, repository).await
     }
 
-    /// Soft-delete a repository. Its links stay, unread while it is deleted:
-    /// undeleting it brings them back.
+    /// Delete a repository, and with it every row that is its alone
+    /// (docs/data-model.md, Deletion): the schema's cascades take the links
+    /// of the sources held there, its notes and tags, and its kept GEDCOM
+    /// goes first, in the same transaction.
     pub async fn delete(db: &impl ConnectionTrait, id: Uuid) -> Result<(), OxidGeneError> {
-        let mut active: ActiveModel = find_live(db, id).await?.into_active_model();
-        active.deleted_at = Set(Some(Utc::now()));
-        active.update(db).await.map_err(db_err)?;
+        find_row(db, id).await?;
+        GedcomKeptRepo::delete_for(db, KeptEntityKind::Repository, &[id]).await?;
+        Entity::delete_by_id(id).exec(db).await.map_err(db_err)?;
         Ok(())
     }
 
@@ -241,7 +239,7 @@ impl RepositoryRepo {
         Self::delete(db, absorbed).await
     }
 
-    /// The sources, live or not, linked to repository `id`, in ascending
+    /// The sources linked to repository `id`, in ascending
     /// order: the sources a merge of it rewrites, whose state the history
     /// keeps before it does.
     pub async fn linked_sources(
@@ -261,12 +259,10 @@ impl RepositoryRepo {
         Ok(sources)
     }
 
-    /// Whether a live source holds `id` or a live note is about it.
+    /// Whether a source holds `id` or a note is about it.
     pub async fn is_used(db: &impl ConnectionTrait, id: Uuid) -> Result<bool, OxidGeneError> {
         let held = source_repository::Entity::find()
-            .inner_join(source::Entity)
             .filter(source_repository::Column::RepositoryId.eq(id))
-            .filter(source::Column::DeletedAt.is_null())
             .count(db)
             .await
             .map_err(db_err)?;
@@ -275,7 +271,6 @@ impl RepositoryRepo {
         }
         let noted = note::Entity::find()
             .filter(note::Column::RepositoryId.eq(id))
-            .filter(note::Column::DeletedAt.is_null())
             .count(db)
             .await
             .map_err(db_err)?;
@@ -295,17 +290,14 @@ impl SourceRepositoryRepo {
         Self::list_by_sources(db, &[source_id]).await
     }
 
-    /// The links of these sources to live repositories, each source's in
-    /// order.
+    /// The links of these sources, each source's in order.
     pub async fn list_by_sources(
         db: &impl ConnectionTrait,
         source_ids: &[Uuid],
     ) -> Result<Vec<SourceRepository>, OxidGeneError> {
         in_chunks(source_ids, |chunk| async move {
             let models = source_repository::Entity::find()
-                .inner_join(repository::Entity)
                 .filter(source_repository::Column::SourceId.is_in(chunk))
-                .filter(repository::Column::DeletedAt.is_null())
                 .order_by_asc(source_repository::Column::SortOrder)
                 .order_by_asc(source_repository::Column::Id)
                 .all(db)
@@ -316,7 +308,7 @@ impl SourceRepositoryRepo {
         .await
     }
 
-    /// The links to a repository, from live sources.
+    /// The links to a repository.
     pub async fn list_by_repository(
         db: &impl ConnectionTrait,
         repository_id: Uuid,
@@ -324,17 +316,14 @@ impl SourceRepositoryRepo {
         Self::list_by_repositories(db, &[repository_id]).await
     }
 
-    /// The links to these repositories from live sources, each repository's
-    /// in order.
+    /// The links to these repositories, each repository's in order.
     pub async fn list_by_repositories(
         db: &impl ConnectionTrait,
         repository_ids: &[Uuid],
     ) -> Result<Vec<SourceRepository>, OxidGeneError> {
         in_chunks(repository_ids, |chunk| async move {
             let models = source_repository::Entity::find()
-                .inner_join(source::Entity)
                 .filter(source_repository::Column::RepositoryId.is_in(chunk))
-                .filter(source::Column::DeletedAt.is_null())
                 .order_by_asc(source_repository::Column::Id)
                 .all(db)
                 .await
@@ -344,7 +333,7 @@ impl SourceRepositoryRepo {
         .await
     }
 
-    /// The names of the live repositories holding each of these sources, in
+    /// The names of the repositories holding each of these sources, in
     /// the sources' order, each name once.
     pub async fn repository_names(
         db: &impl ConnectionTrait,
@@ -474,7 +463,6 @@ fn into_domain(m: repository::Model) -> Repository {
         tags: Vec::new(),
         created_at: m.created_at,
         updated_at: m.updated_at,
-        deleted_at: m.deleted_at,
     }
 }
 
@@ -514,10 +502,10 @@ fn link_into_domain(m: source_repository::Model) -> SourceRepository {
     }
 }
 
-/// Row `id`, unless it is missing or soft-deleted.
-async fn find_live(
+/// Row `id`; `NotFound` when it is missing.
+async fn find_row(
     db: &impl ConnectionTrait,
     id: Uuid,
 ) -> Result<<Entity as EntityTrait>::Model, OxidGeneError> {
-    crate::repo::find_live::<Entity>(db, id, Column::DeletedAt, "Repository").await
+    crate::repo::find_row::<Entity>(db, id, "Repository").await
 }

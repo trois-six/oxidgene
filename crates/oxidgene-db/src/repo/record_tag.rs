@@ -8,7 +8,7 @@ use oxidgene_core::error::OxidGeneError;
 use oxidgene_core::search::fold_words;
 use oxidgene_core::types::{Connection, Edge, PageInfo, RecordKind, TagRef};
 use sea_orm::entity::prelude::*;
-use sea_orm::sea_query::{Alias, Expr, ExprTrait, OnConflict, Query, SelectStatement};
+use sea_orm::sea_query::{Alias, Expr, ExprTrait, OnConflict, Query};
 use sea_orm::{ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 use uuid::Uuid;
 
@@ -207,8 +207,7 @@ impl RecordTagRepo {
         Ok(counts)
     }
 
-    /// The persons of `tree_id` carrying `tag_id`, by id, deleted ones
-    /// included: the caller keeps the live ones.
+    /// The persons of `tree_id` carrying `tag_id`, by id.
     pub async fn persons_with_tag(
         db: &impl ConnectionTrait,
         tree_id: Uuid,
@@ -279,17 +278,13 @@ impl RecordTagRepo {
         let limit = params.clamped_first();
         let after = params.decode_cursor()?;
         let base = || {
-            let mut query = record_tag::Entity::find()
+            record_tag::Entity::find()
                 .select_only()
                 .column(column)
                 .filter(record_tag::Column::TreeId.eq(tree_id))
                 .filter(record_tag::Column::TagId.eq(tag_id))
                 .filter(column.is_not_null())
-                .filter(visible(kind, leave_out));
-            if let Some(live) = live_records(kind, tree_id) {
-                query = query.filter(column.in_subquery(live));
-            }
-            query
+                .filter(visible(kind, leave_out))
         };
 
         let total_count = base().count(db).await.map_err(db_err)? as i64;
@@ -393,8 +388,7 @@ fn set_record(model: &mut record_tag::ActiveModel, kind: RecordKind, record_id: 
     }
 }
 
-/// Whether the record `record_id` of `kind` exists in `tree_id`, deleted or
-/// not. A citation has no tree of its own: it belongs to the tree of its
+/// Whether the record `record_id` of `kind` exists in `tree_id`. A citation has no tree of its own: it belongs to the tree of its
 /// source.
 async fn record_in_tree(
     db: &impl ConnectionTrait,
@@ -424,46 +418,4 @@ async fn record_in_tree(
     query.and_where(Expr::col(Alias::new("id")).eq(record_id));
     let found = db.query_one(&query).await.map_err(db_err)?;
     Ok(found.is_some())
-}
-
-/// The ids of the live records of `kind` in `tree_id`, as a subquery, or
-/// `None` when the kind has no soft-deleted state to exclude: a place is
-/// removed outright, and its links go with it. A citation has no state of its
-/// own: it is live while its source is, since a source's soft delete leaves
-/// its citations in place.
-pub(crate) fn live_records(kind: RecordKind, tree_id: Uuid) -> Option<SelectStatement> {
-    let table = match kind {
-        RecordKind::Person
-        | RecordKind::Family
-        | RecordKind::Event
-        | RecordKind::Source
-        | RecordKind::Repository
-        | RecordKind::Media
-        | RecordKind::Note => kind.as_str(),
-        RecordKind::Citation => return Some(live_citations(tree_id)),
-        RecordKind::Place => return None,
-    };
-    Some(
-        Query::select()
-            .column(Alias::new("id"))
-            .from(Alias::new(table))
-            .and_where(Expr::col(Alias::new("tree_id")).eq(tree_id))
-            .and_where(Expr::col(Alias::new("deleted_at")).is_null())
-            .to_owned(),
-    )
-}
-
-/// The ids of the citations of `tree_id` whose source is live.
-fn live_citations(tree_id: Uuid) -> SelectStatement {
-    Query::select()
-        .column((Alias::new("citation"), Alias::new("id")))
-        .from(Alias::new("citation"))
-        .inner_join(
-            Alias::new("source"),
-            Expr::col((Alias::new("citation"), Alias::new("source_id")))
-                .equals((Alias::new("source"), Alias::new("id"))),
-        )
-        .and_where(Expr::col((Alias::new("source"), Alias::new("tree_id"))).eq(tree_id))
-        .and_where(Expr::col((Alias::new("source"), Alias::new("deleted_at"))).is_null())
-        .to_owned()
 }

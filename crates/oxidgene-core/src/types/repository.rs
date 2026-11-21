@@ -22,7 +22,6 @@ pub struct Repository {
     pub tags: Vec<TagRef>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 /// That a source is held at a repository, under one call number (GEDCOM

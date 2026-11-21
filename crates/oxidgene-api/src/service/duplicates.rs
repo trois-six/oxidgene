@@ -96,9 +96,8 @@ async fn mark_distinct_in(
 /// carried.
 #[derive(Debug, Clone, Default)]
 pub struct MergeChoices {
-    /// Own events of either person left out of the merged record:
-    /// soft-deleted. The kept person's birth, say, when the duplicate's is
-    /// the one chosen.
+    /// Own events of either person left out of the merged record: deleted.
+    /// The kept person's birth, say, when the duplicate's is the one chosen.
     pub left_out_events: Vec<Uuid>,
     /// The duplicate's direct media links not taken: removed, the media
     /// staying in the library.
@@ -113,7 +112,7 @@ pub struct MergeChoices {
 }
 
 /// Merge `duplicate` into `kept`: one individual recorded twice becomes one
-/// record, the kept one, and the duplicate is soft-deleted.
+/// record, the kept one, and the duplicate is deleted.
 ///
 /// Everything the duplicate carried moves to the kept person — see
 /// [`PersonMergeRepo::absorb`] for what is re-pointed and what is dropped as
@@ -203,6 +202,24 @@ async fn merge_persons_in(
     let pending = change.prepare(conn).await?;
 
     write_merge(conn, tree_id, kept, duplicate, choices).await?;
+    retire_duplicate(conn, profiles, tree_id, kept, duplicate).await?;
+    profiles
+        .invalidate_for_mutation(conn, tree_id, &affected)
+        .await?;
+    pending.record(conn).await?;
+
+    PersonRepo::get(conn, kept).await
+}
+
+/// Move onto `kept` what names `duplicate` by id alone, then delete the
+/// duplicate, of which nothing is left but itself.
+async fn retire_duplicate(
+    conn: &impl ConnectionTrait,
+    profiles: &ProfileService,
+    tree_id: Uuid,
+    kept: Uuid,
+    duplicate: Uuid,
+) -> Result<(), OxidGeneError> {
     // What the duplicate kept from its GEDCOM file follows it onto the kept person.
     GedcomKeptRepo::repoint(conn, KeptEntityKind::Person, duplicate, kept).await?;
     // An exclusion rooted at the duplicate roots at the kept person: a merge
@@ -213,19 +230,15 @@ async fn merge_persons_in(
     // (docs/authorization.md §6.5).
     #[cfg(feature = "auth")]
     oxidgene_db::repo::AccessScopeRepo::move_root(conn, tree_id, duplicate, kept).await?;
+    PersonRepo::delete(conn, duplicate).await?;
     profiles
-        .invalidate_for_person_delete(conn, tree_id, duplicate)
-        .await?;
-    profiles
-        .invalidate_for_mutation(conn, tree_id, &affected)
-        .await?;
-    pending.record(conn).await?;
-
-    PersonRepo::get(conn, kept).await
+        .invalidate_for_person_delete(conn, tree_id, duplicate, &[])
+        .await
 }
 
 /// The merge's writes: what was left out dropped, the rest moved onto the
-/// kept person, the picked sex and name applied, the duplicate deleted.
+/// kept person, the picked sex and name applied. The duplicate is the
+/// caller's to delete, once what names it by id alone has followed.
 async fn write_merge(
     conn: &impl ConnectionTrait,
     tree_id: Uuid,
@@ -245,7 +258,7 @@ async fn write_merge(
     if let Some(taken) = duplicate_primary {
         choose_primary_name(conn, kept, &taken, choices).await?;
     }
-    PersonRepo::delete(conn, duplicate).await
+    Ok(())
 }
 
 /// Refuses a merge that would leave a person married to, or descended from,
@@ -296,7 +309,7 @@ async fn ensure_mergeable(
 }
 
 /// Removes what a merge leaves out before the rest moves: own events of
-/// either person, soft-deleted, and the duplicate's direct media links.
+/// either person, and the duplicate's direct media links.
 /// Anything else is refused, so a merge can never drop someone else's
 /// record.
 async fn drop_left_out(

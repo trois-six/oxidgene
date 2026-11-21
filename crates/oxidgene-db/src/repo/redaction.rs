@@ -164,7 +164,6 @@ impl RedactionRepo {
             .filter(note::Column::TreeId.eq(tree_id))
             .filter(note::Column::Confidential.eq(true))
             .filter(note::Column::PersonId.is_not_null())
-            .filter(note::Column::DeletedAt.is_null())
             .into_tuple()
             .all(db)
             .await

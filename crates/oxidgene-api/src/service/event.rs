@@ -271,7 +271,8 @@ async fn require_patched_records(
     Ok(())
 }
 
-/// Delete event `id` of `tree_id` (a soft delete).
+/// Delete event `id` of `tree_id`, and every row that is its alone
+/// (docs/data-model.md, Deletion).
 pub async fn delete_event(
     viewer: &ViewerContext,
     db: &DatabaseConnection,
